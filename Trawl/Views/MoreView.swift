@@ -200,6 +200,7 @@ struct MoreView: View {
         /// The `NavigationStack` its pushes land in, for the caller's detail column.
         case detailColumn
     }
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -549,7 +550,11 @@ struct MoreView: View {
             // this column contains.
             NavigationStack(path: $path) {
                 ContentUnavailableView("Nothing Selected", systemImage: "sidebar.right")
-                    .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
+                    .navigationDestination(for: MoreDestination.self) {
+                        moreDestinationView(for: $0)
+                            .environment(\.sidebarNavigationColumn, nil)
+                            .environment(\.hasDetailPane, false)
+                    }
             }
         }
     }
@@ -568,7 +573,11 @@ struct MoreView: View {
     @ViewBuilder
     private func stackChrome(@ViewBuilder _ content: () -> some View) -> some View {
         content()
-            .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
+            .navigationDestination(for: MoreDestination.self) {
+                moreDestinationView(for: $0)
+                    .environment(\.sidebarNavigationColumn, nil)
+                    .environment(\.hasDetailPane, false)
+            }
             .task { await loadSubtitleBadge() }
     }
 
@@ -1188,7 +1197,7 @@ struct MoreView: View {
     /// share it with Requests, and all three used to arrive saying "Requests".
     @ViewBuilder
     private func seerrAdminDestination(title: String = "Requests") -> some View {
-        if seerrServiceManager.isConnected {
+        if seerrServiceManager.isConnected || (title == "Requests" && sidebarColumn == .detail) {
             SeerrDashboardView()
         } else if let seerrProfile {
             ConnectionStatusCard(
@@ -2190,10 +2199,13 @@ private struct LinkedApplicationsManagementView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     /// Which integration's linked apps the detail pane is showing, at regular width.
     /// Nil on iPhone, where the row pushes instead.
-    @State private var selectedIntegration: MoreDestination?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedIntegration: MoreDestination? { selectionStore.selection }
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var statusModel = LinkedApplicationsStatusViewModel()
@@ -2209,13 +2221,7 @@ private struct LinkedApplicationsManagementView: View {
             !seerrProfiles.isEmpty
     }
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     /// A row that selects beside a detail pane, and pushes without one.
     @ViewBuilder
@@ -2271,7 +2277,7 @@ private struct LinkedApplicationsManagementView: View {
     }
 
     private var integrationList: some View {
-        List(selection: $selectedIntegration) {
+        List(selection: selectionStore.binding) {
             if !hasLinkableServices {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -2402,21 +2408,18 @@ private struct DownloadClientsManagementView: View {
     @State private var statusModel = DownloadClientsStatusViewModel()
     /// Whose download clients the detail pane is showing, at regular width. Nil on
     /// iPhone, where the row pushes instead.
-    @State private var selectedService: MoreDestination?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedService: MoreDestination? { selectionStore.selection }
     #if DEBUG
     private var skipsStatusRefresh = false
     #endif
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     /// A row that selects beside a detail pane, and pushes without one.
     @ViewBuilder
@@ -2473,7 +2476,7 @@ private struct DownloadClientsManagementView: View {
     }
 
     private var serviceList: some View {
-        List(selection: $selectedService) {
+        List(selection: selectionStore.binding) {
             if !hasSonarrOrRadarr {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -3622,10 +3625,13 @@ private struct TasksHubView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     /// Whose tasks the detail pane is showing, at regular width. Nil on iPhone, where
     /// the row pushes instead.
-    @State private var selectedTaskSource: MoreDestination?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedTaskSource: MoreDestination? { selectionStore.selection }
 
     private var hasArrTasks: Bool {
         arrServiceManager.hasSonarrInstance ||
@@ -3638,13 +3644,7 @@ private struct TasksHubView: View {
         hasArrTasks || seerrServiceManager.activeClient != nil || jellyfinServiceManager.activeClient != nil
     }
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     /// A row that selects beside a detail pane, and pushes without one.
     @ViewBuilder
@@ -3695,7 +3695,7 @@ private struct TasksHubView: View {
     }
 
     private var taskList: some View {
-        List(selection: $selectedTaskSource) {
+        List(selection: selectionStore.binding) {
             if hasAnyTaskDestination {
                 Section {
                     if hasArrTasks {

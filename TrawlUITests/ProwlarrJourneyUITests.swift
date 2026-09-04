@@ -113,7 +113,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
 
         openIndexers(in: app)
 
-        let proxies = button(containing: "Proxies", in: app)
+        let proxies = row(containing: "Proxies", in: app)
         XCTAssertTrue(proxies.waitForExistence(in: app, timeout: 10), "The Prowlarr indexer screen should expose proxy management.")
         proxies.tap()
         XCTAssertTrue(app.navigationBars["Proxies"].waitForExistence(timeout: 10), "Proxies should push Prowlarr's proxy list.")
@@ -130,8 +130,10 @@ final class ProwlarrJourneyUITests: XCTestCase {
             "The real proxy screen should load its schema for the add/edit menu."
         )
 
-        popBack(app, from: "Proxies")
-        let tags = button(containing: "Tags", in: app)
+        if !TrawlChrome.isSidebar {
+            popBack(app, from: "Proxies")
+        }
+        let tags = row(containing: "Tags", in: app)
         XCTAssertTrue(tags.waitForExistence(in: app, timeout: 10), "The Prowlarr indexer screen should expose tag management.")
         tags.tap()
         XCTAssertTrue(app.navigationBars["Tags"].waitForExistence(timeout: 10), "Tags should push Prowlarr's tag list.")
@@ -157,6 +159,15 @@ final class ProwlarrJourneyUITests: XCTestCase {
             server.hasReceivedRequest(method: "POST", path: "/api/v1/tag", bodyContains: "Fixture Added Tag"),
             "The Add Tag action must send the entered label to Prowlarr, not merely append local UI state."
         )
+        if TrawlChrome.isSidebar {
+            let indexer = app.staticTexts[ProwlarrUIFixtureServer.indexerName]
+            XCTAssertTrue(indexer.waitForExistence(in: app, timeout: 10))
+            indexer.tap()
+            XCTAssertTrue(app.navigationBars[ProwlarrUIFixtureServer.indexerName].waitForExistence(timeout: 10),
+                          "Selecting an indexer must replace the management detail.")
+            XCTAssertFalse(app.navigationBars["Tags"].exists)
+            XCTAssertTrue(app.navigationBars["Indexers"].exists)
+        }
     }
 
     // MARK: - Navigation helpers
@@ -179,15 +190,6 @@ final class ProwlarrJourneyUITests: XCTestCase {
     private func openIndexers(in app: XCUIApplication) {
         XCTAssertTrue(openDestination(.indexers, in: app), "Indexers should be reachable.")
 
-        // Compact only: there the destination is the Integrations hub and this is the
-        // row that opens Indexers. On the sidebar chrome Indexers *is* the
-        // destination, and a CONTAINS query for a button called "Indexers" against a
-        // screen that is already open matches something else on it and taps that.
-        if !TrawlChrome.isSidebar {
-            let indexers = button(containing: "Indexers", in: app)
-            XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
-            indexers.tap()
-        }
         XCTAssertTrue(app.showsScreen(named: "Indexers"), "Indexers should push ProwlarrIndexerListView.")
     }
 

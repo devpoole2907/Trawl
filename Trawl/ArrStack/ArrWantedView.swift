@@ -13,7 +13,13 @@ struct ArrWantedView: View {
     @State private var showSearchAllConfirm = false
     @State private var isSearchingAll = false
     /// Which missing item the detail pane is showing, at regular width.
-    @State private var selectedMedia: ArrMediaDestination?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<ArrWantedDestination>.self) private var sharedSelection: TrawlColumnSelection<ArrWantedDestination>?
+    @State private var localSelection = TrawlColumnSelection<ArrWantedDestination>()
+    private var selectionStore: TrawlColumnSelection<ArrWantedDestination> {
+        sidebarColumn == nil || showsCloseButton ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedMedia: ArrWantedDestination? { selectionStore.selection }
 
     let showsCloseButton: Bool
 
@@ -136,11 +142,9 @@ struct ArrWantedView: View {
         }
     }
 
-    /// Selectable only where there is a pane for a selection to open in. Without
-    /// one, a row that takes a selection highlight and shows nothing is worse than a
-    /// row that does nothing at all, which is what these have always done on iPhone.
-    private var mediaSelection: Binding<ArrMediaDestination?> {
-        hasDetailPane ? $selectedMedia : .constant(nil)
+    private func selectionAction(for destination: ArrWantedDestination?) -> (() -> Void)? {
+        guard hasDetailPane, !showsCloseButton, let destination else { return nil }
+        return { selectionStore.selection = destination }
     }
 
     /// Nothing selected to begin with - this is a list of things that are *absent*,
@@ -148,8 +152,17 @@ struct ArrWantedView: View {
     @ViewBuilder
     private var selectedMediaDetail: some View {
         if let selectedMedia {
-            ArrMediaDetailPane(destination: selectedMedia)
-                .id(selectedMedia)
+            Group {
+                switch selectedMedia {
+                case .media(let destination):
+                    ArrMediaDetailPane(destination: destination)
+                case .bazarrSeries(let id):
+                    BazarrSeriesDetailView(seriesId: id, viewModel: BazarrViewModel(serviceManager: serviceManager))
+                case .bazarrMovie(let id):
+                    BazarrMovieDetailView(radarrId: id, viewModel: BazarrViewModel(serviceManager: serviceManager))
+                }
+            }
+            .id(selectedMedia)
         } else {
             listDetailPlaceholder("Select a missing item to view it", systemImage: "exclamationmark.magnifyingglass")
         }
@@ -176,30 +189,17 @@ struct ArrWantedView: View {
                     emptyDescription: "There are no monitored files or subtitles missing right now.",
                     onRetry: nil
                 ) {
-                    List(selection: mediaSelection) {
+                    List {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
                                     WantedEpisodeRow(
                                         episode: episode,
-                                        instance: badgeInstance(episode.instanceID, .sonarr)
+                                        instance: badgeInstance(episode.instanceID, .sonarr),
+                                        isSelected: selectedMedia != nil && selectedMedia == episode.seriesId.map { .media(.series(id: $0)) },
+                                        onSelect: selectionAction(for: episode.seriesId.map { .media(.series(id: $0)) })
                                     ) {
                                         await searchEpisode(episode, in: sonarrViewModel)
-                                    }
-                                    // Tagged only where an episode knows its series.
-                                    // An untagged row is not selectable, which is also
-                                    // the right answer on iPhone: these rows have
-                                    // never opened anything, and a selection
-                                    // highlight that leads nowhere would be worse
-                                    // than leaving them as they are.
-                                    .tag(episode.seriesId.map { ArrMediaDestination.series(id: $0) })
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button {
-                                            Task { await searchEpisode(episode, in: sonarrViewModel) }
-                                        } label: {
-                                            Label("Search", systemImage: "magnifyingglass")
-                                        }
-                                        .tint(.purple)
                                     }
                                 }
 
@@ -218,18 +218,11 @@ struct ArrWantedView: View {
                                 ForEach(radarrViewModel.wantedMovies) { movie in
                                     WantedMovieRow(
                                         movie: movie,
-                                        instance: badgeInstance(movie.instanceID, .radarr)
+                                        instance: badgeInstance(movie.instanceID, .radarr),
+                                        isSelected: selectedMedia == .media(.movie(id: movie.id)),
+                                        onSelect: selectionAction(for: .media(.movie(id: movie.id)))
                                     ) {
                                         await searchMovie(movie, in: radarrViewModel)
-                                    }
-                                    .tag(ArrMediaDestination.movie(id: movie.id))
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button {
-                                            Task { await searchMovie(movie, in: radarrViewModel) }
-                                        } label: {
-                                            Label("Search", systemImage: "magnifyingglass")
-                                        }
-                                        .tint(.purple)
                                     }
                                 }
 
@@ -250,7 +243,7 @@ struct ArrWantedView: View {
                             if !missingSeries.isEmpty {
                                 Section("Missing Subtitles — Series") {
                                     ForEach(missingSeries) { series in
-                                        BazarrWantedSeriesRow(series: series) {
+                                        BazarrWantedSeriesRow(series: series, isSelected: selectedMedia == .bazarrSeries(series.sonarrSeriesId), onSelect: selectionAction(for: .bazarrSeries(series.sonarrSeriesId))) {
                                             await searchBazarrSeries(series, in: bazarrViewModel)
                                         }
                                     }
@@ -260,7 +253,7 @@ struct ArrWantedView: View {
                             if !missingMovies.isEmpty {
                                 Section("Missing Subtitles — Movies") {
                                     ForEach(missingMovies) { movie in
-                                        BazarrWantedMovieRow(movie: movie) {
+                                        BazarrWantedMovieRow(movie: movie, isSelected: selectedMedia == .bazarrMovie(movie.radarrId), onSelect: selectionAction(for: .bazarrMovie(movie.radarrId))) {
                                             await searchBazarrMovie(movie, in: bazarrViewModel)
                                         }
                                     }
@@ -284,6 +277,17 @@ struct ArrWantedView: View {
     }
 
     var body: some View {
+        if sidebarColumn == .detail && !showsCloseButton {
+            selectedMediaDetail
+                .environment(\.isDetailPane, true)
+                .environment(\.sidebarNavigationColumn, nil)
+                .arrMediaNavigationDestinations()
+        } else {
+            listBody
+        }
+    }
+
+    private var listBody: some View {
         wantedPanes
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -609,34 +613,14 @@ enum ArrWantedScope: CaseIterable, Hashable {
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
     var instance: ArrInstanceRef? = nil
+    var isSelected = false
+    var onSelect: (() -> Void)?
     let onSearch: @MainActor () async -> Void
 
-    @State private var isSearching = false
-
     var body: some View {
-        HStack(spacing: 12) {
-            NavigationLink(value: ArrMediaDestination.series(id: episode.seriesId ?? 0)) {
-                rowContent
-            }
-            .buttonStyle(.plain)
-
-            if isSearching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Search", systemImage: "magnifyingglass") {
-                    Task {
-                        isSearching = true
-                        async let search: Void = onSearch()
-                        async let minDelay: Void = { try? await Task.sleep(for: .seconds(1.5)) }()
-                        _ = await (search, minDelay)
-                        isSearching = false
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .contentShape(Rectangle())
-            }
+        WantedItemActionRow(title: episode.series?.title ?? "Unknown Series", isSelected: isSelected, onSelect: onSelect, onSearch: onSearch) {
+            rowContent
         }
-        .padding(.vertical, 4)
     }
 
     private var rowContent: some View {
@@ -694,32 +678,14 @@ private struct WantedEpisodeRow: View {
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
     var instance: ArrInstanceRef? = nil
+    var isSelected = false
+    var onSelect: (() -> Void)?
     let onSearch: @MainActor () async -> Void
 
-    @State private var isSearching = false
-
     var body: some View {
-        HStack(spacing: 12) {
-            NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
-                rowContent
-            }
-            .buttonStyle(.plain)
-
-            if isSearching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Search", systemImage: "magnifyingglass") {
-                    Task {
-                        isSearching = true
-                        await onSearch()
-                        isSearching = false
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .contentShape(Rectangle())
-            }
+        WantedItemActionRow(title: movie.title, isSelected: isSelected, onSelect: onSelect, onSearch: onSearch) {
+            rowContent
         }
-        .padding(.vertical, 4)
     }
 
     private var rowContent: some View {
@@ -769,64 +735,38 @@ private struct WantedMovieRow: View {
 
 private struct BazarrWantedSeriesRow: View {
     let series: BazarrSeries
+    var isSelected = false
+    var onSelect: (() -> Void)?
     let onSearch: @MainActor () async -> Void
 
-    @Environment(ArrServiceManager.self) private var serviceManager
-    @State private var isSearching = false
-
     var body: some View {
-        HStack(spacing: 12) {
-            NavigationLink {
-                BazarrSeriesDetailView(seriesId: series.sonarrSeriesId, viewModel: BazarrViewModel(serviceManager: serviceManager))
-            } label: {
-                HStack(spacing: 12) {
-                    ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                            Image(systemName: "captions.bubble")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.secondary)
-                        }
+        WantedItemActionRow(title: series.title, isSelected: isSelected, onSelect: onSelect, onSearch: onSearch) {
+            HStack(spacing: 12) {
+                ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                        Image(systemName: "captions.bubble")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
                     }
-                    .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .frame(width: 46, height: 69)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(series.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        HStack(spacing: 6) {
-                            Image(systemName: "captions.bubble.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
-                        }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(series.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Image(systemName: "captions.bubble.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
                     }
-
-                    Spacer()
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
 
-            searchButton
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private var searchButton: some View {
-        if isSearching {
-            ProgressView().controlSize(.small)
-        } else {
-            Button("Search", systemImage: "magnifyingglass") {
-                Task {
-                    isSearching = true
-                    await onSearch()
-                    isSearching = false
-                }
+                Spacer()
             }
-            .labelStyle(.iconOnly)
             .contentShape(Rectangle())
         }
     }
@@ -834,66 +774,40 @@ private struct BazarrWantedSeriesRow: View {
 
 private struct BazarrWantedMovieRow: View {
     let movie: BazarrMovie
+    var isSelected = false
+    var onSelect: (() -> Void)?
     let onSearch: @MainActor () async -> Void
 
-    @Environment(ArrServiceManager.self) private var serviceManager
-    @State private var isSearching = false
-
     var body: some View {
-        HStack(spacing: 12) {
-            NavigationLink {
-                BazarrMovieDetailView(radarrId: movie.radarrId, viewModel: BazarrViewModel(serviceManager: serviceManager))
-            } label: {
-                HStack(spacing: 12) {
-                    ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                            Image(systemName: "captions.bubble")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.secondary)
+        WantedItemActionRow(title: movie.title, isSelected: isSelected, onSelect: onSelect, onSearch: onSearch) {
+            HStack(spacing: 12) {
+                ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                        Image(systemName: "captions.bubble")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 46, height: 69)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(movie.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Image(systemName: "captions.bubble.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if let year = movie.year {
+                            wantedStatusChip(year, color: .secondary)
                         }
                     }
-                    .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(movie.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        HStack(spacing: 6) {
-                            Image(systemName: "captions.bubble.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            if let year = movie.year {
-                                wantedStatusChip(year, color: .secondary)
-                            }
-                        }
-                    }
-
-                    Spacer()
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
 
-            searchButton
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private var searchButton: some View {
-        if isSearching {
-            ProgressView().controlSize(.small)
-        } else {
-            Button("Search", systemImage: "magnifyingglass") {
-                Task {
-                    isSearching = true
-                    await onSearch()
-                    isSearching = false
-                }
+                Spacer()
             }
-            .labelStyle(.iconOnly)
             .contentShape(Rectangle())
         }
     }

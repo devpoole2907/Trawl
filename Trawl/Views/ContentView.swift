@@ -57,6 +57,7 @@ struct ContentView: View {
     /// the size class compact, which is the case where hiding it is correct.
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarSearch = ""
+    @State private var sidebarScroll = SidebarScrollState()
     /// Which title the library split views have open. Owned here rather than inside
     /// the lists because the content column and the detail column are two separate
     /// closures of one split view, and both need to read it.
@@ -64,6 +65,14 @@ struct ContentView: View {
     @State private var downloadSelection: DownloadDetailSelection?
     @State private var seriesSelection: ArrMergeKey?
     @State private var moviesSelection: ArrMergeKey?
+    @State private var indexerBrowser = ProwlarrIndexerBrowserState()
+    @State private var downloadClientSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var linkedApplicationSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var taskSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var calendarSelection = TrawlColumnSelection<ArrMediaDestination>()
+    @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
+    @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
+    @State private var requestBrowser = SeerrRequestBrowserState()
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -724,36 +733,58 @@ struct ContentView: View {
         // nothing" state the rest of the app has no representation for.
         let selection = Binding<RootTab?>(
             get: { selectedTab },
-            set: { if let newValue = $0 { selectedTab = newValue } }
+            set: {
+                if let newValue = $0 {
+                    sidebarScroll.capture(newValue, replacingColumns: selectedTab.wantsDetailColumn != newValue.wantsDetailColumn)
+                    selectedTab = newValue
+                }
+            }
         )
 
-        return List(selection: selection) {
-            if isSearchingSidebar {
-                sidebarSearchResults
-            } else {
-                ForEach(SidebarSection.allCases) { section in
-                    Section(isExpanded: expansionBinding(for: section)) {
-                        ForEach(section.rows, id: \.self) { row in
-                            sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
+        let detailColumn = selectedTab.wantsDetailColumn
+        return ScrollViewReader { proxy in
+            List(selection: selection) {
+                if isSearchingSidebar {
+                    sidebarSearchResults
+                } else {
+                    ForEach(SidebarSection.allCases) { section in
+                        Section(isExpanded: expansionBinding(for: section)) {
+                            ForEach(section.rows, id: \.self) { row in
+                                sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                                    sidebarScroll.rowFrames[row] = frame
+                                    if let anchor = sidebarScroll.takeRestoration(for: row, detailColumn: detailColumn) {
+                                        var transaction = Transaction()
+                                        transaction.disablesAnimations = true
+                                        withTransaction(transaction) {
+                                            proxy.scrollTo(row, anchor: anchor)
+                                        }
+                                    }
+                                }
+                            }
+                        } header: {
+                            Text(section.title)
                         }
-                    } header: {
-                        Text(section.title)
                     }
                 }
             }
+            .navigationTitle("Trawl")
+            .searchable(
+                text: $sidebarSearch,
+                // `.sidebar` reads like the obvious placement and renders *nothing* on
+                // iPadOS - no field in the bar, no field in the list, nothing in the
+                // accessibility tree. It is a macOS placement. The drawer is what iOS
+                // actually draws under a navigation bar, and `.always` keeps it there
+                // rather than hiding it until the list is pulled down, which matters
+                // when this field is the only search this chrome has.
+                placement: sidebarSearchPlacement,
+                prompt: "Search Trawl"
+            )
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                sidebarScroll.viewportFrame = $0
+            }
+
         }
-        .navigationTitle("Trawl")
-        .searchable(
-            text: $sidebarSearch,
-            // `.sidebar` reads like the obvious placement and renders *nothing* on
-            // iPadOS - no field in the bar, no field in the list, nothing in the
-            // accessibility tree. It is a macOS placement. The drawer is what iOS
-            // actually draws under a navigation bar, and `.always` keeps it there
-            // rather than hiding it until the list is pulled down, which matters
-            // when this field is the only search this chrome has.
-            placement: sidebarSearchPlacement,
-            prompt: "Search Trawl"
-        )
     }
 
     private var sidebarSearchPlacement: SearchFieldPlacement {
@@ -856,6 +887,7 @@ struct ContentView: View {
             Label(destination.displayName, systemImage: destination.systemImage)
                 .badge(badge)
                 .tag(destination)
+                .id(destination)
                 .accessibilityIdentifier(destination.navigationIdentifier)
         }
     }
@@ -888,6 +920,16 @@ struct ContentView: View {
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
+        case .indexers:
+            moreStack(
+                rootedAt: .prowlarrIndexers,
+                path: pathBinding(for: .indexers),
+                services: services,
+                presentation: .contentColumn
+            )
+            .environment(indexerBrowser)
+        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests, .calendar, .missing:
+            nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
             // navigation container. SearchView's own `NavigationStack` nested here
@@ -993,6 +1035,12 @@ struct ContentView: View {
             } else {
                 ContentUnavailableView("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
             }
+        case .indexers:
+            ProwlarrIndexerListView(showsSelectedIndexer: true)
+                .environment(indexerBrowser)
+                .environment(arrServiceManager)
+        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests, .calendar, .missing:
+            nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
         default:
@@ -1002,6 +1050,38 @@ struct ContentView: View {
                 services: services,
                 presentation: .detailColumn
             )
+        }
+    }
+
+    /// Each affected screen is instantiated once per native column, with only its
+    /// selection (and any shared live model) owned above the split view.
+    private func nativeSidebarColumn(
+        for destination: RootTab,
+        services: AppServices,
+        column: NavigationSplitViewColumn
+    ) -> some View {
+        moreStack(
+            rootedAt: destination.moreRoot,
+            path: pathBinding(for: destination),
+            services: services,
+            presentation: column == .detail ? .stack : .contentColumn
+        )
+        .environment(\.sidebarNavigationColumn, column)
+        .environment(\.hasDetailPane, column == .content)
+        .environment(moreColumnSelection(for: destination))
+        .environment(calendarSelection)
+        .environment(missingSelection)
+        .environment(qualityProfileBrowser)
+        .environment(requestBrowser)
+        .id(destination)
+    }
+
+    private func moreColumnSelection(for destination: RootTab) -> TrawlColumnSelection<MoreDestination>? {
+        switch destination {
+        case .downloadClients: downloadClientSelection
+        case .linkedApplications: linkedApplicationSelection
+        case .tasks: taskSelection
+        default: nil
         }
     }
 

@@ -17,14 +17,9 @@ struct TrawlTitleMenuOption<Value: Hashable>: Identifiable {
 
 /// A navigation title that is also the control for what the screen is showing.
 ///
-/// Deliberately a `Menu` inside a `ToolbarItem(placement: .principal)` styled to
-/// read as the title, not `ToolbarTitleMenu`: that modifier does nothing for a
-/// large title, which is what these screens use.
-///
-/// Because a `.principal` item *replaces* the navigation title rather than
-/// sitting beside it, any screen using this has to stop drawing a title of its
-/// own while the menu is up - and has to take the menu down again whenever the
-/// title needs to say something else, such as a selection count during editing.
+/// The caller places this at the leading edge of a native sidebar content column,
+/// or in the principal title position on compact layouts. The regular navigation
+/// title is suppressed while the menu is visible.
 struct TrawlTitleMenu<Value: Hashable>: View {
     let options: [TrawlTitleMenuOption<Value>]
     @Binding var selection: Value
@@ -33,6 +28,7 @@ struct TrawlTitleMenu<Value: Hashable>: View {
     /// using this drive it from their own scroll position via
     /// `trawlTitleMenuShrinksOnScroll(_:)`.
     var isCompact: Bool = false
+    var subtitle: String? = nil
     var animation: Animation = .snappy
 
     private var titleFont: Font {
@@ -60,13 +56,21 @@ struct TrawlTitleMenu<Value: Hashable>: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: isCompact ? 3 : 4) {
-                Text(currentTitle)
-                    .font(titleFont)
-                    .foregroundStyle(.primary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(chevronFont)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: isCompact ? 3 : 4) {
+                    Text(currentTitle)
+                        .font(titleFont)
+                        .foregroundStyle(.primary)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(chevronFont)
+                        .foregroundStyle(.secondary)
+                }
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .animation(animation, value: isCompact)
             .contentShape(Rectangle())

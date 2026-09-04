@@ -572,13 +572,7 @@ extension XCTestCase {
             .waitForExistence(timeout: 3) {
             return true
         }
-        // And a screen with a detail pane beside it is not in the bar at all: both
-        // panes share the column's one bar, whose title belongs to whatever the
-        // detail is showing, so the screen's own name is pinned above its list. Every
-        // suite that opens Indexers, Download Clients, Linked Applications, Quality
-        // Profiles, Tasks, Requests, Calendar or Missing reaches this line.
-        let paneName = app.staticTexts[XCUIApplication.listDetailScreenNameIdentifier]
-        return paneName.waitForExistence(timeout: 3) && paneName.label.contains(destination.title)
+        return false
     }
 
     /// Types into a field, routing the keystrokes through the application rather than

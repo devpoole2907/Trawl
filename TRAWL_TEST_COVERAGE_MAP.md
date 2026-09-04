@@ -32,7 +32,7 @@ Use this map before changing production behavior. It identifies the focused suit
 | `Trawl/ArrStack/ArrSetupSheet.swift`, `ArrSetupViewModel.swift` | `TrawlTests/ArrSetupViewModelTests.swift`; `TrawlUITests/ArrSetupEditJourneyUITests.swift`; `TrawlUITests/ArrAddInstanceJourneyUITests.swift`; `TrawlUITests/ArrRepointJourneyUITests.swift` | A rejected API key shows the exact production error, keeps the editor open and repoints nothing; the corrected retry persists and reconnects. One Sonarr journey covers the family — every Arr service presents this same editor and takes the same `validateAndSave` path. The **add** path is unit-covered separately, because it is different code from editing: it inserts rather than mutates, unwinds via `modelContext.rollback()` plus a Keychain delete rather than field restore, and adopts the existing profile for Prowlarr instead of inserting a second. Changing `unauthorizedStatusCodes`, the Prowlarr branch, or the add branch's `modelContext.insert` fails these tests by design. The sheet's service-type picker is unreachable from the app (N-06) and is deliberately uncovered. The add-instance journey starts with one Sonarr, adds the second into the only free 4K slot, proves the original survives, and proves the add entry disappears at the HD/4K cap. The same cap is enforced again in `validateAndSave` through one-server-per-tier conflicts so the limit holds however setup is reached; `ArrDualInstanceTests` pins the limits themselves. A cancelled attempt must report no error (N-05); `TrawlTests/UnansweringServer.swift` is the shared loopback server that keeps a request in flight while the task is cancelled. |
 | `Components/ArrAddDestination.swift`, `RadarrMovieSearchViews.swift`, `SonarrSeriesSearchViews.swift` — choosing one or both add destinations | `TrawlTests/ArrDualInstanceTests.swift` (`ArrDualInstanceTests` and `ArrDualInstanceRoutingTests`); `TrawlUITests/ArrSearchAddJourneyUITests.swift`; `TrawlUITests/RadarrSearchAddJourneyUITests.swift` | Destination state, per-server profiles/folders, and partial-failure retry semantics are shared by Sonarr and Radarr. A library visibility filter is not an authorization boundary: add candidates come from every connected server, while cached provenance prevents offering a server already known to hold the title. An explicit destination fails closed if its client cannot be resolved; it never falls through to the active server. “Both Servers” dismisses only after every destination succeeds; a partial result stays open, names the failures, and retries only those servers. Feedback has one owner: the coordinator suppresses each low-level add banner and emits one aggregate success or failure, with the failure naming only destinations that need retrying. The dual-instance file contains two suites, so focused commands must select both suite names rather than only `ArrDualInstanceTests`. |
 | `SonarrViewModel.loadEpisodes` / `loadEpisodeFiles` and the episode surfaces | `TrawlTests/ArrDualInstanceTests.swift` | Episodes belong to one server's copy of a series, and both servers number theirs from the same sequence. These fetched from the *active* client regardless of which copy the detail view was showing — so with the HD server down and 4K connected, 4K's episodes rendered under the HD series with no error — and cached the result under a bare series ID, where the second server's load silently replaced the first's. Both now take an `instanceID` and key on `ArrScopedID`. The season and episode screens were also pixel-identical with one server and with two — no badge, no name — so one server's "Downloaded" read as the episode's own; both now carry the owning server's badge. Merged episode rows remain deferred, and are recorded as such rather than missed. |
-| `Trawl/ArrStack/ArrCalendarView.swift` | `TrawlTests/ArrCalendarConcurrencyTests.swift`; `TrawlUITests/ArrBlendedLibraryJourneyUITests.swift`; `TrawlUITests/NavigationSmokeWalkUITests.swift` | Overlap/profile ordering plus basic assembly. The series lookup is keyed by `ArrScopedID` — (server, library ID) — and built non-trapping: two servers both hand out a series 1, and a bare-`Int` key made `Dictionary(uniqueKeysWithValues:)` trap on the duplicate, killing the app during `initialize(from:)` before any screen rendered. Keying on the ID alone also resolved an episode against the wrong server's series. The blended-library journey seeds two servers that deliberately share library ID 1, which is what catches this from the UI side. `CalendarEvent.id` carries the owning server only when there is one, so an unstamped fixture keeps the plain `ep-101` form; with a pair configured the segment is what stops two servers' airings of the same episode collapsing into a single row. |
+| `Trawl/ArrStack/ArrCalendarView.swift`, `Trawl/Views/TrawlPaneNavigationLink.swift` | `TrawlTests/ArrCalendarConcurrencyTests.swift`; `TrawlUITests/ArrBlendedLibraryJourneyUITests.swift`; `TrawlUITests/NavigationSmokeWalkUITests.swift`; `TrawlUITests/IPadSurfaceCaptureUITests.swift` (`testCalendarAndMissingSelectionsUpdateTheDetailColumn`) | `IPadSurfaceCaptureUITests.testCalendarAndMissingSelectionsUpdateTheDetailColumn` covers two calendar selections through the real loopback calendar response, keeping the calendar visible beside the selected series. The row reads `hasDetailPane` below the pane container; reading it in the owning calendar view sees the ancestor default and incorrectly pushes. Overlap/profile ordering plus basic assembly. The series lookup is keyed by `ArrScopedID` — (server, library ID) — and built non-trapping: two servers both hand out a series 1, and a bare-`Int` key made `Dictionary(uniqueKeysWithValues:)` trap on the duplicate, killing the app during `initialize(from:)` before any screen rendered. Keying on the ID alone also resolved an episode against the wrong server's series. The blended-library journey seeds two servers that deliberately share library ID 1, which is what catches this from the UI side. `CalendarEvent.id` carries the owning server only when there is one, so an unstamped fixture keeps the plain `ep-101` form; with a pair configured the segment is what stops two servers' airings of the same episode collapsing into a single row. |
 | `Trawl/ArrStack/AddImportLocationAndScanViewModel.swift` and import views | `TrawlTests/LibraryImportScanViewModelTests.swift`; `TrawlTests/ArrDualInstanceTests.swift`; `TrawlUITests/LibraryImportScanJourneyUITests.swift` | Scan/group/identify flow and no-premature-import boundary. Dual-instance routing drives a real scan against the selected 4K loopback server while proving the HD server receives no scan, and pins per-server root-folder isolation. |
 | `Trawl/ArrStack/LibraryImportScanSessionStore.swift` — a folder's scan outliving one push of the scan view | `TrawlTests/LibraryImportScanViewModelTests.swift` ("Library import scan session store"); `TrawlUITests/LibraryImportScanJourneyUITests.swift` (`testAutoMatchResultsSurviveNavigatingAwayAndBack`) | The scan view held its view model in `@State`, so popping the view destroyed the grouped scan and every match Auto Match had earned; `.task`'s `hasPerformedInitialScan` guard then read false again and the folder was re-scanned and re-matched from scratch. The store keys on path + service + instance + library item + kind, and every component is pinned: an HD/4K pair can expose the same path with different libraries, and Library Import and Manual Import scan a folder under different server-side filtering, so a shared scan would show one server's or one flow's results under the other. The journey is the half that catches a regression here, because it asserts on the fixture's *request log* — returning to a scanned folder must issue no second `/api/v3/manualimport` and no second `/api/v3/series/lookup`, which a re-created view model cannot help doing. Retention is LRU-capped, so the unit suite also pins that eviction drops the least recently opened folder and that revisiting one refreshes its place. |
 | `LibraryImportDisclosureHeader` — every collapsible section in the import screens | `TrawlUITests/LibraryImportScanJourneyUITests.swift` (`testOwnedTabRendersTheInLibraryTitlesItCounts`) | `Section(isExpanded:)` hides a section's content in this list style but draws no control to bring it back, so a section built on it was collapsed with no way to open it. The Owned tab shipped that way: "In Library (N)" counted titles the user could never see. Six sections across the scan view and the queue-resolution sheet used the dead binding; the blocked section alone had hand-rolled a working disclosure, and that is now the shared one. The test is deliberately not satisfied by the default being expanded — it collapses the section, asserts the rows go, re-expands, and asserts they come back, because a header that renders but does nothing is exactly the failure being fixed. |
@@ -394,112 +394,36 @@ run against unreachable servers catches, which is worth doing deliberately: laun
 the `TRAWL_UITEST_*_BASE_URL` variables pointed at `http://127.0.0.1:1/...` and walk the
 sidebar.
 
-**Where a two-pane screen puts its title.** Two panes, two names, and only one
-navigation bar to hold them - so only one of them is in it. `TrawlListDetailPanes`
-pins the *screen's* name above its list as a `safeAreaInset`, and leaves the bar's
-title to the *detail*, which keeps its own `navigationTitle`. Each name ends up over
-the pane it belongs to.
+## Sidebar interaction follow-up
 
-That is the third arrangement tried, and the first that holds. What is ruled out:
+| Production surface | Focused coverage | Contract |
+| --- | --- | --- |
+| `ArrWantedView`, `ArrWantedDestination`, `WantedItemActionRow` | `IPadSurfaceCaptureUITests.testCalendarAndMissingSelectionsUpdateTheDetailColumn`; `.testMissingCompactRowConfirmsBeforeSearching` | iPad row taps replace detail and send no search command. Compact row taps ask first; Cancel sends nothing and Search reaches the real command endpoint. Subtitle rows use the same interaction component, with Bazarr detail destinations. |
+| `SidebarScrollState`, `ContentView.sidebarList` | `IPadSurfaceCaptureUITests.testSidebarPositionSurvivesColumnCountChanges` | Root Folders → Quality Profiles, Library Import → Indexers, and the reverse column-count transition retain the tapped sidebar row's vertical position. |
+| Downloads/Series/Movies title menus | `IPadSurfaceCaptureUITests.testTitleMenusLeadTheirIPadColumns` | With menus available, each menu sits at its native column's leading edge. Compact placement is unchanged. |
+| `DownloadsView.arrQueueRow` | `IPadSurfaceCaptureUITests.testQueueActionDialogsBelongToTheirRows` | Each unlinked queue row owns its confirmation popover; dismissing it never removes either queue item. Screenshot attachments show the anchors. |
 
-- The detail writing into the shared bar. Selecting a row blanked the screen's name,
-  replaced it with the selection's, and dragged the selection's subtitle and buttons
-  along with it. Suppressing the detail's title instead (an `\.isDetailPane`
-  environment flag read by a `paneAwareNavigationTitle` modifier) fixed that and cost
-  the detail any name at all.
-- A `NavigationStack` around each pane. The stacks reserve bar height inside the panes
-  and their titles still surface in the *column's* bar, so the screen gets an empty
-  strip and a title in the wrong place.
-- Hiding the column's bar to make room for per-pane bars. `toolbar(_:for:)` is
-  inherited by every navigation container beneath it, so the panes' bars go with it -
-  and neither re-asserting `.visible` inside a pane nor applying the hide from a leaf
-  that is not an ancestor of the panes wins it back.
-- The screen's name as a leading toolbar item. iOS 26 sizes a bar item for a control,
-  so the label is squeezed to an ellipsis ("Re...").
+## Native sidebar navigation columns
 
-Two further rules follow from the panes sharing a bar. The bar is forced
-`.navigationBarTitleDisplayMode(.inline)`: a large title is drawn over the list and
-reserves its full height across the *whole* column, which showed as a tall white band
-above the detail with nothing in it. And its background is forced `.visible`, because
-left alone each pane's scroll view decides the background over its own half and the
-result is a bar that is clear over the list and opaque over the detail, split down the
-middle. `ArrItemDetailView` reads `\.isDetailPane` for the same reason: hiding the bar
-background so artwork can run behind the title is right for a whole screen and wrong
-for a pane, where it applies to both panes at once.
+The sidebar was audited for simulated side-by-side layouts. Indexers, Download Clients, Linked Applications, Quality Profiles, Tasks, Requests, Calendar, and Missing now use the root three-column `NavigationSplitView`. Downloads, Series, Movies, and Search already used native columns; the remaining sidebar destinations use a native two-column stack and have no simulated inner columns.
 
-**Testing this needs care - it has produced three false passes.** It is invisible
-unless a row is actually selected *and* the detail has a title of its own, and each of
-these looked green against a screen that was broken:
+`TrawlListDetailPanes` now chooses the requested native column and never draws an HStack or an inset title. Outside the sidebar it shows the list as a normal push destination. `sidebarNavigationColumn` is cleared below each column root so nested screens and sheets do not accidentally participate in the sidebar selection. Each column owns its own navigation title and toolbar.
 
-- tapping "the first cell" in the list, which on these screens is a stat tile that
-  selects nothing, so the detail never changed;
-- waiting for `navigationBars.count >= 2` as proof a selection happened - the sidebar
-  has a bar of its own, so that is already true before anything is tapped;
-- matching the screen's name as *text*, which finds the leaked detail title on any
-  screen whose detail repeats the screen's name (the Sonarr download-client list is
-  itself titled "Download Clients").
+Sidebar selection models live in `ContentView`, alongside the existing per-destination navigation paths, so they survive switching destinations. The Indexers journey verifies switching away and returning to the selected detail. This does not claim complete tab-state restoration: screen-local filters, search text and scroll position still need their own retained state and coverage.
 
-`IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection` therefore names the
-row it selects, treats the detail placeholder disappearing as the proof of selection,
-matches the screen's name by the `list-detail-screen-name` accessibility identifier
-rather than by its text, and compares the column bar's contents *whole* against what
-the detail is allowed to say. It covers Indexers and Download Clients; the other five
-pane screens are fixed by the same mechanism but are not yet covered.
+| Production surface | Focused coverage | Contract |
+| --- | --- | --- |
+| `ContentView`, `RootTab`, `TrawlListDetailPanes`, `TrawlColumnSelection`; Download Clients, Linked Applications, Quality Profiles and Tasks | `IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection`; `MoreSettingsBreadthUITests.testQualityProfilesShowsOnlyTheNewProfileToolbarAction` | Both navigation bars must exist, with the list bar left of the selected detail bar. No `list-detail-screen-name` content header may substitute for a navigation bar. The quality-profile fixture travels through the production per-server load. |
+| `ProwlarrIndexerBrowserState`, `ProwlarrIndexerSelection`, `ProwlarrIndexerListView` | `IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection`; `ProwlarrJourneyUITests` | Selection and live models are shared across native columns. Proxies, Tags and indexers use one typed selection. Switching sidebar destinations must remove the previous detail and returning must restore its selection. The compact journey navigates through the real More route without tapping an extra row after Indexers has already opened. |
+| `ArrCalendarView`, `ArrWantedView` | `IPadSurfaceCaptureUITests.testCalendarAndMissingSelectionsUpdateTheDetailColumn`; `.testCalendarAndMissingOpenBesideAnEmptyPane`; `ArrCalendarConcurrencyTests` | Calendar and Missing open unselected; two successive real fixture-backed selections must populate the native detail while the list keeps its own navigation title. Calendar sheets remain single-column push navigation; compact Missing rows confirm an automatic search. |
+| `SeerrRequestBrowserState`, `SeerrDashboardView` | `ServiceUnavailableJourneyUITests.testRequestSelectionKeepsListUsable` | Columns share one live request model. A movie followed by a series must load the corresponding detail and leave the request list usable. |
 
-**A detail pane's artwork must be contained twice over.** `ArrItemDetailView` paints a
-scaled, blurred, safe-area-ignoring backdrop, and `ignoresSafeArea` resolves against
-the *column* rather than the pane - so the backdrop spreads across the list beside it.
-It cannot be contained at the source, because everything inside that modifier is handed
-the column-sized proposal too. `TrawlListDetailPanes` therefore masks the detail *and*
-sets `contentShape(Rectangle())` on it. The mask alone is what shipped first, as a
-plain `clipped`, and it hid the overspill without disarming it: the list sat under an
-invisible sheet of artwork and every row stopped responding the moment anything was
-selected, which reads as the whole screen freezing. A clip stops the drawing, not the
-touches.
-
-The mask is a rectangle with negative vertical padding rather than `clipped`, because
-the pane must be clipped *sideways only*. A plain clip also cuts the strip beneath the
-shared navigation bar, and the pane's background with it - so the detail sat under a
-band of bare white while the list's background ran up behind the bar as it should.
-Two bugs that look the same in a screenshot: white above the detail because the bar's
-background was opaque over half the column, and white above the detail because the
-pane was clipped out of it.
-`ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` is the test that
-holds this - it selects a second row *after* a first is already open, which is the only
-thing the frozen build could not do.
-
-**Calendar and Missing open beside an empty pane.** Both gained a detail pane, and
-neither auto-selects: a calendar is a list of dates rather than a list of things one of
-which is current, and Missing is a list of things that are *absent*. Rows select rather
-than push at regular width - the calendar's rows become buttons, since they live in a
-`ScrollView` rather than a `List`, and Missing's take a `.tag`. The tag is applied only
-where an episode knows its series, and the selection binding is `.constant(nil)` when
-there is no pane, so an iPhone row keeps doing what it always did rather than taking a
-selection highlight that opens nothing. Neither splits while presented as a sheet from
-the Series and Movies toolbars, where there is no room.
-`IPadSurfaceCaptureUITests.testCalendarAndMissingOpenBesideAnEmptyPane` pins the
-arrangement: the screen names itself, and the placeholder beside it says nothing is
-selected.
-
-**Three test-harness habits break on a two-pane screen, and all of them read as
-"this screen is unreachable".** They are worth knowing before diagnosing the next
-one, because none of them is a production bug:
-
-- `TrawlChrome.confirmArrival` proved arrival by the navigation bar carrying the
-  destination's title. Every suite that opens Indexers, Download Clients, Linked
-  Applications, Quality Profiles, Tasks, Requests, Calendar or Missing goes through
-  it, so when the bar stopped carrying those names they all failed at their first
-  navigation. It now falls through to the pane header, and `showsScreen(named:)` on
-  `XCUIApplication` is the same test for a suite's own assertions.
-- A row is a `Button` where it pushes and a `Cell` where it selects, so
-  `app.buttons.matching(... CONTAINS ...)` finds nothing on a screen that is plainly
-  full of rows. Suites that need one either way use a local `firstRow`/`row` helper
-  that falls back to `cells.containing`.
-- Several journeys walk the *compact* route explicitly - open the Integrations hub,
-  then tap the row for the screen. There is no hub on the sidebar chrome, so
-  `openDestination` has already arrived and the extra tap either finds nothing or,
-  worse, lands on something else on the open screen and navigates away from it. Those
-  steps are wrapped in `if !TrawlChrome.isSidebar`.
+Navigation tests require native navigation bars through `TrawlChrome.confirmArrival`
+and `showsScreen(named:)`; neither accepts a custom content header. A selectable
+list row can appear as a `Cell` on iPad and a `Button` on iPhone, so the relevant
+journeys use helpers that handle both. Once `openDestination` has completed a
+route, do not tap another similarly named row: it can navigate away from the
+screen that was just opened.
 
 **Seven of these suites fail on iPhone, and did so before any of this.** Measured
 rather than assumed: the same four suites were run against `774a039` in a worktree and
@@ -638,4 +562,4 @@ Every result must be accepted by `python3 Scripts/assert-test-results.py <result
 
 ## Request selection in an iPad detail pane
 
-`TrawlListDetailPanes` contains scaled/blurred detail artwork within its column. `SeerrDashboardView` keys the selected detail by request ID so media loaded for a previous selection cannot remain in view. `ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` uses the opt-in request responses in `SeerrUIFixtureServer` to open a movie, select a series from the still-usable list, and assert the series response appears. Before the identity fix, the series-detail assertion failed. Full-screen attachments provide visual coverage of artwork containment; XCTest accessibility alone does not detect background overdraw.
+Native split-view columns contain the detail artwork. `SeerrDashboardView` keys the selected detail by request ID so media loaded for a previous selection cannot remain in view. `ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` uses the opt-in request responses in `SeerrUIFixtureServer` to open a movie, select a series from the still-usable list, and assert the series response appears. Before the identity fix, the series-detail assertion failed. Full-screen attachments provide visual coverage of artwork containment; XCTest accessibility alone does not detect background overdraw.

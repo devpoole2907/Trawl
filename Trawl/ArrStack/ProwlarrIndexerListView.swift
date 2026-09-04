@@ -5,9 +5,13 @@ struct ProwlarrIndexerListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var allProfiles: [ArrServiceProfile]
 
-    @State private var prowlarrViewModel: ProwlarrViewModel?
-    @State private var directViewModel: ArrIndexerManagementViewModel?
-    @State private var applicationsViewModel: ProwlarrApplicationsViewModel?
+    @Environment(ProwlarrIndexerBrowserState.self) private var sharedBrowser: ProwlarrIndexerBrowserState?
+    @State private var localBrowser = ProwlarrIndexerBrowserState()
+
+    private var browser: ProwlarrIndexerBrowserState { sharedBrowser ?? localBrowser }
+    private var prowlarrViewModel: ProwlarrViewModel? { browser.prowlarrViewModel }
+    private var directViewModel: ArrIndexerManagementViewModel? { browser.directViewModel }
+    private var applicationsViewModel: ProwlarrApplicationsViewModel? { browser.applicationsViewModel }
     @State private var deleteTarget: UnifiedIndexerDeleteTarget?
     @State private var addDestination: AddIndexerDestination?
     @State private var searchText = ""
@@ -15,41 +19,52 @@ struct ProwlarrIndexerListView: View {
     @State private var showSetupCheck = false
     @State private var isPreparingSetupCheck = false
     @State private var dismissedProwlarrNudge = false
-    /// Which indexer the detail pane is showing, at regular width. Nil on iPhone,
-    /// where the row pushes instead.
-    @State private var selectedIndexerID: String?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     private let loadsDataOnAppear: Bool
+    private let showsSelectedIndexer: Bool
 
-    init(loadsDataOnAppear: Bool = true) {
+    init(loadsDataOnAppear: Bool = true, showsSelectedIndexer: Bool = false) {
         self.loadsDataOnAppear = loadsDataOnAppear
+        self.showsSelectedIndexer = showsSelectedIndexer
     }
 
     var body: some View {
         Group {
             if let prowlarrViewModel, let directViewModel {
-                // Two panes at regular width: an indexer's detail is where you check
-                // whether it is actually working, and doing that from a screen that
-                // replaced the list means going back for every one of them.
-                TrawlListDetailPanes(title: "Indexers", subtitle: "Prowlarr") {
+                if showsSelectedIndexer {
+                    selectedIndexerDetail(
+                        prowlarrViewModel: prowlarrViewModel,
+                        directViewModel: directViewModel
+                    )
+                    .id(browser.selection)
+                } else if sharedBrowser != nil {
                     content(
                         prowlarrViewModel: prowlarrViewModel,
                         directViewModel: directViewModel,
                         applicationsViewModel: applicationsViewModel
                     )
-                } detail: {
-                    selectedIndexerDetail(
-                        prowlarrViewModel: prowlarrViewModel,
-                        directViewModel: directViewModel
-                    )
+                    .navigationTitle("Indexers")
+                    .navigationSubtitle("Prowlarr")
+                } else {
+                    TrawlListDetailPanes(title: "Indexers", subtitle: "Prowlarr") {
+                        content(
+                            prowlarrViewModel: prowlarrViewModel,
+                            directViewModel: directViewModel,
+                            applicationsViewModel: applicationsViewModel
+                        )
+                    } detail: {
+                        selectedIndexerDetail(
+                            prowlarrViewModel: prowlarrViewModel,
+                            directViewModel: directViewModel
+                        )
+                    }
                 }
+            } else if showsSelectedIndexer {
+                listDetailPlaceholder("Select an Indexer", systemImage: "magnifyingglass.circle")
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,14 +85,15 @@ struct ProwlarrIndexerListView: View {
             }
         }
         .task {
+            guard !showsSelectedIndexer else { return }
             if prowlarrViewModel == nil {
-                prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
+                browser.prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
             }
             if directViewModel == nil {
-                directViewModel = ArrIndexerManagementViewModel(serviceManager: serviceManager)
+                browser.directViewModel = ArrIndexerManagementViewModel(serviceManager: serviceManager)
             }
             if applicationsViewModel == nil {
-                applicationsViewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
+                browser.applicationsViewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
             }
             guard loadsDataOnAppear else { return }
             await reloadData()
@@ -107,7 +123,8 @@ struct ProwlarrIndexerListView: View {
         directViewModel: ArrIndexerManagementViewModel,
         applicationsViewModel: ProwlarrApplicationsViewModel?
     ) -> some View {
-        List(selection: $selectedIndexerID) {
+        @Bindable var browser = self.browser
+        List(selection: $browser.selection) {
             if let prowlarr = undiscoveredProwlarr(directViewModel), !dismissedProwlarrNudge {
                 Section {
                     TrawlInlineCallout(
@@ -131,7 +148,7 @@ struct ProwlarrIndexerListView: View {
 
             if serviceManager.prowlarrConnected {
                 Section("Management") {
-                    NavigationLink {
+                    rowLink(selection: .proxies) {
                         ProwlarrProxiesListView()
                     } label: {
                         NavigationMenuRow(
@@ -142,7 +159,7 @@ struct ProwlarrIndexerListView: View {
                         )
                     }
 
-                    NavigationLink {
+                    rowLink(selection: .tags) {
                         ProwlarrTagsListView()
                     } label: {
                         NavigationMenuRow(
@@ -285,7 +302,7 @@ struct ProwlarrIndexerListView: View {
     ) -> some View {
         switch item.kind {
         case .prowlarr(let indexer):
-            rowLink(id: item.id) {
+            rowLink(selection: .indexer(item.id)) {
                 ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
             } label: {
                 UnifiedIndexerRowView(
@@ -343,7 +360,7 @@ struct ProwlarrIndexerListView: View {
             }
 
         case .direct(let ownedIndexer):
-            rowLink(id: item.id) {
+            rowLink(selection: .indexer(item.id)) {
                 DirectIndexerEditorView(
                     profile: ownedIndexer.profile,
                     serviceType: ownedIndexer.serviceType,
@@ -929,12 +946,12 @@ struct ProwlarrIndexerListView: View {
     /// is rather than being rebuilt for the second layout.
     @ViewBuilder
     private func rowLink<Destination: View, Label: View>(
-        id: String,
+        selection: ProwlarrIndexerSelection,
         @ViewBuilder destination: @escaping () -> Destination,
         @ViewBuilder label: () -> Label
     ) -> some View {
         if showsDetailPane {
-            label().tag(id)
+            label().tag(selection)
         } else {
             NavigationLink(destination: destination(), label: label)
         }
@@ -949,33 +966,34 @@ struct ProwlarrIndexerListView: View {
         prowlarrViewModel: ProwlarrViewModel,
         directViewModel: ArrIndexerManagementViewModel
     ) -> some View {
-        let selected = selectedIndexerID.flatMap { id in
-            combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
+        switch browser.selection {
+        case .proxies:
+            ProwlarrProxiesListView()
+        case .tags:
+            ProwlarrTagsListView()
+        case .indexer(let id):
+            let selected = combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
                 .first { $0.id == id }
-        }
-        switch selected?.kind {
-        case .prowlarr(let indexer):
-            ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
-        case .direct(let ownedIndexer):
-            DirectIndexerEditorView(
-                profile: ownedIndexer.profile,
-                serviceType: ownedIndexer.serviceType,
-                viewModel: directViewModel,
-                mode: .edit(ownedIndexer.indexer),
-                linkedApplication: linkedApplication(for: ownedIndexer.profile, serviceType: ownedIndexer.serviceType)
-            )
+            switch selected?.kind {
+            case .prowlarr(let indexer):
+                ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
+            case .direct(let ownedIndexer):
+                DirectIndexerEditorView(
+                    profile: ownedIndexer.profile,
+                    serviceType: ownedIndexer.serviceType,
+                    viewModel: directViewModel,
+                    mode: .edit(ownedIndexer.indexer),
+                    linkedApplication: linkedApplication(for: ownedIndexer.profile, serviceType: ownedIndexer.serviceType)
+                )
+            case nil:
+                listDetailPlaceholder("Select an Indexer", systemImage: "magnifyingglass.circle")
+            }
         case nil:
             listDetailPlaceholder("Select an Indexer", systemImage: "magnifyingglass.circle")
         }
     }
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sharedBrowser != nil }
 
     private func undiscoveredProwlarr(_ directViewModel: ArrIndexerManagementViewModel) -> String? {
         guard !serviceManager.hasProwlarrInstance else { return nil }
@@ -1064,9 +1082,11 @@ extension ProwlarrIndexerListView {
         searchText: String = ""
     ) {
         self.init(loadsDataOnAppear: false)
-        self._prowlarrViewModel = State(initialValue: previewProwlarrViewModel)
-        self._directViewModel = State(initialValue: directViewModel)
-        self._applicationsViewModel = State(initialValue: applicationsViewModel)
+        let browser = ProwlarrIndexerBrowserState()
+        browser.prowlarrViewModel = previewProwlarrViewModel
+        browser.directViewModel = directViewModel
+        browser.applicationsViewModel = applicationsViewModel
+        self._localBrowser = State(initialValue: browser)
         self._searchText = State(initialValue: searchText)
     }
 }

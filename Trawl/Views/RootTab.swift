@@ -238,7 +238,9 @@ enum RootTab: Hashable, CaseIterable {
     /// before anything is selected.
     var wantsDetailColumn: Bool {
         switch self {
-        case .downloads, .series, .movies, .search: true
+        case .downloads, .series, .movies, .search, .indexers,
+             .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
+             .requests, .calendar, .missing: true
         default: false
         }
     }

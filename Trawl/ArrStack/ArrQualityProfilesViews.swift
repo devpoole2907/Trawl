@@ -5,10 +5,22 @@ struct ArrQualityProfilesListView: View {
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     /// Quality profiles are per-server, and an HD/4K pair's are the whole point
     /// of running two servers - one cuts off at 1080p, the other starts at 2160p.
-    @State private var selectedInstanceID: UUID?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrQualityProfileBrowserState.self) private var sharedBrowser: ArrQualityProfileBrowserState?
+    @State private var localBrowser = ArrQualityProfileBrowserState()
+    private var browser: ArrQualityProfileBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var selectedInstanceID: UUID? {
+        get { browser.selectedInstanceID }
+        nonmutating set { browser.selectedInstanceID = newValue }
+    }
     /// Which profile the detail pane is showing, at regular width. Nil on iPhone,
     /// where the row pushes instead.
-    @State private var selectedProfileID: ArrQualityProfile.ID?
+    private var selectedProfileID: ArrQualityProfile.ID? {
+        get { browser.selectedProfileID }
+        nonmutating set { browser.selectedProfileID = newValue }
+    }
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
     @State private var isSaving = false
@@ -47,17 +59,8 @@ struct ArrQualityProfilesListView: View {
         profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     private var selectedProfile: ArrQualityProfile? {
         sortedProfiles.first { $0.id == selectedProfileID }
@@ -80,7 +83,7 @@ struct ArrQualityProfilesListView: View {
                 onDuplicate: { editorSession = .duplicate(from: profile) },
                 onDelete: { profilePendingDelete = profile }
             )
-            .id(profile.id)
+            .id(ArrScopedID(selectedInstance?.id, profile.id))
         } else {
             listDetailPlaceholder("Select a Quality Profile", systemImage: "slider.horizontal.3")
         }
@@ -114,17 +117,19 @@ struct ArrQualityProfilesListView: View {
             selectedProfileDetail
         }
         .toolbar {
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button {
-                    Task { await beginNewProfile() }
-                } label: {
-                    if isLoadingSchema {
-                        ProgressView()
-                    } else {
-                        Label("New Profile", systemImage: "plus")
+            if sidebarColumn != .detail {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Button {
+                        Task { await beginNewProfile() }
+                    } label: {
+                        if isLoadingSchema {
+                            ProgressView()
+                        } else {
+                            Label("New Profile", systemImage: "plus")
+                        }
                     }
+                    .disabled(isSaving || isLoadingSchema || scopedClient == nil)
                 }
-                .disabled(isSaving || isLoadingSchema || scopedClient == nil)
             }
         }
         .sheet(item: $editorSession) { session in
@@ -170,7 +175,8 @@ struct ArrQualityProfilesListView: View {
 
 
     private var profileList: some View {
-        List(selection: $selectedProfileID) {
+        @Bindable var browser = self.browser
+        return List(selection: $browser.selectedProfileID) {
             Section {
                 ForEach(sortedProfiles) { profile in
                     profileRow(profile)
@@ -216,7 +222,7 @@ struct ArrQualityProfilesListView: View {
         #endif
         .moreDestinationBackground(.qualityProfiles)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+            ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
         }
     }
 

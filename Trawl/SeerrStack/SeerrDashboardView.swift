@@ -3,24 +3,21 @@ import Observation
 
 struct SeerrDashboardView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
-    @State private var viewModel: SeerrRequestManagementViewModel?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(SeerrRequestBrowserState.self) private var sharedBrowser: SeerrRequestBrowserState?
+    @State private var localBrowser = SeerrRequestBrowserState()
+    private var browser: SeerrRequestBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var viewModel: SeerrRequestManagementViewModel? { browser.viewModel }
     @State private var deleteTarget: SeerrRequestDisplayItem?
     @State private var requestSearchText = ""
     @State private var isSearchExpanded = false
     /// Which request the detail pane is showing, at regular width. Nil on iPhone,
     /// where the row pushes instead.
-    @State private var selectedRequestID: Int?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
+    private var selectedRequestID: Int? { browser.selectedRequestID }
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     var body: some View {
         Group {
@@ -31,9 +28,12 @@ struct SeerrDashboardView: View {
                 // side, the queue stays in front of you while you work through it.
                 TrawlListDetailPanes(title: "Requests") {
                     requestList(viewModel: viewModel)
+                        .configurationAttention(.requests)
                 } detail: {
                     selectedRequestDetail(viewModel: viewModel)
                 }
+            } else if sidebarColumn == .detail {
+                listDetailPlaceholder("Select a Request", systemImage: "square.and.arrow.down.on.square")
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -41,10 +41,10 @@ struct SeerrDashboardView: View {
         }
         // An approved request that never becomes a download is almost always Seerr
         // having no Sonarr or Radarr to hand it to, and this is where it is noticed.
-        .configurationAttention(.requests)
         .task {
+            guard sidebarColumn != .detail else { return }
             if viewModel == nil, let client = seerrServiceManager.activeClient {
-                viewModel = SeerrRequestManagementViewModel(apiClient: client)
+                browser.viewModel = SeerrRequestManagementViewModel(apiClient: client)
             }
             await viewModel?.loadIfNeeded()
         }
@@ -105,7 +105,8 @@ struct SeerrDashboardView: View {
                     || item.request.requestedBy?.displayName.localizedCaseInsensitiveContains(query) == true
             }
 
-        List(selection: $selectedRequestID) {
+        @Bindable var browser = self.browser
+        List(selection: $browser.selectedRequestID) {
             if !isSearchExpanded, let requestCount = viewModel.requestCount {
                 seerrOverviewSection(requestCount)
             }
@@ -321,7 +322,7 @@ extension EnvironmentValues {
 
 @MainActor
 @Observable
-private final class SeerrRequestManagementViewModel {
+final class SeerrRequestManagementViewModel {
     private(set) var requests: [SeerrRequestDisplayItem] = []
     private(set) var searchRequests: [SeerrRequestDisplayItem] = []
     private(set) var requestCount: SeerrRequestCount?
@@ -604,7 +605,7 @@ private final class SeerrRequestManagementViewModel {
     }
 }
 
-private struct SeerrRequestDisplayItem: Identifiable {
+struct SeerrRequestDisplayItem: Identifiable {
     let request: SeerrMediaRequest
     var title: String
     var mediaTypeLabel: String
@@ -717,7 +718,9 @@ private struct SeerrRequestRow: View {
 #if DEBUG
 extension SeerrDashboardView {
     fileprivate init(previewViewModel: SeerrRequestManagementViewModel) {
-        self._viewModel = State(initialValue: previewViewModel)
+        let browser = SeerrRequestBrowserState()
+        browser.viewModel = previewViewModel
+        self._localBrowser = State(initialValue: browser)
     }
 }
 

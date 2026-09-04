@@ -272,21 +272,8 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     // MARK: - Detail-pane titles
 
-    /// The one assertion-bearing test in this file, and it earns the exception.
-    ///
-    /// Every two-pane screen puts its own title on the *list* pane and gives the
-    /// detail pane a `NavigationStack` of its own. Both halves are needed and
-    /// neither is obvious, so both have already been got wrong once: with no stack
-    /// on the detail pane its `navigationTitle` is written into the column's bar and
-    /// wins on sibling order, blanking the screen's name the moment a row is picked;
-    /// with the stack but the title hoisted onto a wrapper *around* both panes, the
-    /// title attaches to that inner stack instead and the column's bar goes empty.
-    ///
-    /// A capture alone cannot defend that - the regression is a title that is
-    /// *absent*, and nobody re-reads an old screenshot. So this asserts the screen's
-    /// name is still above its list after a row is selected, and that the bar has
-    /// taken the selection's name rather than the screen's, and photographs both
-    /// states either way so a failure can be looked at rather than guessed at.
+    /// Indexers and its selected indexer own separate navigation columns and titles.
+    /// Download Clients retains its existing list header and detail title.
     @MainActor
     func testDetailPaneTitlesSurviveSelection() async throws {
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
@@ -304,14 +291,8 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         // against a screen where no selection happened passes without ever exercising
         // the thing it exists to catch. That has now produced three false passes.
         //
-        // Two panes share one navigation bar, and the arrangement they settled on
-        // gives each name a place of its own: the screen names itself above its list,
-        // the bar's title is the detail's. So there are two things to check and they
-        // are different things. The screen's name is matched by *identifier*, because
-        // matching it by text is the false pass that started all this - the Sonarr
-        // download-client list is itself titled "Download Clients", so a text search
-        // finds the detail's title and calls the screen healthy while it is broken.
-        // `bar` is compared whole for the same reason.
+        // Locate the screen title by its owning bar or identified header. A global
+        // text match could find the selected item or a similarly named detail.
         let panes: [(sidebarCase: String, screen: String, row: String, bar: [String])] = [
             (
                 "downloadClients",
@@ -326,6 +307,9 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                 ProwlarrUIFixtureServer.indexerName,
                 [ProwlarrUIFixtureServer.indexerName, "Prowlarr"]
             ),
+            ("linkedApplications", "Linked Applications", "Indexer Sync", ["Linked Apps", "Prowlarr"]),
+            ("qualityProfiles", "Quality Profiles", "Fixture HD Profile", ["Fixture HD Profile", "Sonarr"]),
+            ("tasks", "Tasks", "Arr Tasks", ["Arr Tasks"]),
         ]
 
         for (offset, pane) in panes.enumerated() {
@@ -338,6 +322,160 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                 index: 41 + offset
             )
         }
+    }
+
+    /// Exercise two real calendar selections: the second also proves detail artwork
+    /// does not intercept taps intended for the calendar beside it.
+    @MainActor
+    func testCalendarAndMissingSelectionsUpdateTheDetailColumn() async throws {
+        continueAfterFailure = false
+        let date = Date.now.ISO8601Format()
+        let server = try await SonarrFixtureServer(
+            seriesJSON: #"[{"id":1,"title":"Calendar First Series"},{"id":2,"title":"Calendar Second Series"}]"#,
+            calendarJSON: """
+            [{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"First Airing","airDateUtc":"\(date)"},
+             {"id":102,"seriesId":2,"seasonNumber":1,"episodeNumber":1,"title":"Second Airing","airDateUtc":"\(date)"}]
+            """,
+            wantedJSON: #"{"page":1,"pageSize":20,"totalRecords":2,"records":[{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"First Airing","hasFile":false,"monitored":true,"series":{"id":1,"title":"Calendar First Series"}},{"id":102,"seriesId":2,"seasonNumber":1,"episodeNumber":1,"title":"Second Airing","hasFile":false,"monitored":true,"series":{"id":2,"title":"Calendar Second Series"}}]}"#
+        )
+        sonarr = server
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = Self.unreachableTMDbURL
+        app.launch()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        for (destination, screen, placeholderText) in [
+            (TrawlDestination.calendar, "Calendar", "Select a calendar item to view it"),
+            (TrawlDestination.missing, "Missing", "Select a missing item to view it")
+        ] {
+            XCTAssertTrue(openDestination(destination, in: app))
+            let placeholder = app.staticTexts[placeholderText]
+            XCTAssertTrue(placeholder.waitForExistence(timeout: 15))
+            for title in ["Calendar First Series", "Calendar Second Series"] {
+                let row = app.staticTexts[title].firstMatch
+                XCTAssertTrue(row.waitForExistence(timeout: 15))
+                XCTAssertTrue(row.isHittable)
+                row.tap()
+                let detailBar = app.navigationBars[title]
+                XCTAssertTrue(detailBar.waitForExistence(timeout: 15))
+                XCTAssertFalse(placeholder.exists)
+                let listBar = app.navigationBars[screen]
+                XCTAssertTrue(listBar.exists)
+                XCTAssertLessThan(listBar.frame.midX, detailBar.frame.minX)
+                XCTAssertFalse(server.hasReceivedRequest(method: "POST", path: "/api/v3/command"), "Selecting a missing row must not start an automatic search.")
+            }
+            capture(app, "\(screen)-second-selection")
+        }
+    }
+
+    @MainActor
+    func testMissingCompactRowConfirmsBeforeSearching() async throws {
+        continueAfterFailure = false
+        let server = try await SonarrFixtureServer(
+            seriesJSON: #"[{"id":1,"title":"Missing Fixture Series"}]"#,
+            wantedJSON: #"{"page":1,"pageSize":20,"totalRecords":1,"records":[{"id":101,"seriesId":1,"title":"Missing Episode","seasonNumber":1,"episodeNumber":1,"hasFile":false,"monitored":true,"series":{"id":1,"title":"Missing Fixture Series"}}]}"#
+        )
+        sonarr = server
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = Self.unreachableTMDbURL
+        app.launch()
+        XCTAssertTrue(openDestination(.missing, in: app))
+        let row = app.staticTexts["Missing Fixture Series"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        let dialog = app.sheets["Search for Missing Fixture Series?"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5))
+        XCTAssertFalse(server.hasReceivedRequest(method: "POST", path: "/api/v3/command"))
+        capture(app, "missing-search-confirmation")
+        if app.buttons["Cancel"].exists {
+            app.buttons["Cancel"].tap()
+        } else {
+            app.navigationBars["Missing"].staticTexts["Missing"].tap()
+        }
+        XCTAssertTrue(dialog.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(server.hasReceivedRequest(method: "POST", path: "/api/v3/command"))
+        row.tap()
+        XCTAssertTrue(dialog.waitForExistence(timeout: 5))
+        dialog.buttons["Search"].tap()
+        let request = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            server.hasReceivedRequest(method: "POST", path: "/api/v3/command")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [request], timeout: 5), .completed)
+        XCTAssertFalse(app.navigationBars["Missing Fixture Series"].exists)
+    }
+
+    @MainActor
+    func testSidebarPositionSurvivesColumnCountChanges() async throws {
+        continueAfterFailure = false
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        for (source, target, title) in [
+            ("rootFolders", "qualityProfiles", "Quality Profiles"),
+            ("libraryImport", "indexers", "Indexers"),
+            ("qualityProfiles", "rootFolders", "Root Folders")
+        ] {
+            let sourceRow = try XCTUnwrap(sidebarRow(app, source))
+            tapEvenIfNotHittable(sourceRow)
+            let targetRow = try XCTUnwrap(sidebarRow(app, target))
+            if targetRow.frame.maxY > app.frame.height * 0.8 {
+                app.collectionViews.containing(.any, identifier: "nav.\(target)").firstMatch.swipeUp()
+            }
+            XCTAssertTrue(targetRow.isHittable)
+            let before = targetRow.frame
+            capture(app, "sidebar-\(source)-before-\(target)")
+            tapEvenIfNotHittable(targetRow)
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15))
+            let restored = app.cells.containing(.any, identifier: "nav.\(target)").firstMatch
+            XCTAssertTrue(restored.exists)
+            capture(app, "sidebar-\(source)-to-\(target)")
+            XCTAssertEqual(restored.frame.minY, before.minY, accuracy: 12, "The sidebar must keep the tapped row in place when changing column count.")
+        }
+    }
+
+    @MainActor
+    func testTitleMenusLeadTheirIPadColumns() async throws {
+        continueAfterFailure = false
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft, multipleInstances: true)
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        for (destination, name) in [(TrawlDestination.downloads, "Downloads"), (.series, "Series"), (.movies, "Movies")] {
+            XCTAssertTrue(openDestination(destination, in: app))
+            let menu = app.buttons.matching(NSPredicate(format: "label ENDSWITH %@", ", change view")).firstMatch
+            XCTAssertTrue(menu.waitForExistence(timeout: 15))
+            let sidebar = app.collectionViews.containing(.any, identifier: "nav.downloads").firstMatch
+            XCTAssertTrue(sidebar.exists)
+            capture(app, "\(name)-leading-title-menu")
+            XCTAssertGreaterThanOrEqual(menu.frame.minX, sidebar.frame.maxX)
+            XCTAssertLessThan(menu.frame.minX - sidebar.frame.maxX, 45, "The title menu must sit at the leading edge of its column.")
+        }
+    }
+
+    @MainActor
+    func testQueueActionDialogsBelongToTheirRows() async throws {
+        continueAfterFailure = false
+        let server = try await SonarrFixtureServer(seriesJSON: "[]", queueJSON: #"{"page":1,"pageSize":20,"totalRecords":2,"records":[{"id":101,"title":"First Unlinked Download","status":"downloading","size":1000,"sizeleft":500},{"id":102,"title":"Second Unlinked Download","status":"downloading","size":1000,"sizeleft":500}]}"#)
+        sonarr = server
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launch()
+        XCTAssertTrue(openDestination(.downloads, in: app))
+        for title in ["First Unlinked Download", "Second Unlinked Download"] {
+            let row = app.staticTexts[title].firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 15))
+            row.tap()
+            let remove = app.buttons["Remove from Queue"].firstMatch
+            XCTAssertTrue(remove.waitForExistence(timeout: 5))
+            capture(app, "dialog-\(title)")
+            // An outside tap dismisses an iPad popover without performing an action.
+            app.navigationBars["Trawl"].staticTexts["Trawl"].tap()
+        }
+        XCTAssertFalse(server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/101"))
+        XCTAssertFalse(server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/102"))
     }
 
     /// The two screens that gained a detail pane, photographed with nothing selected.
@@ -370,7 +508,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             }
             tapEvenIfNotHittable(row)
 
-            let name = app.staticTexts[TrawlListDetailPanesIdentifiers.screenName]
+            let name = app.navigationBars[screen.screen]
             if !name.waitForExistence(timeout: 15) {
                 capture(app, "\(45 + offset)-\(screen.sidebarCase)-MISS-no-screen-name")
                 dumpNavigationBars(app, label: screen.sidebarCase)
@@ -379,8 +517,8 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                 continue
             }
             XCTAssertTrue(
-                name.label.contains(screen.screen),
-                "\(screen.screen): the pane header reads \(name.label)"
+                name.staticTexts[screen.screen].exists,
+                "\(screen.screen): the native list navigation bar must contain its title"
             )
 
             let placeholder = app.staticTexts[screen.placeholder]
@@ -464,7 +602,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
         tapEvenIfNotHittable(sidebarEntry)
 
-        let header = app.staticTexts[TrawlListDetailPanesIdentifiers.screenName]
+        let header = app.navigationBars[title].staticTexts[title]
         guard header.waitForExistence(timeout: 15) else {
             capture(app, "\(index)-\(sidebarCase)-MISS-title-before-selection")
             XCTFail("\(title): the screen never named itself, before any row was picked")
@@ -514,6 +652,25 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             "\(title): the screen stopped naming itself once \(rowLabel) was selected "
                 + "- the pane header reads \(header.exists ? header.label : "<absent>")"
         )
+
+        let listBar = app.navigationBars[title]
+        let detailBar = app.navigationBars[expectedBar[0]]
+        XCTAssertTrue(detailBar.waitForExistence(timeout: 10),
+                      "The detail column must name the selected item.")
+        XCTAssertTrue(listBar.exists, "The list column must keep its own title.")
+        XCTAssertLessThan(listBar.frame.midX, detailBar.frame.minX,
+                          "The list title must be in a separate navigation bar to the left of the detail.")
+        XCTAssertFalse(app.staticTexts[TrawlListDetailPanesIdentifiers.screenName].exists,
+                       "A content header must not replace either navigation title.")
+
+        if sidebarCase == "indexers" {
+            XCTAssertTrue(openDestination(.series, in: app))
+            XCTAssertFalse(detailBar.exists, "Indexer detail must not survive over another sidebar destination.")
+            XCTAssertTrue(openDestination(.indexers, in: app))
+            XCTAssertTrue(app.navigationBars["Indexers"].waitForExistence(timeout: 10))
+            XCTAssertTrue(detailBar.waitForExistence(timeout: 10),
+                          "Returning to Indexers must restore its selected indexer.")
+        }
 
         let actual = app.navigationBars[expectedBar[0]].staticTexts.allElementsBoundByIndex.map(\.label)
         XCTAssertEqual(
@@ -913,11 +1070,13 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     private func launchFullyConfiguredApp(
-        orientation: UIDeviceOrientation
+        orientation: UIDeviceOrientation,
+        multipleInstances: Bool = false
     ) async throws -> XCUIApplication {
         let sonarrServer = try await SonarrFixtureServer(
             seriesJSON: Self.seriesLibraryJSON(),
-            statusJSON: #"{"instanceName":"Fixture Sonarr"}"#
+            statusJSON: #"{"instanceName":"Fixture Sonarr"}"#,
+            qualityProfilesJSON: #"[{"id":1,"name":"Fixture HD Profile","upgradeAllowed":true,"cutoff":1,"items":[]}]"#
         )
         sonarr = sonarrServer
 
@@ -954,6 +1113,10 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = seerrServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = jellyfinServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_PROWLARR_BASE_URL"] = prowlarrServer.baseURL
+        if multipleInstances {
+            app.launchEnvironment["TRAWL_UITEST_SONARR_B_BASE_URL"] = sonarrServer.baseURL
+            app.launchEnvironment["TRAWL_UITEST_RADARR_B_BASE_URL"] = radarrServer.baseURL
+        }
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = Self.unreachableTMDbURL
         app.launch()
         return app

@@ -35,6 +35,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private let statusResponseBody: String
     /// Body for `GET /api/v3/episode`. Defaults to an empty array, so every suite
     /// that predates episode coverage keeps exactly the behaviour it had.
+    private let qualityProfilesJSON: String
+    private let queueJSON: String
+    private let wantedJSON: String
+    private let calendarJSON: String
     private let episodesResponseBody: String
     private let episodeFilesResponseBody: String
     private let downloadClientsJSON: String
@@ -60,6 +64,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
         acceptedAPIKey: String? = nil,
         statusJSON: String = "{}",
         episodesJSON: String = "[]",
+        calendarJSON: String = "[]",
+        qualityProfilesJSON: String = "[]",
+        wantedJSON: String = "[]",
+        queueJSON: String = #"{"page":1,"pageSize":20,"totalRecords":0,"records":[]}"#,
         episodeFilesJSON: String = "[]",
         /// Defaults to none, which is a real answer rather than a failure: a server
         /// with no download client is a state the app has to render.
@@ -80,6 +88,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
         self.seriesResponseBody = seriesJSON
         self.acceptedAPIKey = acceptedAPIKey
         self.statusResponseBody = statusJSON
+        self.qualityProfilesJSON = qualityProfilesJSON
+        self.wantedJSON = wantedJSON
+        self.queueJSON = queueJSON
+        self.calendarJSON = calendarJSON
         self.episodesResponseBody = episodesJSON
         self.episodeFilesResponseBody = episodeFilesJSON
 
@@ -175,7 +187,9 @@ final class SonarrFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v3/system/status"):
             return statusResponseBody
         case ("GET", "/api/v3/qualityprofile"):
-            return "[]"
+            return qualityProfilesJSON
+        case ("GET", "/api/v3/wanted/missing"):
+            return wantedJSON
         case ("GET", "/api/v3/log"):
             return logJSON
         case ("GET", "/api/v3/downloadclient"):
@@ -188,6 +202,14 @@ final class SonarrFixtureServer: @unchecked Sendable {
             return "[]"
         case ("GET", "/api/v3/series"):
             return seriesResponseBody
+        case ("POST", "/api/v3/command"):
+            return #"{"id":77,"name":"EpisodeSearch","status":"queued"}"#
+        case ("GET", "/api/v3/queue"):
+            return queueJSON
+        case ("GET", "/api/v3/history"), ("GET", "/api/v3/blocklist"):
+            return #"{"page":1,"pageSize":20,"totalRecords":0,"records":[]}"#
+        case ("GET", "/api/v3/calendar"):
+            return calendarJSON
         case ("GET", "/api/v3/episode"):
             return episodesResponseBody
         case ("GET", "/api/v3/episodefile"):

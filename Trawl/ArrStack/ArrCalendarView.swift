@@ -429,7 +429,6 @@ struct ArrCalendarView: View {
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     #endif
-    @Environment(\.hasDetailPane) private var hasDetailPane
 
     let showsCloseButton: Bool
 
@@ -440,7 +439,13 @@ struct ArrCalendarView: View {
     @State private var scope: CalendarScope = .all
     /// Which release the detail pane is showing, at regular width. Nil on iPhone,
     /// where a row pushes instead.
-    @State private var selectedMedia: ArrMediaDestination?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<ArrMediaDestination>.self) private var sharedSelection: TrawlColumnSelection<ArrMediaDestination>?
+    @State private var localSelection = TrawlColumnSelection<ArrMediaDestination>()
+    private var selectionStore: TrawlColumnSelection<ArrMediaDestination> {
+        sidebarColumn == nil || showsCloseButton ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedMedia: ArrMediaDestination? { selectionStore.selection }
     @State private var showMonitoredOnly = false
     @State private var scrollView: ScrollViewProxy?
     @State private var hideCalendarView = true
@@ -496,6 +501,17 @@ struct ArrCalendarView: View {
     }
     
     var body: some View {
+        if sidebarColumn == .detail && !showsCloseButton {
+            selectedMediaDetail
+                .environment(\.isDetailPane, true)
+                .environment(\.sidebarNavigationColumn, nil)
+                .arrMediaNavigationDestinations()
+        } else {
+            listBody
+        }
+    }
+
+    private var listBody: some View {
         calendarPanes
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .tabBar)
@@ -600,6 +616,7 @@ struct ArrCalendarView: View {
     private var calendarPanes: some View {
         if showsCloseButton {
             calendarScreen
+                .environment(\.hasDetailPane, false)
                 .navigationTitle("Calendar")
                 .navigationSubtitle(navigationSubtitleText)
         } else {
@@ -798,25 +815,8 @@ struct ArrCalendarView: View {
         instance: ArrInstanceRef?,
         destination: ArrMediaDestination
     ) -> some View {
-        if hasDetailPane {
-            Button {
-                selectedMedia = destination
-            } label: {
-                EventRow(event: event, instance: instance)
-            }
-            .buttonStyle(.plain)
-            .background {
-                if selectedMedia == destination {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.18))
-                        .padding(.horizontal, -8)
-                }
-            }
-        } else {
-            NavigationLink(value: destination) {
-                EventRow(event: event, instance: instance)
-            }
-            .buttonStyle(.plain)
+        TrawlPaneNavigationLink(selection: selectionStore.binding, value: destination) {
+            EventRow(event: event, instance: instance)
         }
     }
 

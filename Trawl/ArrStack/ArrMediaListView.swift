@@ -100,7 +100,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         baseContent
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(navigationSubtitleText)
+            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitleText)
             #if os(iOS)
             .toolbarTitleDisplayMode(showsTitleMenu || editMode.isEditing ? .inline : .inlineLarge)
             .environment(\.editMode, swiftUIEditMode)
@@ -399,13 +399,15 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @ToolbarContentBuilder
     private var titleMenuToolbarItem: some ToolbarContent {
         if showsTitleMenu {
-            ToolbarItem(placement: .principal) {
+            ToolbarItem(placement: detailSelection == nil ? .principal : platformTopBarLeadingPlacement) {
                 TrawlTitleMenu(
                     options: titleMenuOptions,
                     selection: titleMenuSelection,
-                    isCompact: isTitleCompact
+                    isCompact: isTitleCompact,
+                    subtitle: detailSelection == nil ? nil : navigationSubtitleText
                 )
             }
+            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
         }
     }
 

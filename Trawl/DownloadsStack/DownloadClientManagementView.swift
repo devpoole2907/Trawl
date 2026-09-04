@@ -16,9 +16,6 @@ struct DownloadClientManagementView: View {
     /// Which client's hub the detail pane is showing, at regular width. Nil on
     /// iPhone, where the row pushes instead.
     @State private var selectedSource: Source?
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
 
     /// The clients this screen can open. Deliberately not the *Arr* download-client
     /// lists below - those are wiring, and belong to the server that owns them.
@@ -27,13 +24,8 @@ struct DownloadClientManagementView: View {
         case sabnzbd
     }
 
-    private var showsDetailPane: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     var body: some View {
         // Two panes at regular width: the clients on the left, whichever one you are

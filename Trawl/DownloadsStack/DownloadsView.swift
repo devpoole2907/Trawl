@@ -233,15 +233,17 @@ struct DownloadsView: View {
         // navigation title, so leaving this in place while selecting would draw
         // the menu over the selection count rather than beside it.
         if showsTitleMenu {
-            ToolbarItem(placement: .principal) {
+            ToolbarItem(placement: detailSelection == nil ? .principal : platformTopBarLeadingPlacement) {
                 TrawlTitleMenu(
                     options: availableTitleDestinations.map {
                         TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)
                     },
                     selection: userChosenTitleDestination,
-                    isCompact: isTitleCompact
+                    isCompact: isTitleCompact,
+                    subtitle: detailSelection == nil ? nil : navigationSubtitle
                 )
             }
+            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
         }
     }
 
@@ -391,7 +393,7 @@ struct DownloadsView: View {
             }
             .background(backgroundGradient)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(navigationSubtitle)
+            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitle)
             #if os(iOS)
             // Inline while selecting: a large "3 Selected" would tower over the
             // Select All / Done pair it sits between, and it is a transient count
@@ -500,20 +502,7 @@ struct DownloadsView: View {
             } message: {
                 Text("This action can’t be undone.")
             }
-            .confirmationDialog(
-                queueActionTarget?.item.title ?? "Queue Item",
-                isPresented: queueActionDialogPresented,
-                titleVisibility: .visible,
-                presenting: queueActionTarget
-            ) { target in
-                arrQueueClientActions(
-                    linkedTorrent: target.linkedTorrent,
-                    linkedSABJob: target.linkedSABJob,
-                    includesSeparators: false
-                )
-                arrQueueRemovalActions(item: target.item, source: target.source, instance: target.instance)
-                Button("Cancel", role: .cancel) { queueActionTarget = nil }
-            }
+
     }
 
     @ViewBuilder
@@ -1121,6 +1110,20 @@ struct DownloadsView: View {
                 }
             }
         }
+        .confirmationDialog(
+            queueActionTarget?.item.title ?? "Queue Item",
+            isPresented: queueActionDialogPresented(for: target.id),
+            titleVisibility: .visible,
+            presenting: queueActionTarget
+        ) { target in
+            arrQueueClientActions(
+                linkedTorrent: target.linkedTorrent,
+                linkedSABJob: target.linkedSABJob,
+                includesSeparators: false
+            )
+            arrQueueRemovalActions(item: target.item, source: target.source, instance: target.instance)
+            Button("Cancel", role: .cancel) { queueActionTarget = nil }
+        }
         .disabled(isInFlight)
         .contextMenu {
             if linkedTorrent != nil || linkedSABJob != nil {
@@ -1424,10 +1427,10 @@ struct DownloadsView: View {
         )
     }
 
-    private var queueActionDialogPresented: Binding<Bool> {
+    private func queueActionDialogPresented(for id: String) -> Binding<Bool> {
         Binding(
-            get: { queueActionTarget != nil },
-            set: { if !$0 { queueActionTarget = nil } }
+            get: { queueActionTarget?.id == id },
+            set: { if !$0, queueActionTarget?.id == id { queueActionTarget = nil } }
         )
     }
 
