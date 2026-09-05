@@ -72,9 +72,13 @@ extension View {
     /// `ScrollView` has no intrinsic height, so a sheet wrapping one collapses to a sliver.
     /// Shell-based sheets state this with `minContentHeight`; this is the equivalent for a
     /// bare `NavigationStack` in a `.sheet`.
-    func macSheetSizing(minHeight: CGFloat = 520) -> some View {
+    func macSheetSizing(
+        minWidth: CGFloat = 540,
+        idealWidth: CGFloat = 580,
+        minHeight: CGFloat = 520
+    ) -> some View {
         #if os(macOS)
-        frame(minWidth: 540, idealWidth: 580, minHeight: minHeight)
+        frame(minWidth: minWidth, idealWidth: idealWidth, minHeight: minHeight)
         #else
         self
         #endif

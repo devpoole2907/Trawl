@@ -961,6 +961,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 Text("qBittorrent already has \"\(candidate.torrent.name)\". Trawl can remove that qBittorrent job without deleting files, then retry this grab.")
             }
         }
+        .macSheetSizing(minWidth: 620, idealWidth: 720, minHeight: 560)
     }
 
     private func releaseList(_ derived: DerivedReleases) -> some View {
