@@ -1402,6 +1402,11 @@ struct RadarrMovieDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        #if os(macOS)
+        // macOS shares one toolbar between the split view's list and detail
+        // columns. Keep this movie's actions in a separate trailing group.
+        ToolbarSpacer(.flexible, placement: .primaryAction)
+        #endif
         ToolbarItem(placement: .primaryAction) {
             if isInLibrary {
                 if let movie = actionCopy {

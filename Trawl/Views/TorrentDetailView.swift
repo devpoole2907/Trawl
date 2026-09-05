@@ -39,9 +39,18 @@ struct TorrentDetailView: View {
         #endif
         .toolbar {
             if let vm = viewModel, let torrent = vm.torrent {
+                #if os(macOS)
+                // A split view has one window toolbar on macOS. Separate this
+                // detail action from the list column's toolbar group.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    actionsMenu(vm: vm, torrent: torrent)
+                }
+                #else
                 ToolbarItem(placement: .automatic) {
                     actionsMenu(vm: vm, torrent: torrent)
                 }
+                #endif
             }
         }
         .task {

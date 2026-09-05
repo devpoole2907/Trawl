@@ -95,6 +95,11 @@ struct SABnzbdJobDetailView: View {
         #endif
         .toolbar {
             if let job {
+                #if os(macOS)
+                // A split view has one window toolbar on macOS. Separate this
+                // detail action from the list column's toolbar group.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     actionsMenu(for: job)
                 }

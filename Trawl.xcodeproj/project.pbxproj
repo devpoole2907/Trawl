@@ -292,6 +292,7 @@
 				SeerrStack/SeerrDVRModels.swift,
 				SeerrStack/SeerrIssue.swift,
 				"SeerrStack/SeerrIssue+Preview.swift",
+				SeerrStack/SeerrIssueBrowserState.swift,
 				SeerrStack/SeerrIssueDetailView.swift,
 				SeerrStack/SeerrIssueDetailViewModel.swift,
 				SeerrStack/SeerrIssueListView.swift,
@@ -361,6 +362,7 @@
 				Views/InAppNotificationBanner.swift,
 				Views/InAppNotificationHostingController.swift,
 				Views/InAppNotificationWindowOverlay.swift,
+				Views/JellyfinCredentialHandoff.swift,
 				Views/MoreView.swift,
 				Views/NotificationTabBarAccessory.swift,
 				Views/OnboardingSheet.swift,
@@ -393,7 +395,6 @@
 				Views/UnifiedUserBrowserState.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
-				Views/JellyfinCredentialHandoff.swift,
 				Views/WelcomeFlowView.swift,
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
@@ -637,6 +638,7 @@
 				SeerrStack/SeerrDVRModels.swift,
 				SeerrStack/SeerrIssue.swift,
 				"SeerrStack/SeerrIssue+Preview.swift",
+				SeerrStack/SeerrIssueBrowserState.swift,
 				SeerrStack/SeerrIssueDetailView.swift,
 				SeerrStack/SeerrIssueDetailViewModel.swift,
 				SeerrStack/SeerrIssueListView.swift,
@@ -705,6 +707,7 @@
 				Views/InAppNotificationBanner.swift,
 				Views/InAppNotificationHostingController.swift,
 				Views/InAppNotificationWindowOverlay.swift,
+				Views/JellyfinCredentialHandoff.swift,
 				Views/MoreView.swift,
 				Views/NotificationTabBarAccessory.swift,
 				Views/OnboardingSheet.swift,
@@ -736,7 +739,6 @@
 				Views/UnifiedUserBrowserState.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
-				Views/JellyfinCredentialHandoff.swift,
 				Views/WelcomeFlowView.swift,
 			);
 			target = FF000003FF000003FF000003 /* TrawlWidgets */;

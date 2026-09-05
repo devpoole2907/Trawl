@@ -3,26 +3,164 @@ import SwiftUI
 struct SeerrIssueListView: View {
     let apiClient: SeerrAPIClient
 
-    @State private var viewModel: SeerrIssueListViewModel
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(SeerrIssueBrowserState.self) private var sharedBrowser: SeerrIssueBrowserState?
+    @State private var localBrowser = SeerrIssueBrowserState()
+    private var browser: SeerrIssueBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var viewModel: SeerrIssueListViewModel? { browser.viewModel }
+    private var selectedIssueID: Int? { browser.selectedIssueID }
     @State private var issueSearchText = ""
     @State private var isSearchExpanded = false
 
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
+    private var seerrClientID: ObjectIdentifier {
+        ObjectIdentifier(apiClient)
+    }
+
     init(apiClient: SeerrAPIClient) {
         self.apiClient = apiClient
-        self._viewModel = State(initialValue: SeerrIssueListViewModel(apiClient: apiClient))
     }
 
     var body: some View {
         Group {
-            issueContentView
+            if let viewModel {
+                TrawlListDetailPanes(title: "Issues", subtitle: "Seerr") {
+                    issueList(viewModel: viewModel)
+                } detail: {
+                    selectedIssueDetail(viewModel: viewModel)
+                }
+            } else if sidebarColumn == .detail {
+                listDetailPlaceholder("Select an Issue", systemImage: "exclamationmark.bubble")
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .task(id: seerrClientID) {
+            guard sidebarColumn != .detail else { return }
+            if browser.viewModel == nil || browser.viewModelSeerrClientID != seerrClientID {
+                browser.viewModel = SeerrIssueListViewModel(apiClient: apiClient)
+                browser.viewModelSeerrClientID = seerrClientID
+                await browser.viewModel?.loadIfNeeded()
+            } else {
+                await browser.viewModel?.loadIfNeeded()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func issueRow(
+        _ issue: SeerrIssue,
+        viewModel: SeerrIssueListViewModel
+    ) -> some View {
+        if showsDetailPane {
+            SeerrIssueRow(issue: issue)
+                .tag(issue.id)
+        } else {
+            NavigationLink {
+                issueDetail(issue, viewModel: viewModel)
+            } label: {
+                SeerrIssueRow(issue: issue)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectedIssueDetail(viewModel: SeerrIssueListViewModel) -> some View {
+        if let id = selectedIssueID,
+           let issue = (viewModel.issues + viewModel.searchIssues).first(where: { $0.id == id }) {
+            issueDetail(issue, viewModel: viewModel)
+                .id(issue.id)
+        } else {
+            listDetailPlaceholder("Select an Issue", systemImage: "exclamationmark.bubble")
+        }
+    }
+
+    private func issueDetail(_ issue: SeerrIssue, viewModel: SeerrIssueListViewModel) -> some View {
+        SeerrIssueDetailView(issue: issue, apiClient: apiClient) { updatedIssue in
+            viewModel.refreshIssue(updatedIssue)
+        }
+    }
+
+    @ViewBuilder
+    private func issueList(viewModel: SeerrIssueListViewModel) -> some View {
+        let query = issueSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredIssues = query.isEmpty ? viewModel.issues : filteredSearchIssues(matching: query, in: viewModel)
+
+        @Bindable var browser = self.browser
+        List(selection: $browser.selectedIssueID) {
+            if let errorMessage = viewModel.errorMessage {
+                ServiceErrorView(
+                    title: "Issues Unavailable",
+                    message: errorMessage,
+                    identity: .seerr,
+                    hasContent: !viewModel.issues.isEmpty,
+                    onRetry: { await viewModel.loadIssues() }
+                )
+            }
+
+            if viewModel.isLoading && viewModel.issues.isEmpty {
+                Section {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            } else if !query.isEmpty && viewModel.isLoadingSearch && viewModel.searchIssues.isEmpty {
+                Section {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            } else if query.isEmpty && viewModel.issues.isEmpty {
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Issues",
+                        systemImage: "checkmark.bubble",
+                        description: Text("No issues match the current status filter.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
+            } else if filteredIssues.isEmpty {
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView.search(text: query)
+                        .listRowBackground(Color.clear)
+                }
+            } else {
+                if query.isEmpty {
+                    Section {
+                        ForEach(viewModel.issues) { issue in
+                            issueRow(issue, viewModel: viewModel)
+                        }
+
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .task { await viewModel.loadMore() }
+                        }
+                    } header: {
+                        Text(viewModel.selectedFilter.rawValue)
+                    } footer: {
+                        Text(issueCountText(for: viewModel))
+                    }
+                } else {
+                    ForEach(issueSearchSections(matching: query, in: viewModel)) { section in
+                        Section(section.title) {
+                            ForEach(section.issues) { issue in
+                                issueRow(issue, viewModel: viewModel)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        .navigationTitle("Issues")
-        .navigationSubtitle("Seerr")
-#if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
-        .task { await viewModel.loadIfNeeded() }
         .refreshable { await viewModel.loadIssues() }
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar("Status", selection: Binding(
@@ -35,78 +173,20 @@ struct SeerrIssueListView: View {
             isSearchExpanded: $isSearchExpanded,
             searchPlacement: .leading,
             alignment: .leading)
+            .clipped()
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .onChange(of: issueSearchText) { _, newValue in
             Task { await viewModel.updateSearchIssues(for: newValue) }
         }
-
     }
 
-    @ViewBuilder
-    private var issueContentView: some View {
-        let query = issueSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        ArrLoadingErrorEmptyView(
-            isLoading: viewModel.isLoading || (!query.isEmpty && viewModel.isLoadingSearch && viewModel.searchIssues.isEmpty),
-            error: viewModel.errorMessage,
-            isEmpty: query.isEmpty ? viewModel.issues.isEmpty : filteredSearchIssues(matching: query).isEmpty,
-            emptyTitle: "No Issues",
-            emptyIcon: "checkmark.bubble",
-            emptyDescription: query.isEmpty ? "No issues match the current status filter." : "No issues match your search.",
-            onRetry: { await viewModel.loadIssues() }
-        ) {
-            List {
-                if query.isEmpty {
-                    Section {
-                        ForEach(viewModel.issues) { issue in
-                            issueNavigationLink(issue)
-                        }
-
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                                .task { await viewModel.loadMore() }
-                        }
-                    } header: {
-                        Text(viewModel.selectedFilter.rawValue)
-                    } footer: {
-                        Text(issueCountText)
-                    }
-                } else {
-                    ForEach(issueSearchSections(matching: query)) { section in
-                        Section(section.title) {
-                            ForEach(section.issues) { issue in
-                                issueNavigationLink(issue)
-                            }
-                        }
-                    }
-                }
-            }
-#if os(iOS)
-            .listStyle(.insetGrouped)
-#else
-            .listStyle(.inset)
-#endif
-            .scrollContentBackground(.hidden)
-        }
-    }
-
-    private func issueNavigationLink(_ issue: SeerrIssue) -> some View {
-        NavigationLink {
-            SeerrIssueDetailView(issue: issue, apiClient: apiClient) { updatedIssue in
-                viewModel.refreshIssue(updatedIssue)
-            }
-        } label: {
-            SeerrIssueRow(issue: issue)
-        }
-    }
-
-    private func filteredSearchIssues(matching query: String) -> [SeerrIssue] {
+    private func filteredSearchIssues(matching query: String, in viewModel: SeerrIssueListViewModel) -> [SeerrIssue] {
         viewModel.searchIssues.filter { $0.matchesIssueSearch(query) }
     }
 
-    private func issueSearchSections(matching query: String) -> [IssueSearchSection] {
-        let matches = filteredSearchIssues(matching: query)
+    private func issueSearchSections(matching query: String, in viewModel: SeerrIssueListViewModel) -> [IssueSearchSection] {
+        let matches = filteredSearchIssues(matching: query, in: viewModel)
         return SeerrIssueFilter.allCases.compactMap { filter in
             let issues = matches.filter { $0.issueStatus == filter.issueStatus }
             guard !issues.isEmpty else { return nil }
@@ -114,7 +194,7 @@ struct SeerrIssueListView: View {
         }
     }
 
-    private var issueCountText: String {
+    private func issueCountText(for viewModel: SeerrIssueListViewModel) -> String {
         let count = viewModel.totalIssueCount
         return "\(count) \(count == 1 ? "issue" : "issues")"
     }
@@ -238,7 +318,9 @@ extension SeerrIssueListView {
         previewViewModel: SeerrIssueListViewModel
     ) {
         self.apiClient = apiClient
-        self._viewModel = State(initialValue: previewViewModel)
+        let browser = SeerrIssueBrowserState()
+        browser.viewModel = previewViewModel
+        self._localBrowser = State(initialValue: browser)
     }
 }
 
