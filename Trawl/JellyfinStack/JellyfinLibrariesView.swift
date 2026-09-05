@@ -353,6 +353,7 @@ struct JellyfinLibrariesView: View {
 private struct JellyfinLibraryDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     let folder: JellyfinVirtualFolder
     let apiClient: JellyfinAPIClient
@@ -362,11 +363,22 @@ private struct JellyfinLibraryDetailView: View {
 
     @State private var showingAddPath = false
     @State private var showingRename = false
+    @State private var showingOptions = false
     @State private var pendingPathRemoval: String?
     @State private var pendingLibraryRemoval = false
 
     private var isScanning: Bool {
         scanningLibraryID == folder.itemId
+    }
+
+    /// A push is only right where this view owns the whole screen - the phone.
+    /// Beside a list pane, on the Mac or on iPad, the editor comes up as a sheet.
+    private var presentsOptionsInSheet: Bool {
+        #if os(macOS)
+        true
+        #else
+        hSizeClass == .regular
+        #endif
     }
 
     private var headerBadges: [ArrDetailBadge] {
@@ -462,14 +474,33 @@ private struct JellyfinLibraryDetailView: View {
                     }
                 }
 
-                NavigationLink {
-                    JellyfinLibraryOptionsView(
-                        folder: folder,
-                        apiClient: apiClient,
-                        onSaved: onChanged
-                    )
-                } label: {
-                    Label("Scanning & Metadata", systemImage: "slider.horizontal.3")
+                if presentsOptionsInSheet {
+                    // In a split view this editor has nowhere to push to: the detail
+                    // pane already holds the library, so a push would replace it and
+                    // lose the list beside it. A sheet keeps both in place.
+                    Button {
+                        showingOptions = true
+                    } label: {
+                        HStack {
+                            Label("Scanning & Metadata", systemImage: "slider.horizontal.3")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink {
+                        JellyfinLibraryOptionsView(
+                            folder: folder,
+                            apiClient: apiClient,
+                            onSaved: onChanged
+                        )
+                    } label: {
+                        Label("Scanning & Metadata", systemImage: "slider.horizontal.3")
+                    }
                 }
             } header: {
                 Text("Library")
@@ -570,6 +601,15 @@ private struct JellyfinLibraryDetailView: View {
             #if os(iOS)
             .presentationDetents([.medium])
             #endif
+        }
+        .sheet(isPresented: $showingOptions) {
+            AppSheetShell(title: "Scanning & Metadata", subtitle: folder.name, cancelTitle: "Done", minContentHeight: 560) {
+                JellyfinLibraryOptionsView(
+                    folder: folder,
+                    apiClient: apiClient,
+                    onSaved: onChanged
+                )
+            }
         }
         .sheet(isPresented: $showingRename) {
             JellyfinRenameLibrarySheet(folder: folder) { newName in
