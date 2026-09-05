@@ -751,6 +751,16 @@ struct ContentView: View {
     @ViewBuilder
     private func sidebarNotificationBar(services: AppServices) -> some View {
         if !isTabChromeHidden {
+            #if os(macOS)
+            NotificationTabBarAccessory()
+                .environment(services.syncService)
+                .environment(downloadsNavigator)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 2)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+            #else
             NotificationTabBarAccessory()
                 .environment(services.syncService)
                 .environment(downloadsNavigator)
@@ -762,6 +772,7 @@ struct ContentView: View {
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
+            #endif
         }
     }
 

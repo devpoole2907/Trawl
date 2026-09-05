@@ -271,8 +271,13 @@ struct NotificationTabBarAccessory: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
         }
+        #if os(macOS)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        #else
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        #endif
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }

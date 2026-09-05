@@ -353,6 +353,7 @@ struct RadarrMovieDetailView: View {
                         kind: .manual
                     )
                 }
+                .macSheetSizing()
             }
         }
         .sheet(isPresented: $showAddSheet) {

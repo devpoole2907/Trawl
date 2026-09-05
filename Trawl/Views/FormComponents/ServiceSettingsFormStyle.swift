@@ -64,3 +64,19 @@ extension View {
         #endif
     }
 }
+
+extension View {
+    /// Sizes a macOS sheet that is presented directly rather than through `AppSheetShell`.
+    ///
+    /// A Mac sheet takes its size from its content. A `Form` self-sizes, but a `List` or
+    /// `ScrollView` has no intrinsic height, so a sheet wrapping one collapses to a sliver.
+    /// Shell-based sheets state this with `minContentHeight`; this is the equivalent for a
+    /// bare `NavigationStack` in a `.sheet`.
+    func macSheetSizing(minHeight: CGFloat = 520) -> some View {
+        #if os(macOS)
+        frame(minWidth: 540, idealWidth: 580, minHeight: minHeight)
+        #else
+        self
+        #endif
+    }
+}

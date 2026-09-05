@@ -425,6 +425,7 @@ struct SonarrSeriesDetailView: View {
                         kind: .manual
                     )
                 }
+                .macSheetSizing()
             }
         }
         .sheet(isPresented: $showAddSheet) {

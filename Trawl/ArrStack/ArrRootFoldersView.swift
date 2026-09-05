@@ -389,6 +389,7 @@ private struct AddRootFolderSheet: View {
                             path = selectedPath
                         }
                     }
+                    .macSheetSizing()
                 }
             }
         }

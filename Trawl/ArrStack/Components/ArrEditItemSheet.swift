@@ -88,6 +88,7 @@ struct ArrEditItemSheet<TypeFields: View>: View {
             NavigationStack {
                 ArrQualityProfileDetailView(serviceType: serviceType, profile: profile)
             }
+            .macSheetSizing()
         }
     }
 

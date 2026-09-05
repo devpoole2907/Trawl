@@ -217,6 +217,7 @@ struct ArrEventsView: View {
             NavigationStack {
                 ArrEventDetailView(entry: entry)
             }
+            .macSheetSizing()
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
