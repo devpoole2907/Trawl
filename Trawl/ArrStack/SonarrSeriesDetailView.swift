@@ -181,6 +181,19 @@ struct SonarrSeriesDetailView: View {
         actionCopy?.instanceID ?? series?.instanceID
     }
 
+    /// Identity of the *screen*, from the immutable init inputs only. See
+    /// `RadarrMovieDetailView.detailPollKey`: keying the poll loop on the resolved
+    /// library ID stopped it dead whenever the title was momentarily absent from
+    /// the loaded library, so a freshly added show never showed its download.
+    private var detailPollKey: String {
+        [
+            mergeKey.map(String.init(describing:)) ?? "-",
+            seriesId.map(String.init) ?? "-",
+            seriesInstanceID?.uuidString ?? "-",
+            discoverSeries?.tvdbId.map(String.init) ?? "-"
+        ].joined(separator: "|")
+    }
+
     private var episodes: [SonarrEpisode] {
         guard let id = resolvedSeriesId else { return [] }
         return viewModel.episodes(forSeries: id, on: resolvedInstanceID)
@@ -224,7 +237,24 @@ struct SonarrSeriesDetailView: View {
         }
         return result
     }
+    /// Every server's downloads for this title, matched on `(server, library ID)`.
+    /// See `RadarrMovieDetailView.queueItems`: `seriesId` alone is instance-blind,
+    /// and keying off `resolvedSeriesId` tied the card to the action picker.
     private var queueItems: [ArrQueueItem] {
+        if let entry {
+            let addresses = Set(entry.copies.compactMap { copy in
+                copy.instanceID.map { "\($0.uuidString):\(copy.id)" }
+            })
+            if !addresses.isEmpty {
+                return viewModel.queueRecords
+                    .filter { record in
+                        guard let seriesId = record.value.seriesId else { return false }
+                        return addresses.contains("\(record.instance.id.uuidString):\(seriesId)")
+                    }
+                    .map(\.value)
+                    .sorted { $0.progress > $1.progress }
+            }
+        }
         guard let id = resolvedSeriesId else { return [] }
         return viewModel.queue
             .filter { $0.seriesId == id }
@@ -343,56 +373,54 @@ struct SonarrSeriesDetailView: View {
         } message: {
             Text("Enter the root folder Sonarr should use for this series.")
         }
-        .task(id: "\(resolvedSeriesId?.description ?? "nil")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "nil")") {
-            if let id = resolvedSeriesId {
-                bazarrEpisodes = []
-                bazarrClientForEpisodes = serviceManager.activeBazarrEntry?.client
-                if let bazarrClientForEpisodes {
-                    bazarrEpisodes = (try? await bazarrClientForEpisodes.getEpisodes(seriesIds: [id])) ?? []
-                }
+        .task(id: "\(detailPollKey)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "nil")") {
+            // The library comes first: a show added moments ago is not in the
+            // preloaded copy yet, and until it lands there is no library ID to
+            // load episodes for and nothing to match the queue against.
+            await viewModel.loadSeries(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+            bazarrEpisodes = []
+            bazarrClientForEpisodes = serviceManager.activeBazarrEntry?.client
+            if let bazarrClientForEpisodes, let id = resolvedSeriesId {
+                bazarrEpisodes = (try? await bazarrClientForEpisodes.getEpisodes(seriesIds: [id])) ?? []
+            }
 
-                var currentViewModel = viewModel
-                await currentViewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
-                await currentViewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
-                var knownQueueIds = Set(currentViewModel.queue.map(\.id))
-                do {
-                    while true {
-                        try Task.checkCancellation()
+            var currentViewModel = viewModel
+            await loadEpisodeState(on: currentViewModel)
+            var knownQueueIds = Set(currentViewModel.queue.map(\.id))
+            do {
+                while true {
+                    try Task.checkCancellation()
 
-                        if viewModel !== currentViewModel {
-                            currentViewModel = viewModel
-                            knownQueueIds = Set(currentViewModel.queue.map(\.id))
-                        }
-
-                        await currentViewModel.loadQueue()
-                        try Task.checkCancellation()
-
-                        let currentIds = Set(currentViewModel.queue.map(\.id))
-                        let hasActiveOrIssueItems = currentViewModel.queue.contains {
-                            guard $0.seriesId == id else { return false }
-                            return isActiveQueueItem($0) || $0.isImportIssueQueueItem
-                        }
-
-                        if currentIds != knownQueueIds || hasActiveOrIssueItems {
-                            await currentViewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
-                            try Task.checkCancellation()
-                            await currentViewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
-                            try Task.checkCancellation()
-                            await currentViewModel.loadSeries()
-                            try Task.checkCancellation()
-                        }
-                        knownQueueIds = currentIds
-
-                        // Adaptive polling: fast (2s) if active/import-issue items, slow (30s) otherwise
-                        let pollInterval = hasActiveOrIssueItems ? 2 : 30
-
-                        try await Task.sleep(for: .seconds(pollInterval))
+                    if viewModel !== currentViewModel {
+                        currentViewModel = viewModel
+                        knownQueueIds = Set(currentViewModel.queue.map(\.id))
                     }
-                } catch is CancellationError {
-                    // task was cancelled - exit cleanly
-                } catch {
-                    // ignore transient errors; the .task will restart if id changes
+
+                    await currentViewModel.loadQueue()
+                    try Task.checkCancellation()
+
+                    let currentIds = Set(currentViewModel.queue.map(\.id))
+                    let hasActiveOrIssueItems = queueItems.contains {
+                        isActiveQueueItem($0) || $0.isImportIssueQueueItem
+                    }
+
+                    if currentIds != knownQueueIds || hasActiveOrIssueItems {
+                        await loadEpisodeState(on: currentViewModel)
+                        try Task.checkCancellation()
+                        await currentViewModel.loadSeries()
+                        try Task.checkCancellation()
+                    }
+                    knownQueueIds = currentIds
+
+                    // Adaptive polling: fast (2s) if active/import-issue items, slow (30s) otherwise
+                    let pollInterval = hasActiveOrIssueItems ? 2 : 30
+
+                    try await Task.sleep(for: .seconds(pollInterval))
                 }
+            } catch is CancellationError {
+                // task was cancelled - exit cleanly
+            } catch {
+                // ignore transient errors; the .task will restart if id changes
             }
         }
         .sheet(isPresented: $showEditSheet) {
@@ -1219,15 +1247,22 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
+    /// Loads episodes and files for the resolved copy, and does nothing when the
+    /// title has not landed in the library yet. Separate from the poll loop so a
+    /// missing library ID skips the episode load rather than the whole task.
+    private func loadEpisodeState(on model: SonarrViewModel) async {
+        guard let id = resolvedSeriesId else { return }
+        await model.loadEpisodes(for: id, instanceID: resolvedInstanceID)
+        await model.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
+    }
+
     private func refreshSeriesDetailState() async {
-        guard let id = resolvedSeriesId else {
-            await viewModel.loadQueue()
-            return
-        }
-        await viewModel.loadQueue()
-        await viewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
-        await viewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
+        // Library first, so a title added moments ago resolves an ID before the
+        // episode load below asks for one. The queue is loaded either way: it is
+        // what the download card renders from and does not depend on that ID.
         await viewModel.loadSeries()
+        await viewModel.loadQueue()
+        await loadEpisodeState(on: viewModel)
     }
 
     private func searchSeasonWithFeedback(seriesId: Int, seasonNumber: Int, episodeCount: Int) async {

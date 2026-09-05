@@ -929,10 +929,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             }
             .safeAreaInset(edge: .top) {
                 if !releases.isEmpty {
-                    filterHeader
+                    qualityFilterBar
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
+            .safeAreaInset(edge: .bottom) { macBottomBar }
             .navigationTitle(title)
             .navigationSubtitle(releaseCountSubtitle(derived))
             #if os(iOS)
@@ -1070,17 +1071,43 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
+    /// macOS draws its own bottom bar rather than using the sheet toolbar.
+    ///
+    /// A Mac sheet renders `.primaryAction` items as a bottom button bar, but it
+    /// keeps only the first of them - however they are declared, as one group or
+    /// as separate items - so the filter menu, and with it the torrent/usenet
+    /// indexer pickers, simply never appeared.
+    @ViewBuilder
+    private var macBottomBar: some View {
+        #if os(macOS)
+        HStack(spacing: 10) {
+            Spacer()
+
+            sortMenu
+                .fixedSize()
+
+            filterMenu
+                .fixedSize()
+
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ToolbarContentBuilder
     private var browserToolbar: some ToolbarContent {
+        // macOS uses `macBottomBar` for all three; see the note there.
+        #if os(iOS)
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") { dismiss() }
         }
 
-        // macOS keeps the sort and filter menus in `filterHeader` instead: a
-        // sheet's toolbar renders as a bottom button bar there, and it dropped
-        // every trailing item after the first - taking the filter menu, and
-        // with it the torrent/usenet indexer pickers, out of reach.
-        #if os(iOS)
         ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
             sortMenu
             filterMenu
@@ -1109,27 +1136,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         } label: {
             Image(systemName: releaseSort.option != .default ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
         }
-    }
-
-    /// The quality segments, plus - on macOS - the sort and filter menus that
-    /// the sheet's bottom toolbar refuses to show.
-    private var filterHeader: some View {
-        #if os(macOS)
-        HStack(spacing: 6) {
-            qualityFilterBar
-
-            sortMenu
-                .menuIndicator(.hidden)
-                .fixedSize()
-
-            filterMenu
-                .menuIndicator(.hidden)
-                .fixedSize()
-        }
-        .padding(.trailing, 12)
-        #else
-        qualityFilterBar
-        #endif
     }
 
     private var qualityFilterBar: some View {

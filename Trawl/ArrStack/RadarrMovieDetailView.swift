@@ -403,21 +403,19 @@ struct RadarrMovieDetailView: View {
             SonarrSeriesDetailView(series: creditSeries, viewModel: SonarrViewModel(serviceManager: serviceManager))
                 .environment(syncService)
         }
-        .task(id: fileLoadKey) {
+        .task(id: detailPollKey) {
             #if DEBUG
             guard !disablesPreviewLoadingTasks else { return }
             #endif
-            guard let id = resolvedLibraryId else { return }
-            // Both servers' files, so the card can show what each one holds.
-            if let entry, entry.isOnMultipleInstances {
-                await viewModel.loadMovieFiles(for: entry)
-            } else {
-                await viewModel.loadMovieFiles(movieId: id)
-            }
-            // Appear-time only, so the shared cache serves it - opening a movie
+            // The library comes first: a film added moments ago is not in the
+            // preloaded copy yet, and until it lands there is no library ID to
+            // load files for and nothing to match the queue against.
+            //
+            // Appear-time max age, so the shared cache serves it - opening a movie
             // shouldn't re-download the whole library the list already has. Pull to
             // refresh and the queue-driven reloads below still force a fetch.
             await viewModel.loadMovies(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+            await loadMovieFilesForResolvedCopies()
             var knownQueueIds = Set(viewModel.queue.map(\.id))
             do {
                 while true {
@@ -426,13 +424,9 @@ struct RadarrMovieDetailView: View {
                     try Task.checkCancellation()
 
                     let currentIds = Set(viewModel.queue.map(\.id))
-                    let hasActive = viewModel.queue.contains { $0.movieId == id && isActiveQueueItem($0) }
+                    let hasActive = queueItems.contains(where: isActiveQueueItem)
                     if currentIds != knownQueueIds || hasActive {
-                        if let entry, entry.isOnMultipleInstances {
-                            await viewModel.loadMovieFiles(for: entry)
-                        } else {
-                            await viewModel.loadMovieFiles(movieId: id)
-                        }
+                        await loadMovieFilesForResolvedCopies()
                         try Task.checkCancellation()
                         await viewModel.loadMovies()
                         try Task.checkCancellation()
@@ -508,6 +502,25 @@ struct RadarrMovieDetailView: View {
     /// Re-runs when the target server changes as well as when the title does.
     private var fileLoadKey: String {
         "\(resolvedLibraryId ?? -1):\(entry?.instanceIDs.map(\.uuidString).joined(separator: ",") ?? "")"
+    }
+
+    /// Identity of the *screen*, built only from the immutable init inputs.
+    ///
+    /// The load-and-poll task used to key on `fileLoadKey`, which is derived from
+    /// the loaded library. That made the poll loop restart every time the library
+    /// reloaded and, worse, stop dead whenever the title was momentarily absent
+    /// from it - the task's `guard let id = resolvedLibraryId else { return }`
+    /// exited and nothing polled the queue again. A film added minutes earlier
+    /// therefore showed its download only for the second between a manual refresh
+    /// resolving the id and the next library load dropping it. This key never
+    /// changes while the screen is on screen, so the loop runs for its lifetime.
+    private var detailPollKey: String {
+        [
+            mergeKey.map(String.init(describing:)) ?? "-",
+            movieId.map(String.init) ?? "-",
+            movieInstanceID?.uuidString ?? "-",
+            discoverMovie?.tmdbId.map(String.init) ?? "-"
+        ].joined(separator: "|")
     }
 
     /// Names the servers when a title is on both, so the confirmation can't hide
@@ -602,21 +615,49 @@ struct RadarrMovieDetailView: View {
         }
     }
 
-    private func refreshMovieDetailState() async {
-        guard let id = resolvedLibraryId else {
-            await viewModel.loadMovies()
-            return
-        }
-        await viewModel.loadQueue()
+    /// Loads media files for whichever copies are currently resolved, and does
+    /// nothing when the title has not landed in the library yet. Separate from the
+    /// poll loop so a missing library ID skips the file load rather than the whole
+    /// task - the queue still needs polling either way.
+    private func loadMovieFilesForResolvedCopies() async {
         if let entry, entry.isOnMultipleInstances {
             await viewModel.loadMovieFiles(for: entry)
-        } else {
+        } else if let id = resolvedLibraryId {
             await viewModel.loadMovieFiles(movieId: id)
         }
-        await viewModel.loadMovies()
     }
 
+    private func refreshMovieDetailState() async {
+        // Library first, so a title added moments ago resolves an ID before the
+        // file load below asks for one. The queue is loaded either way: it is what
+        // the download card renders from and it does not depend on that ID.
+        await viewModel.loadMovies()
+        await viewModel.loadQueue()
+        await loadMovieFilesForResolvedCopies()
+    }
+
+    /// Every server's downloads for this title, matched on `(server, library ID)`.
+    ///
+    /// Matching on `movieId` alone is instance-blind - the pair reuse the same
+    /// integers, so the HD server's download for its id 211 would surface on the
+    /// 4K server's film with that id. Keying off `resolvedLibraryId` also tied the
+    /// card to the action picker, hiding a running download whenever that moved.
+    /// Ask each copy for its own server's rows instead.
     private var queueItems: [ArrQueueItem] {
+        if let entry {
+            let addresses = Set(entry.copies.compactMap { copy in
+                copy.instanceID.map { "\($0.uuidString):\(copy.id)" }
+            })
+            if !addresses.isEmpty {
+                return viewModel.queueRecords
+                    .filter { record in
+                        guard let movieId = record.value.movieId else { return false }
+                        return addresses.contains("\(record.instance.id.uuidString):\(movieId)")
+                    }
+                    .map(\.value)
+                    .sorted { $0.progress > $1.progress }
+            }
+        }
         guard let id = resolvedLibraryId else { return [] }
         return viewModel.queue
             .filter { $0.movieId == id }
