@@ -672,8 +672,13 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     /// Removes a queue row from the server that actually holds it.
     @discardableResult
-    func removeQueueItem(id: Int, blocklist: Bool = false) async -> Bool {
-        let record = queueRecords.first { $0.value.id == id }
+    func removeQueueItem(id: Int, instanceID: UUID? = nil, blocklist: Bool = false) async -> Bool {
+        let record = queueRecords.first {
+            $0.value.id == id && (instanceID == nil || $0.instance.id == instanceID)
+        }
+        // A caller that knows the server must never fall through to another
+        // server with the same queue ID.
+        guard instanceID == nil || record != nil else { return false }
         let routed = record
             .flatMap { row in routedInstances.first { $0.ref.id == row.instance.id }?.client }
         guard let client = routed ?? client else { return false }

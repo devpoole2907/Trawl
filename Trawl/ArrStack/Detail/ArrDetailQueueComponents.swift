@@ -19,6 +19,18 @@ func arrDetailLinkedSABJob(for downloadId: String?, in jobs: [SABnzbdJob]) -> SA
     return jobs.first { $0.id.caseInsensitiveCompare(downloadId) == .orderedSame }
 }
 
+/// Arr queue records already identify torrent downloads by their qBittorrent hash.
+/// This permits an immediate Downloads handoff before the qBittorrent poll fills in
+/// the richer live torrent model.
+func arrDetailDownloadSelection(for item: ArrQueueItem) -> DownloadDetailSelection? {
+    guard item.protocol_?.caseInsensitiveCompare("torrent") == .orderedSame,
+          let downloadID = item.downloadId,
+          !downloadID.isEmpty else {
+        return nil
+    }
+    return .torrent(hash: downloadID)
+}
+
 /// Queue jobs, post-processing history entries, and terminal history entries - a
 /// grab can be sitting in any of the three while Arr still lists it in the queue.
 func arrDetailSABJobs(from serviceManager: SABnzbdServiceManager?) -> [SABnzbdJob] {
@@ -63,6 +75,43 @@ func arrDetailIsActiveQueueItem(
     return item.isDownloadingQueueItem
 }
 
+/// Returns the queue rows belonging to one blended library title.
+///
+/// A Radarr or Sonarr library ID is only unique inside its issuing server. The
+/// pair can both have an item `211`, so filtering the merged queue on that bare
+/// integer leaks one title's download card onto the other title. Keep the
+/// server alongside the ID while matching, then drop the wrapper only after the
+/// row has been proven to belong to this entry.
+///
+/// `fallbackLibraryID` supports legacy/unpaired detail entry points that have
+/// no merged entry yet. It deliberately cannot claim a row from a named pair:
+/// without an entry there is no server address to compare.
+func arrDetailQueueItems<Item: ArrMergeableLibraryItem>(
+    for entry: ArrLibraryEntry<Item>?,
+    fallbackLibraryID: Int?,
+    queueRecords: [ArrInstanced<ArrQueueItem>],
+    libraryID: KeyPath<ArrQueueItem, Int?>
+) -> [ArrInstanced<ArrQueueItem>] {
+    if let entry {
+        let addresses = Set(entry.copies.compactMap { copy in
+            copy.instanceID.map { "\($0.uuidString):\(copy.id)" }
+        })
+        if !addresses.isEmpty {
+            return queueRecords
+                .filter { record in
+                    guard let id = record.value[keyPath: libraryID] else { return false }
+                    return addresses.contains("\(record.instance.id.uuidString):\(id)")
+                }
+                .sorted { $0.value.progress > $1.value.progress }
+        }
+    }
+
+    guard let fallbackLibraryID else { return [] }
+    return queueRecords
+        .filter { $0.value[keyPath: libraryID] == fallbackLibraryID }
+        .sorted { $0.value.progress > $1.value.progress }
+}
+
 /// Matches the chip styling `ArrInfoRowView` uses for release metadata.
 @ViewBuilder
 private func arrDetailInfoChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
@@ -87,20 +136,29 @@ private func arrDetailIssueActionIcon(systemName: String, tint: Color) -> some V
 // MARK: - Queue card
 
 struct ArrDetailQueueCard<Row: View>: View {
-    let items: [ArrQueueItem]
-    private let rowContent: (ArrQueueItem) -> Row
+    @Environment(\.selectDownload) private var selectDownload
+    let items: [ArrInstanced<ArrQueueItem>]
+    private let rowContent: (ArrInstanced<ArrQueueItem>) -> Row
     @State private var isExpanded = false
 
-    init(items: [ArrQueueItem], @ViewBuilder rowContent: @escaping (ArrQueueItem) -> Row) {
+    init(items: [ArrInstanced<ArrQueueItem>], @ViewBuilder rowContent: @escaping (ArrInstanced<ArrQueueItem>) -> Row) {
         self.items = items
         self.rowContent = rowContent
     }
 
     var body: some View {
+        let directDownloadSelection = items.count == 1
+            ? arrDetailDownloadSelection(for: items[0].value)
+            : nil
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
+                if let directDownloadSelection,
+                   let selectDownload {
+                    selectDownload(directDownloadSelection)
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isExpanded.toggle()
+                    }
                 }
             } label: {
                 HStack(spacing: 12) {
@@ -116,7 +174,9 @@ struct ArrDetailQueueCard<Row: View>: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: directDownloadSelection != nil && selectDownload != nil
+                          ? "chevron.right"
+                          : (isExpanded ? "chevron.up" : "chevron.down"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -146,11 +206,11 @@ struct ArrDetailQueueCard<Row: View>: View {
 // MARK: - Import issues card
 
 struct ArrDetailImportIssuesCard<Row: View>: View {
-    let items: [ArrQueueItem]
-    private let rowContent: (ArrQueueItem) -> Row
+    let items: [ArrInstanced<ArrQueueItem>]
+    private let rowContent: (ArrInstanced<ArrQueueItem>) -> Row
     @State private var isExpanded = false
 
-    init(items: [ArrQueueItem], @ViewBuilder rowContent: @escaping (ArrQueueItem) -> Row) {
+    init(items: [ArrInstanced<ArrQueueItem>], @ViewBuilder rowContent: @escaping (ArrInstanced<ArrQueueItem>) -> Row) {
         self.items = items
         self.rowContent = rowContent
     }
@@ -234,6 +294,7 @@ struct ArrDetailQueueItemRow: View {
     /// browser, which do not inject the SABnzbd manager.
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     let item: ArrQueueItem
+    let instanceID: UUID?
     var isRemoving = false
     var onSetPendingAction: ((ArrDetailPendingQueueAction) -> Void)?
 
@@ -308,6 +369,7 @@ struct ArrDetailQueueItemRow: View {
                     Button {
                         onSetPendingAction(ArrDetailPendingQueueAction(
                             itemID: item.id,
+                            instanceID: instanceID,
                             title: title,
                             blocklist: false
                         ))
@@ -322,6 +384,7 @@ struct ArrDetailQueueItemRow: View {
                         Button {
                             onSetPendingAction(ArrDetailPendingQueueAction(
                                 itemID: item.id,
+                                instanceID: instanceID,
                                 title: title,
                                 blocklist: true
                             ))
@@ -358,6 +421,37 @@ struct ArrDetailQueueItemRow: View {
                                 .font(.caption)
                                 .foregroundStyle(.blue)
                         }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
+                }
+            } else if item.protocol_?.caseInsensitiveCompare("torrent") == .orderedSame,
+                      let downloadID = item.downloadId,
+                      !downloadID.isEmpty {
+                // Arr has already told us this is a torrent, even if qBittorrent's
+                // independent poll has not completed yet. Make the handoff usable
+                // immediately; the Downloads tab owns the eventual live lookup.
+                ArrDetailDownloadLink(selection: .torrent(hash: downloadID)) {
+                    TorrentDetailView(torrentHash: downloadID)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("View Torrent")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Text("Open in Downloads")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tertiary)
@@ -503,6 +597,7 @@ struct ArrDetailQueueIssueRow: View {
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
 
     let item: ArrQueueItem
+    let instanceID: UUID?
     let rootFolderPath: String?
     let service: ArrServiceType
     let libraryItemID: Int?
@@ -613,6 +708,7 @@ struct ArrDetailQueueIssueRow: View {
                 Button {
                     onSetPendingAction(ArrDetailPendingQueueAction(
                         itemID: item.id,
+                        instanceID: instanceID,
                         title: torrent?.name ?? item.title ?? "Queue Item",
                         blocklist: false
                     ))
@@ -627,6 +723,7 @@ struct ArrDetailQueueIssueRow: View {
                     Button {
                         onSetPendingAction(ArrDetailPendingQueueAction(
                             itemID: item.id,
+                            instanceID: instanceID,
                             title: torrent?.name ?? item.title ?? "Queue Item",
                             blocklist: true
                         ))

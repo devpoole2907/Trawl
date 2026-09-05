@@ -28,7 +28,7 @@ struct SonarrSeriesDetailView: View {
     @State private var showAddSheet = false
     @State private var importIssueResolution: ArrQueueImportIssueResolution?
     @State private var didAdd = false
-    @State private var queueActionInFlightIDs: Set<Int> = []
+    @State private var queueActionInFlightIDs: Set<String> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
     @State private var showRenameFilesAlert = false
     @State private var showManualImport = false
@@ -240,29 +240,17 @@ struct SonarrSeriesDetailView: View {
     /// Every server's downloads for this title, matched on `(server, library ID)`.
     /// See `RadarrMovieDetailView.queueItems`: `seriesId` alone is instance-blind,
     /// and keying off `resolvedSeriesId` tied the card to the action picker.
-    private var queueItems: [ArrQueueItem] {
-        if let entry {
-            let addresses = Set(entry.copies.compactMap { copy in
-                copy.instanceID.map { "\($0.uuidString):\(copy.id)" }
-            })
-            if !addresses.isEmpty {
-                return viewModel.queueRecords
-                    .filter { record in
-                        guard let seriesId = record.value.seriesId else { return false }
-                        return addresses.contains("\(record.instance.id.uuidString):\(seriesId)")
-                    }
-                    .map(\.value)
-                    .sorted { $0.progress > $1.progress }
-            }
-        }
-        guard let id = resolvedSeriesId else { return [] }
-        return viewModel.queue
-            .filter { $0.seriesId == id }
-            .sorted { $0.progress > $1.progress }
+    private var queueItems: [ArrInstanced<ArrQueueItem>] {
+        arrDetailQueueItems(
+            for: entry,
+            fallbackLibraryID: resolvedSeriesId,
+            queueRecords: viewModel.queueRecords,
+            libraryID: \.seriesId
+        )
     }
 
-    private var activeQueueItems: [ArrQueueItem] {
-        queueItems.filter(isActiveQueueItem)
+    private var activeQueueItems: [ArrInstanced<ArrQueueItem>] {
+        queueItems.filter { isActiveQueueItem($0.value) }
     }
 
     private var layoutAnimationKey: Int {
@@ -276,8 +264,8 @@ struct SonarrSeriesDetailView: View {
         return hasher.finalize()
     }
 
-    private var importIssueQueueItems: [ArrQueueItem] {
-        queueItems.filter { !isActiveQueueItem($0) && $0.isImportIssueQueueItem }
+    private var importIssueQueueItems: [ArrInstanced<ArrQueueItem>] {
+        queueItems.filter { !isActiveQueueItem($0.value) && $0.value.isImportIssueQueueItem }
     }
 
     var body: some View {
@@ -386,22 +374,22 @@ struct SonarrSeriesDetailView: View {
 
             var currentViewModel = viewModel
             await loadEpisodeState(on: currentViewModel)
-            var knownQueueIds = Set(currentViewModel.queue.map(\.id))
+            var knownQueueIds = Set(currentViewModel.queueRecords.map(\.id))
             do {
                 while true {
                     try Task.checkCancellation()
 
                     if viewModel !== currentViewModel {
                         currentViewModel = viewModel
-                        knownQueueIds = Set(currentViewModel.queue.map(\.id))
+                        knownQueueIds = Set(currentViewModel.queueRecords.map(\.id))
                     }
 
                     await currentViewModel.loadQueue()
                     try Task.checkCancellation()
 
-                    let currentIds = Set(currentViewModel.queue.map(\.id))
+                    let currentIds = Set(currentViewModel.queueRecords.map(\.id))
                     let hasActiveOrIssueItems = queueItems.contains {
-                        isActiveQueueItem($0) || $0.isImportIssueQueueItem
+                        isActiveQueueItem($0.value) || $0.value.isImportIssueQueueItem
                     }
 
                     if currentIds != knownQueueIds || hasActiveOrIssueItems {
@@ -510,9 +498,11 @@ struct SonarrSeriesDetailView: View {
                 let action = pendingQueueAction
                 self.pendingQueueAction = nil
                 Task {
-                    if let item = viewModel.queue.first(where: { $0.id == action.itemID }) {
-                        await handleQueueIssueAction(for: item, blocklist: action.blocklist)
-                    }
+                    await handleQueueIssueAction(
+                        id: action.itemID,
+                        instanceID: action.instanceID,
+                        blocklist: action.blocklist
+                    )
                 }
             }
             Button("Cancel", role: .cancel) {
@@ -700,7 +690,8 @@ struct SonarrSeriesDetailView: View {
         if !activeQueueItems.isEmpty {
             ArrDetailQueueCard(items: activeQueueItems) { item in
                 ArrDetailQueueItemRow(
-                    item: item,
+                    item: item.value,
+                    instanceID: item.instance.id,
                     isRemoving: queueActionInFlightIDs.contains(item.id),
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
@@ -729,7 +720,8 @@ struct SonarrSeriesDetailView: View {
         if !importIssueQueueItems.isEmpty {
             ArrDetailImportIssuesCard(items: importIssueQueueItems) { item in
                 ArrDetailQueueIssueRow(
-                    item: item,
+                    item: item.value,
+                    instanceID: item.instance.id,
                     rootFolderPath: series.rootFolderPath,
                     service: .sonarr,
                     libraryItemID: resolvedSeriesId,
@@ -1068,11 +1060,12 @@ struct SonarrSeriesDetailView: View {
         return arrDetailIsActiveQueueItem(item, linkedTorrent: torrent, linkedSABJob: sabJob)
     }
 
-    private func handleQueueIssueAction(for item: ArrQueueItem, blocklist: Bool) async {
-        queueActionInFlightIDs.insert(item.id)
-        defer { queueActionInFlightIDs.remove(item.id) }
+    private func handleQueueIssueAction(id: Int, instanceID: UUID?, blocklist: Bool) async {
+        let actionID = "\(instanceID?.uuidString ?? "unscoped"):\(id)"
+        queueActionInFlightIDs.insert(actionID)
+        defer { queueActionInFlightIDs.remove(actionID) }
 
-        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
+        let wasRemoved = await viewModel.removeQueueItem(id: id, instanceID: instanceID, blocklist: blocklist)
 
         if wasRemoved {
             if blocklist {

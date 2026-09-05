@@ -45,7 +45,7 @@ struct RadarrMovieDetailView: View {
     /// interactive-search subtree from re-rendering every poll tick.
     @State private var interactiveSearchMovie: RadarrMovie?
     @State private var isDispatchingAutomaticSearch = false
-    @State private var queueActionInFlightIDs: Set<Int> = []
+    @State private var queueActionInFlightIDs: Set<String> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
     @State private var bazarrMovieSubtitles: [BazarrSubtitle]?
     @State private var castMembers: [TMDbCastMember]?
@@ -326,9 +326,11 @@ struct RadarrMovieDetailView: View {
                 let action = pendingQueueAction
                 self.pendingQueueAction = nil
                 Task {
-                    if let item = viewModel.queue.first(where: { $0.id == action.itemID }) {
-                        await handleQueueIssueAction(for: item, blocklist: action.blocklist)
-                    }
+                    await handleQueueIssueAction(
+                        id: action.itemID,
+                        instanceID: action.instanceID,
+                        blocklist: action.blocklist
+                    )
                 }
             }
             Button("Cancel", role: .cancel) {
@@ -416,15 +418,15 @@ struct RadarrMovieDetailView: View {
             // refresh and the queue-driven reloads below still force a fetch.
             await viewModel.loadMovies(maxAge: ArrLibraryCachePolicy.appearMaxAge)
             await loadMovieFilesForResolvedCopies()
-            var knownQueueIds = Set(viewModel.queue.map(\.id))
+            var knownQueueIds = Set(viewModel.queueRecords.map(\.id))
             do {
                 while true {
                     try Task.checkCancellation()
                     await viewModel.loadQueue()
                     try Task.checkCancellation()
 
-                    let currentIds = Set(viewModel.queue.map(\.id))
-                    let hasActive = queueItems.contains(where: isActiveQueueItem)
+                    let currentIds = Set(viewModel.queueRecords.map(\.id))
+                    let hasActive = queueItems.contains { isActiveQueueItem($0.value) }
                     if currentIds != knownQueueIds || hasActive {
                         await loadMovieFilesForResolvedCopies()
                         try Task.checkCancellation()
@@ -643,33 +645,21 @@ struct RadarrMovieDetailView: View {
     /// 4K server's film with that id. Keying off `resolvedLibraryId` also tied the
     /// card to the action picker, hiding a running download whenever that moved.
     /// Ask each copy for its own server's rows instead.
-    private var queueItems: [ArrQueueItem] {
-        if let entry {
-            let addresses = Set(entry.copies.compactMap { copy in
-                copy.instanceID.map { "\($0.uuidString):\(copy.id)" }
-            })
-            if !addresses.isEmpty {
-                return viewModel.queueRecords
-                    .filter { record in
-                        guard let movieId = record.value.movieId else { return false }
-                        return addresses.contains("\(record.instance.id.uuidString):\(movieId)")
-                    }
-                    .map(\.value)
-                    .sorted { $0.progress > $1.progress }
-            }
-        }
-        guard let id = resolvedLibraryId else { return [] }
-        return viewModel.queue
-            .filter { $0.movieId == id }
-            .sorted { $0.progress > $1.progress }
+    private var queueItems: [ArrInstanced<ArrQueueItem>] {
+        arrDetailQueueItems(
+            for: entry,
+            fallbackLibraryID: resolvedLibraryId,
+            queueRecords: viewModel.queueRecords,
+            libraryID: \.movieId
+        )
     }
 
-    private var activeQueueItems: [ArrQueueItem] {
-        queueItems.filter(isActiveQueueItem)
+    private var activeQueueItems: [ArrInstanced<ArrQueueItem>] {
+        queueItems.filter { isActiveQueueItem($0.value) }
     }
 
-    private var importIssueQueueItems: [ArrQueueItem] {
-        queueItems.filter { !isActiveQueueItem($0) && $0.isImportIssueQueueItem }
+    private var importIssueQueueItems: [ArrInstanced<ArrQueueItem>] {
+        queueItems.filter { !isActiveQueueItem($0.value) && $0.value.isImportIssueQueueItem }
     }
 
     // MARK: - Hero
@@ -726,7 +716,8 @@ struct RadarrMovieDetailView: View {
         if !activeQueueItems.isEmpty {
             ArrDetailQueueCard(items: activeQueueItems) { item in
                 ArrDetailQueueItemRow(
-                    item: item,
+                    item: item.value,
+                    instanceID: item.instance.id,
                     isRemoving: queueActionInFlightIDs.contains(item.id),
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
@@ -775,7 +766,8 @@ struct RadarrMovieDetailView: View {
         if !importIssueQueueItems.isEmpty {
             ArrDetailImportIssuesCard(items: importIssueQueueItems) { item in
                 ArrDetailQueueIssueRow(
-                    item: item,
+                    item: item.value,
+                    instanceID: item.instance.id,
                     rootFolderPath: movie.rootFolderPath,
                     service: .radarr,
                     libraryItemID: resolvedLibraryId,
@@ -1144,11 +1136,12 @@ struct RadarrMovieDetailView: View {
         return arrDetailIsActiveQueueItem(item, linkedTorrent: torrent, linkedSABJob: sabJob)
     }
 
-    private func handleQueueIssueAction(for item: ArrQueueItem, blocklist: Bool) async {
-        queueActionInFlightIDs.insert(item.id)
-        defer { queueActionInFlightIDs.remove(item.id) }
+    private func handleQueueIssueAction(id: Int, instanceID: UUID?, blocklist: Bool) async {
+        let actionID = "\(instanceID?.uuidString ?? "unscoped"):\(id)"
+        queueActionInFlightIDs.insert(actionID)
+        defer { queueActionInFlightIDs.remove(actionID) }
 
-        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
+        let wasRemoved = await viewModel.removeQueueItem(id: id, instanceID: instanceID, blocklist: blocklist)
 
         if wasRemoved {
             if blocklist {

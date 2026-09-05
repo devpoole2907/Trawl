@@ -28,6 +28,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     private var sonarr: SonarrFixtureServer?
     private var radarr: RadarrFixtureServer?
     private var sabnzbd: SABnzbdFixtureServer?
+    private var qbittorrent: QBittorrentFixtureServer?
 
     /// The promoted More rows, in sidebar order.
     /// Screens the compact chrome files inside More, each of which is a sidebar row
@@ -60,6 +61,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         sonarr?.stop(); sonarr = nil
         radarr?.stop(); radarr = nil
         sabnzbd?.stop(); sabnzbd = nil
+        qbittorrent?.stop(); qbittorrent = nil
         XCUIDevice.shared.orientation = .portrait
     }
 
@@ -173,6 +175,62 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertFalse(
             downloadDetail.exists,
             "The download's detail should not still be on screen after moving to Series - a push into the detail column outlives the destination that made it, which is why the list drives the column by selection instead."
+        )
+    }
+
+    /// A live Arr queue row is a shortcut to the Downloads tab on iPad, because
+    /// that tab and its detail column remain visible in the sidebar chrome. The
+    /// earlier link pushed the torrent over the movie detail itself, trapping the
+    /// user in a stack that hid the queue it was meant to reveal.
+    @MainActor
+    func testMovieDetailCurrentDownloadSelectsItInTheDownloadsTab() async throws {
+        let torrent = try await QBittorrentFixtureServer(
+            torrentName: "Detail Card Handoff Torrent"
+        )
+        qbittorrent = torrent
+        let queueJSON = #"""
+        {"page":1,"pageSize":20,"totalRecords":1,"records":[
+          {"id":801,"title":"Detail Card Handoff Torrent","status":"downloading",
+           "trackedDownloadState":"downloading","downloadId":"\#(torrent.hash)",
+           "protocol":"torrent","downloadClient":"qBittorrent","movieId":\#(RadarrFixtureServer.movieId),
+           "size":2147483648,"sizeleft":1234567890,"timeleft":"00:07:00"}
+        ]}
+        """#
+        let movieServer = try await RadarrFixtureServer(queueResponseJSON: queueJSON)
+        radarr = movieServer
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = movieServer.baseURL
+        app.launchEnvironment["TRAWL_UITEST_QBITTORRENT_BASE_URL"] = torrent.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(select(app, "Movies"), "The sidebar should offer Movies.")
+        XCTAssertTrue(
+            openLibraryItem(titled: RadarrFixtureServer.movieTitle, in: app, timeout: 20),
+            "The fixture movie should open its real detail screen. Requests: \(movieServer.requests)"
+        )
+        XCTAssertTrue(app.navigationBars[RadarrFixtureServer.movieTitle].waitForExistence(timeout: 15))
+
+        let currentDownload = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Current Download"))
+            .firstMatch
+        XCTAssertTrue(
+            currentDownload.waitForExistence(timeout: 20),
+            "A downloading Arr queue row must stay visible on the movie detail card. Requests: \(movieServer.requests)"
+        )
+        XCTAssertTrue(tapWhenPossible(currentDownload, timeout: 10))
+
+        XCTAssertTrue(
+            app.navigationBars[torrent.name].waitForExistence(timeout: 20),
+            "Tapping Current Download from movie detail should select it in Downloads' detail column."
+        )
+        XCTAssertFalse(
+            app.navigationBars[RadarrFixtureServer.movieTitle].exists,
+            "The movie detail must not remain stacked over the Downloads tab after selecting its download."
         )
     }
 

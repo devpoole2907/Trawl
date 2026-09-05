@@ -107,6 +107,10 @@ final class RadarrFixtureServer: @unchecked Sendable {
     private let lookupResponseJSON: String
     private let addedMovieJSON: String?
     private let extraLibraryMoviesJSON: String
+    /// Queue body is explicit because the detail-card journey needs a live Arr
+    /// queue row linked to a qBittorrent torrent. `{}` remains the historical,
+    /// decodable empty-page default for every existing fixture consumer.
+    private let queueResponseJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -140,7 +144,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
         commandResponseJSON: String = #"{"id":77,"name":"MoviesSearch","status":"queued"}"#,
         lookupResponseJSON: String = "[]",
         addedMovieJSON: String? = nil,
-        extraLibraryMoviesJSON: String = "[]"
+        extraLibraryMoviesJSON: String = "[]",
+        queueResponseJSON: String = "{}"
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -152,6 +157,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
         self.lookupResponseJSON = lookupResponseJSON
         self.addedMovieJSON = addedMovieJSON
         self.extraLibraryMoviesJSON = extraLibraryMoviesJSON
+        self.queueResponseJSON = queueResponseJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -323,8 +329,11 @@ final class RadarrFixtureServer: @unchecked Sendable {
         // ArrQueuePage / ArrHistoryPage / ArrBlocklistPage all decode as paged
         // *objects*, not bare arrays - every field on each is optional, so an empty
         // object decodes to an empty page rather than throwing.
+        if request.method == "GET" && request.path == "/api/v3/queue" {
+            return queueResponseJSON
+        }
         if request.method == "GET",
-           ["/api/v3/queue", "/api/v3/history", "/api/v3/blocklist"].contains(request.path) {
+           ["/api/v3/history", "/api/v3/blocklist"].contains(request.path) {
             return "{}"
         }
         // Anything else the app may also issue (health checks, calendar prefetches

@@ -346,12 +346,29 @@ struct SeerrContractTests {
     func createLinked4KServerSendsProfileName() async throws {
         SeerrContractURLProtocol.stub(body: Data(SeerrFixture.dvrSettingsItem.utf8))
         let client = makeClient()
-        let settings = SeerrDVRSettings.preview(
-            id: 0,
+        let settings = SeerrDVRSettingsPayload(
             name: "Sonarr 4K",
+            hostname: "dvr.local",
             port: 8989,
+            apiKey: "dvr-key",
+            useSsl: false,
+            baseUrl: "dvr-base",
+            activeProfileId: 1,
             activeProfileName: "Ultra-HD",
-            is4k: true
+            activeDirectory: "/tv",
+            is4k: true,
+            isDefault: false,
+            externalUrl: nil,
+            syncEnabled: true,
+            preventSearch: false,
+            tagRequests: false,
+            tags: [],
+            minimumAvailability: nil,
+            activeAnimeProfileId: nil,
+            activeAnimeDirectory: nil,
+            activeLanguageProfileId: nil,
+            activeAnimeLanguageProfileId: nil,
+            enableSeasonFolders: true
         )
 
         _ = try await client.createDVRSettings(.sonarr, body: settings)

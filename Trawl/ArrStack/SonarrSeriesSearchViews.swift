@@ -1281,7 +1281,7 @@ struct SonarrEpisodeSearchView: View {
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
     @State private var isTogglingMonitored = false
-    @State private var queueActionInFlightIDs: Set<Int> = []
+    @State private var queueActionInFlightIDs: Set<String> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
 
     @State private var isDispatchingBazarrSearch = false
@@ -1345,11 +1345,11 @@ struct SonarrEpisodeSearchView: View {
     /// Matched on the episode's own server as well as its ID: with a pair
     /// configured both servers hand out the same episode IDs, so an ID-only match
     /// can show the 4K server's download against the HD episode.
-    private var queueItem: ArrQueueItem? {
+    private var queueItem: ArrInstanced<ArrQueueItem>? {
         viewModel.queueRecords.first {
             $0.value.episodeId == currentEpisode.id
                 && (currentEpisode.instanceID == nil || $0.instance.id == currentEpisode.instanceID)
-        }?.value
+        }
     }
 
     private var activeBazarrEpisode: BazarrEpisode? {
@@ -1382,11 +1382,16 @@ struct SonarrEpisodeSearchView: View {
         }
     }
 
-    private func handleQueueAction(for item: ArrQueueItem, blocklist: Bool) async {
-        queueActionInFlightIDs.insert(item.id)
-        defer { queueActionInFlightIDs.remove(item.id) }
+    private func handleQueueAction(id: Int, instanceID: UUID?, blocklist: Bool) async {
+        let actionID = "\(instanceID?.uuidString ?? "unscoped"):\(id)"
+        queueActionInFlightIDs.insert(actionID)
+        defer { queueActionInFlightIDs.remove(actionID) }
 
-        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
+        let wasRemoved = await viewModel.removeQueueItem(
+            id: id,
+            instanceID: instanceID,
+            blocklist: blocklist
+        )
 
         if wasRemoved {
             if blocklist {
@@ -1423,7 +1428,8 @@ struct SonarrEpisodeSearchView: View {
                 if let q = queueItem {
                     ArrDetailQueueCard(items: [q]) { item in
                         ArrDetailQueueItemRow(
-                            item: item,
+                            item: item.value,
+                            instanceID: item.instance.id,
                             isRemoving: queueActionInFlightIDs.contains(item.id),
                             onSetPendingAction: { pendingQueueAction = $0 }
                         )
@@ -1588,9 +1594,11 @@ struct SonarrEpisodeSearchView: View {
                 let action = pendingQueueAction
                 self.pendingQueueAction = nil
                 Task {
-                    if let item = viewModel.queue.first(where: { $0.id == action.itemID }) {
-                        await handleQueueAction(for: item, blocklist: action.blocklist)
-                    }
+                    await handleQueueAction(
+                        id: action.itemID,
+                        instanceID: action.instanceID,
+                        blocklist: action.blocklist
+                    )
                 }
             }
             Button("Cancel", role: .cancel) {
@@ -1640,11 +1648,11 @@ struct SonarrEpisodeSearchView: View {
         episodeStatusBadge(currentEpisode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: currentEpisode.monitored == true ? "bookmark.fill" : "bookmark.slash")
 
         if let q = queueItem {
-            let isIssue = q.isImportIssueQueueItem
+            let isIssue = q.value.isImportIssueQueueItem
             episodeStatusBadge(
-                isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
+                isIssue ? "Import Issue" : (q.value.status?.capitalized ?? "Downloading"),
                 tint: isIssue ? .orange : .purple,
-                systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
+                systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.value.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
             )
         }
 
@@ -1668,7 +1676,7 @@ struct SonarrEpisodeSearchView: View {
 
     private var queueAnimationValue: String {
         if let queueItem {
-            return "\(queueItem.id)-\(queueItem.normalizedState)-\(queueItem.progress)"
+            return "\(queueItem.id)-\(queueItem.value.normalizedState)-\(queueItem.value.progress)"
         }
         return "none"
     }
@@ -1902,7 +1910,7 @@ struct SonarrEpisodeSearchView: View {
     }
 
     private func monitorEpisodeState() async {
-        var knownQueueID: Int?
+        var knownQueueID: String?
         var hadQueueItem = false
 
         do {

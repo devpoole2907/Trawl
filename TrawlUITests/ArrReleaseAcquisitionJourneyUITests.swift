@@ -7,7 +7,11 @@ import XCTest
 /// views, managers, clients, persistence, and notification feedback are unchanged.
 final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
     private var sonarrServer: ArrSearchAddFixtureServer?
+    private var sonarrHDServer: ArrSearchAddFixtureServer?
+    private var sonarrUHDServer: ArrSearchAddFixtureServer?
     private var radarrServer: RadarrFixtureServer?
+    private var radarrHDServer: RadarrFixtureServer?
+    private var radarrUHDServer: RadarrFixtureServer?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -15,9 +19,17 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
 
     override func tearDownWithError() throws {
         sonarrServer?.stop()
+        sonarrHDServer?.stop()
+        sonarrUHDServer?.stop()
         radarrServer?.stop()
+        radarrHDServer?.stop()
+        radarrUHDServer?.stop()
         sonarrServer = nil
+        sonarrHDServer = nil
+        sonarrUHDServer = nil
         radarrServer = nil
+        radarrHDServer = nil
+        radarrUHDServer = nil
     }
 
     @MainActor
@@ -131,6 +143,82 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["Release"].exists, "A successful grab should dismiss the interactive-search sheet.")
     }
 
+    /// A Sonarr HD/4K pair reuses its library IDs. The active server begins as HD,
+    /// so this is the negative control the single-server journey cannot provide:
+    /// selecting the 4K title at id 211 must query and grab from 4K even though HD
+    /// also owns an unrelated id 211. A wrong route returns the plausible-looking
+    /// HD release, then fails its grab because that process never cached the 4K guid.
+    @MainActor
+    func testSonarr4KCollisionSearchesAndGrabsOnlyOnTheOwningServer() async throws {
+        let sharedID = 211
+        let hdTitle = "Fixture HD Collision"
+        let uhdTitle = "Fixture 4K Target"
+        let uhdReleaseTitle = "Fixture 4K Target S01 2160p"
+        let hdReleaseJSON = #"[{"guid":"hd-collision-guid","indexerId":1,"title":"Wrong HD Release","downloadAllowed":true}]"#
+        let uhdReleaseJSON = #"[{"guid":"uhd-collision-guid","indexerId":2,"title":"\#(uhdReleaseTitle)","downloadAllowed":true,"fullSeason":true}]"#
+        let hdSeriesJSON = #"[{"id":\#(sharedID),"title":"\#(hdTitle)","tvdbId":900001,"titleSlug":"fixture-hd-collision","monitored":true,"seasons":[{"seasonNumber":1,"monitored":true,"statistics":{"episodeCount":1}}]}]"#
+        let uhdSeriesJSON = #"[{"id":\#(sharedID),"title":"\#(uhdTitle)","tvdbId":900002,"titleSlug":"fixture-4k-target","monitored":true,"seasons":[{"seasonNumber":1,"monitored":true,"statistics":{"episodeCount":1}}]}]"#
+
+        let hd = try await ArrSearchAddFixtureServer(
+            librarySeriesJSON: hdSeriesJSON,
+            lookupResponseJSON: "[]",
+            addedSeriesJSON: #"{"id":999,"title":"Unused"}"#,
+            releaseResponseJSON: hdReleaseJSON
+        )
+        let uhd = try await ArrSearchAddFixtureServer(
+            librarySeriesJSON: uhdSeriesJSON,
+            lookupResponseJSON: "[]",
+            addedSeriesJSON: #"{"id":999,"title":"Unused"}"#,
+            releaseResponseJSON: uhdReleaseJSON
+        )
+        sonarrHDServer = hd
+        sonarrUHDServer = uhd
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = hd.baseURL
+        app.launchEnvironment["TRAWL_UITEST_SONARR_B_BASE_URL"] = uhd.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        try openLibraryItem(
+            library: .series,
+            title: uhdTitle,
+            in: app,
+            diagnostics: { "HD: \(hd.requests); 4K: \(uhd.requests)" }
+        )
+        XCTAssertTrue(
+            app.navigationBars[uhdTitle].waitForExistence(timeout: 15),
+            "The 4K title must open as itself, not the HD item sharing id \(sharedID)."
+        )
+
+        let interactive = firstButton(labelContains: "Interactive", in: app)
+        XCTAssertTrue(tapWhenHittable(interactive, in: app, timeout: 10))
+        let releaseRow = app.staticTexts[uhdReleaseTitle]
+        XCTAssertTrue(
+            releaseRow.waitForExistence(in: app, timeout: 20),
+            "The release list must come from 4K, not the HD server with the same series ID. HD: \(hd.requests); 4K: \(uhd.requests)"
+        )
+        XCTAssertFalse(app.staticTexts["Wrong HD Release"].exists)
+
+        let lookup = try XCTUnwrap(uhd.requests.last { $0.method == "GET" && $0.path == "/api/v3/release" })
+        XCTAssertEqual(queryValues(lookup.rawQuery)["seriesId"], String(sharedID))
+        XCTAssertEqual(queryValues(lookup.rawQuery)["seasonNumber"], "1")
+        XCTAssertFalse(hd.requests.contains { $0.method == "GET" && $0.path == "/api/v3/release" })
+
+        XCTAssertTrue(tapWhenHittable(releaseRow, in: app, timeout: 10))
+        let download = app.buttons["Download Release"]
+        XCTAssertTrue(download.waitForExistence(timeout: 15))
+        XCTAssertTrue(tapWhenHittable(download, in: app, timeout: 10))
+        XCTAssertTrue(element(labelContains: "Grabbed", in: app).waitForExistence(timeout: 15))
+
+        let grab = try XCTUnwrap(uhd.requests.last { $0.method == "POST" && $0.path == "/api/v3/release" })
+        let body = try jsonObject(grab.body)
+        XCTAssertEqual(body["guid"] as? String, "uhd-collision-guid")
+        XCTAssertEqual(body["indexerId"] as? Int, 2)
+        XCTAssertFalse(hd.requests.contains { $0.method == "POST" && $0.path == "/api/v3/release" })
+    }
+
     @MainActor
     func testRadarrAutomaticThenInteractiveSearchDownloadsSelectedRelease() async throws {
         let releaseTitle = "Fixture Movie Trawl Signal 1080p"
@@ -213,6 +301,65 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
         XCTAssertEqual(grabBody["guid"] as? String, releaseGuid)
         XCTAssertEqual(grabBody["indexerId"] as? Int, releaseIndexerID)
         XCTAssertFalse(app.navigationBars["Release"].exists, "A successful grab should dismiss the interactive-search sheet.")
+    }
+
+    /// The Radarr counterpart to the Sonarr collision journey above. Both fixture
+    /// servers deliberately expose the same movie id, mirroring real HD/4K
+    /// libraries, but return different release caches. Selecting 4K must use the
+    /// 4K cache for both the lookup and the final grab.
+    @MainActor
+    func testRadarr4KCollisionSearchesAndGrabsOnlyOnTheSelectedServer() async throws {
+        let hdReleaseJSON = #"[{"guid":"hd-radarr-guid","indexerId":1,"title":"Wrong HD Movie Release","downloadAllowed":true}]"#
+        let uhdReleaseTitle = "Fixture Movie Trawl Signal 2160p"
+        let uhdReleaseJSON = #"[{"guid":"uhd-radarr-guid","indexerId":2,"title":"\#(uhdReleaseTitle)","downloadAllowed":true}]"#
+        let hd = try await RadarrFixtureServer(releaseResponseJSON: hdReleaseJSON)
+        let uhd = try await RadarrFixtureServer(releaseResponseJSON: uhdReleaseJSON)
+        radarrHDServer = hd
+        radarrUHDServer = uhd
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = hd.baseURL
+        app.launchEnvironment["TRAWL_UITEST_RADARR_B_BASE_URL"] = uhd.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        try openLibraryItem(
+            library: .movies,
+            title: RadarrFixtureServer.movieTitle,
+            in: app,
+            diagnostics: { "HD: \(hd.requests); 4K: \(uhd.requests)" }
+        )
+
+        let interactive = firstButton(labelContains: "Interactive", in: app)
+        XCTAssertTrue(tapWhenHittable(interactive, in: app, timeout: 10))
+        let choose4K = app.buttons["Radarr 4K"]
+        XCTAssertTrue(
+            choose4K.waitForExistence(timeout: 10),
+            "A merged movie should ask which Radarr server to search."
+        )
+        choose4K.tap()
+
+        let releaseRow = app.staticTexts[uhdReleaseTitle]
+        XCTAssertTrue(
+            releaseRow.waitForExistence(in: app, timeout: 20),
+            "The 4K server's release must render; the active HD server's cache is not an acceptable fallback. HD: \(hd.requests); 4K: \(uhd.requests)"
+        )
+        XCTAssertFalse(app.staticTexts["Wrong HD Movie Release"].exists)
+        XCTAssertTrue(uhd.requests.contains { $0.method == "GET" && $0.path == "/api/v3/release" })
+        XCTAssertFalse(hd.requests.contains { $0.method == "GET" && $0.path == "/api/v3/release" })
+
+        XCTAssertTrue(tapWhenHittable(releaseRow, in: app, timeout: 10))
+        let download = app.buttons["Download Release"]
+        XCTAssertTrue(download.waitForExistence(timeout: 15))
+        XCTAssertTrue(tapWhenHittable(download, in: app, timeout: 10))
+        XCTAssertTrue(element(labelContains: "Grabbed", in: app).waitForExistence(timeout: 15))
+
+        let grab = try XCTUnwrap(uhd.requests.last { $0.method == "POST" && $0.path == "/api/v3/release" })
+        let body = try jsonObject(grab.body)
+        XCTAssertEqual(body["guid"] as? String, "uhd-radarr-guid")
+        XCTAssertEqual(body["indexerId"] as? Int, 2)
+        XCTAssertFalse(hd.requests.contains { $0.method == "POST" && $0.path == "/api/v3/release" })
     }
 
     @MainActor

@@ -9,9 +9,12 @@ struct ArrDetailBadge: Identifiable {
 
 struct ArrDetailPendingQueueAction: Identifiable {
     let itemID: Int
+    /// Queue IDs are local to each Arr server. Keep the source server with every
+    /// destructive action so a same-ID row on another instance cannot be removed.
+    let instanceID: UUID?
     let title: String
     let blocklist: Bool
-    var id: String { "\(itemID)-\(blocklist)" }
+    var id: String { "\(instanceID?.uuidString ?? "unscoped")-\(itemID)-\(blocklist)" }
 }
 
 struct ArrBadgeContext {

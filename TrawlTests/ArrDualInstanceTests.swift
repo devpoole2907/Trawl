@@ -505,7 +505,91 @@ struct ArrDualInstanceTests {
         #expect(uhd.qualityTier == .uhd)
     }
 
+    // MARK: - Detail queue ownership
+
+    /// The movie card must not borrow the HD server's queue row merely because
+    /// it happens to use the same integer library ID as the 4K movie currently
+    /// being viewed. This is the exact shape behind the live "The Invite" /
+    /// "Mamma Mia!" failure: both were id 211, but only one was downloading.
+    @Test("A movie detail queue matches the issuing server as well as the library ID")
+    func movieDetailQueueKeepsCollidingIDsSeparate() throws {
+        let hdID = UUID()
+        let uhdID = UUID()
+        let hd = ArrInstanceRef(id: hdID, serviceType: .radarr, displayName: "Radarr HD", tier: .hd)
+        let uhd = ArrInstanceRef(id: uhdID, serviceType: .radarr, displayName: "Radarr 4K", tier: .uhd)
+
+        let target = try #require(ArrLibraryEntry(copies: [
+            Self.movie(id: 211, title: "The Invite", tmdbId: 1339713).stamped(with: uhdID)
+        ]))
+        let records = [
+            ArrInstanced(try Self.queueItem(id: 1, movieID: 211, progress: 0.25), on: uhd),
+            // A different HD movie has the same local library ID. It is deliberately
+            // further along, so a bare-ID implementation would visibly prefer it.
+            ArrInstanced(try Self.queueItem(id: 2, movieID: 211, progress: 0.90), on: hd)
+        ]
+
+        let items = arrDetailQueueItems(
+            for: target,
+            fallbackLibraryID: target.primary.id,
+            queueRecords: records,
+            libraryID: \.movieId
+        )
+
+        #expect(items.map(\.value.id) == [1])
+        #expect(items.map(\.instance.id) == [uhdID])
+    }
+
+    /// The same server-and-ID address applies to Sonarr. This is intentionally a
+    /// separate assertion rather than a generic-only test: a future call site can
+    /// pass `movieId` for either type and still compile, while showing a wrong card.
+    @Test("A series detail queue matches the issuing server as well as the library ID")
+    func seriesDetailQueueKeepsCollidingIDsSeparate() throws {
+        let hdID = UUID()
+        let uhdID = UUID()
+        let hd = ArrInstanceRef(id: hdID, serviceType: .sonarr, displayName: "Sonarr HD", tier: .hd)
+        let uhd = ArrInstanceRef(id: uhdID, serviceType: .sonarr, displayName: "Sonarr 4K", tier: .uhd)
+
+        let target = try #require(ArrLibraryEntry(copies: [
+            Self.series(id: 211, title: "The Target Show", tvdbId: 7001).stamped(with: uhdID)
+        ]))
+        let records = [
+            ArrInstanced(try Self.queueItem(id: 1, seriesID: 211, progress: 0.25), on: uhd),
+            ArrInstanced(try Self.queueItem(id: 2, seriesID: 211, progress: 0.90), on: hd)
+        ]
+
+        let items = arrDetailQueueItems(
+            for: target,
+            fallbackLibraryID: target.primary.id,
+            queueRecords: records,
+            libraryID: \.seriesId
+        )
+
+        #expect(items.map(\.value.id) == [1])
+        #expect(items.map(\.instance.id) == [uhdID])
+    }
+
     // MARK: - Fixtures
+
+    private static func queueItem(
+        id: Int,
+        movieID: Int? = nil,
+        seriesID: Int? = nil,
+        progress: Double
+    ) throws -> ArrQueueItem {
+        let size = 1_000.0
+        let sizeLeft = size * (1 - progress)
+        let movie = movieID.map { "\"movieId\": \($0)" } ?? ""
+        let series = seriesID.map { "\"seriesId\": \($0)" } ?? ""
+        let fields = [
+            "\"id\": \(id)",
+            "\"status\": \"downloading\"",
+            "\"size\": \(size)",
+            "\"sizeleft\": \(sizeLeft)",
+            movie,
+            series
+        ].filter { !$0.isEmpty }.joined(separator: ",")
+        return try JSONDecoder().decode(ArrQueueItem.self, from: Data("{\(fields)}".utf8))
+    }
 
     /// Decoded rather than constructed, so every fixture goes through the real
     /// decoder - which is where `instanceID` has to start out nil.
@@ -686,6 +770,82 @@ struct ArrDualInstanceRoutingTests {
         }
     }
 
+    /// Interactive-search results exist only in the server process that returned
+    /// them. Posting their guid to the merely-active server produces Radarr's
+    /// cache-miss error, even when the local movie ID happens to look valid there.
+    @Test("Interactive search and release grab stay on the 4K Radarr that owns the copy")
+    func interactiveReleaseSearchAndGrabStayOnOwningRadarr() async throws {
+        let hd = try await DualInstanceRadarrServer(
+            label: "hd-release-route",
+            movies: #"[{"id":211,"title":"Mamma Mia!","tmdbId":11631}]"#,
+            releaseResponseJSON: #"[{"guid":"hd-guid","indexerId":1,"title":"Wrong HD Release"}]"#
+        )
+        let uhd = try await DualInstanceRadarrServer(
+            label: "4k-release-route",
+            movies: #"[{"id":211,"title":"The Invite","tmdbId":1339713}]"#,
+            releaseResponseJSON: #"[{"guid":"uhd-guid","indexerId":2,"title":"The Invite 2160p"}]"#
+        )
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, _, uhdID in
+            let viewModel = RadarrViewModel(serviceManager: manager)
+            await viewModel.loadMovies()
+
+            let releases = try await viewModel.interactiveSearchMovie(movieId: 211, instanceID: uhdID)
+            let release = try #require(releases.first)
+            #expect(release.title == "The Invite 2160p")
+            #expect(uhd.requestedPaths.contains { $0.hasPrefix("/api/v3/release?") })
+            #expect(hd.requestedPaths.contains { $0.hasPrefix("/api/v3/release?") } == false)
+
+            #expect(await viewModel.grabRelease(release, instanceID: uhdID))
+            #expect(uhd.releaseBodies.count == 1)
+            #expect(uhd.releaseBodies.first?.contains("uhd-guid") == true)
+            #expect(hd.releaseBodies.isEmpty)
+        }
+    }
+
+    @Test("A release with an unknown server is never grabbed by the active Radarr")
+    func unknownReleaseServerFailsClosed() async throws {
+        let hd = try await DualInstanceRadarrServer(label: "hd-release-fail-closed", movies: "[]")
+        let uhd = try await DualInstanceRadarrServer(label: "4k-release-fail-closed", movies: "[]")
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, _, _ in
+            let viewModel = RadarrViewModel(serviceManager: manager)
+            let release = try #require(
+                try JSONDecoder().decode([ArrRelease].self, from: Data(#"[{"guid":"orphan-guid","indexerId":9,"title":"Orphan release"}]"#.utf8)).first
+            )
+
+            #expect(await viewModel.grabRelease(release, instanceID: UUID()) == false)
+            #expect(hd.releaseBodies.isEmpty)
+            #expect(uhd.releaseBodies.isEmpty)
+        }
+    }
+
+    /// Queue IDs are generated separately by each Radarr instance. Removing the
+    /// 4K row therefore needs the same explicit route as a release grab; choosing
+    /// the first id match would silently delete the HD download instead.
+    @Test("A server-scoped queue removal never deletes a same-ID row on the other Radarr")
+    func queueRemovalStaysOnOwningRadarr() async throws {
+        let hd = try await DualInstanceRadarrServer(label: "hd-queue-remove", movies: "[]")
+        let uhd = try await DualInstanceRadarrServer(label: "4k-queue-remove", movies: "[]")
+        defer { hd.stop(); uhd.stop() }
+
+        hd.queueBody = #"{"page":1,"pageSize":100,"totalRecords":1,"records":[{"id":9,"movieId":211,"title":"HD Collision","status":"downloading"}]}"#
+        uhd.queueBody = #"{"page":1,"pageSize":100,"totalRecords":1,"records":[{"id":9,"movieId":211,"title":"4K Target","status":"downloading"}]}"#
+
+        try await withPair(hd: hd, uhd: uhd) { manager, _, uhdID in
+            let viewModel = RadarrViewModel(serviceManager: manager)
+            await viewModel.loadQueue()
+
+            #expect(await viewModel.removeQueueItem(id: 9, instanceID: uhdID))
+            #expect(uhd.deletedPaths == ["/api/v3/queue/9"])
+            #expect(hd.deletedPaths.isEmpty)
+            #expect(viewModel.queueRecords.map(\.instance.id).count == 1)
+            #expect(viewModel.queueRecords.first?.instance.id != uhdID)
+        }
+    }
+
     @Test("An import scan stays on the selected 4K server")
     func importScanUsesTheSelectedServer() async throws {
         let hd = try await DualInstanceRadarrServer(label: "hd-import", movies: "[]")
@@ -826,9 +986,11 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
     private let queue: DispatchQueue
     private let moviesBody: String
     private let rootFoldersBody: String
+    private let releaseResponseJSON: String
     private let lock = NSLock()
     private var deletes: [String] = []
     private var commands: [String] = []
+    private var releases: [String] = []
     private var requests: [String] = []
 
     /// Queue payload for `GET /api/v3/queue`, settable so one test can hand out
@@ -839,11 +1001,17 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
     }
     private var _queueBody = #"{"page":1,"pageSize":100,"totalRecords":0,"records":[]}"#
 
-    init(label: String, movies: String, rootFolders: String = "[]") async throws {
+    init(
+        label: String,
+        movies: String,
+        rootFolders: String = "[]",
+        releaseResponseJSON: String = "[]"
+    ) async throws {
         self.queue = DispatchQueue(label: "DualInstanceRadarrServer.\(label)")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.moviesBody = movies
         self.rootFoldersBody = rootFolders
+        self.releaseResponseJSON = releaseResponseJSON
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
         }
@@ -874,6 +1042,14 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
         return commands
     }
 
+    /// Bodies sent to Radarr's grab endpoint. The command list above cannot stand
+    /// in for these: a release grab is a separate endpoint and its guid belongs to
+    /// the server-local interactive-search cache.
+    var releaseBodies: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return releases
+    }
+
     var requestedPaths: [String] {
         lock.lock(); defer { lock.unlock() }
         return requests
@@ -883,32 +1059,43 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
 
     private func respond(to connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, error in
-            guard let self, let data, error == nil else {
+        receive(on: connection, buffer: Data())
+    }
+
+    /// URLSession is allowed to split the request head and JSON payload over
+    /// separate TCP frames. Collect through the declared content length so route
+    /// tests prove the actual release guid, rather than merely that a POST happened.
+    private func receive(on connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self, error == nil else {
                 connection.cancel()
                 return
             }
-            let text = String(data: data, encoding: .utf8) ?? ""
-            let firstLine = text.split(separator: "\r\n", maxSplits: 1).first.map(String.init) ?? ""
-            let parts = firstLine.split(separator: " ", omittingEmptySubsequences: true)
-            let method = parts.first.map(String.init) ?? ""
-            let rawPath = parts.dropFirst().first.map(String.init) ?? ""
-            let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
+            var accumulated = buffer
+            if let data { accumulated.append(data) }
+            guard let request = Self.parse(accumulated) else {
+                if isComplete { connection.cancel() }
+                else { self.receive(on: connection, buffer: accumulated) }
+                return
+            }
 
             self.lock.lock()
-            self.requests.append(rawPath)
-            if method == "DELETE" { self.deletes.append(path) }
-            if method == "POST", path == "/api/v3/command" {
-                let body = text.components(separatedBy: "\r\n\r\n").dropFirst().joined(separator: "\r\n\r\n")
-                self.commands.append(body)
+            self.requests.append(request.rawPath)
+            if request.method == "DELETE" { self.deletes.append(request.path) }
+            if request.method == "POST", request.path == "/api/v3/command" {
+                self.commands.append(request.body)
+            }
+            if request.method == "POST", request.path == "/api/v3/release" {
+                self.releases.append(request.body)
             }
             self.lock.unlock()
 
             let body: String
-            switch (method, path) {
+            switch (request.method, request.path) {
             case ("GET", "/api/v3/movie"): body = self.moviesBody
             case ("GET", "/api/v3/rootfolder"): body = self.rootFoldersBody
             case ("GET", "/api/v3/queue"): body = self.queueBody
+            case ("GET", "/api/v3/release"): body = self.releaseResponseJSON
             // `ArrServiceManager.fetchQueueSnapshot` awaits queue and history
             // together, so an undecodable history throws the whole snapshot away
             // and the queue silently arrives empty. The default "[]" is not a page.
@@ -916,6 +1103,7 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
                 body = #"{"page":1,"pageSize":100,"totalRecords":0,"records":[]}"#
             case ("GET", "/api/v3/system/status"): body = "{}"
             case ("POST", "/api/v3/command"): body = #"{"id":1,"name":"MoviesSearch"}"#
+            case ("POST", "/api/v3/release"): body = "{}"
             case ("DELETE", _): body = "{}"
             default: body = "[]"
             }
@@ -926,6 +1114,34 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
                 completion: .contentProcessed { _ in connection.cancel() }
             )
         }
+    }
+
+    private static func parse(_ buffer: Data) -> (method: String, rawPath: String, path: String, body: String)? {
+        guard let separator = buffer.range(of: Data("\r\n\r\n".utf8)),
+              let head = String(data: buffer[buffer.startIndex..<separator.lowerBound], encoding: .utf8) else {
+            return nil
+        }
+        var lines = head.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return nil }
+        lines.removeFirst()
+        let parts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard parts.count >= 2 else { return nil }
+
+        let contentLength = lines.compactMap { line -> Int? in
+            guard let colon = line.firstIndex(of: ":"),
+                  String(line[..<colon]).caseInsensitiveCompare("Content-Length") == .orderedSame else { return nil }
+            return Int(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
+        }.first ?? 0
+        let bodyBytes = Data(buffer[separator.upperBound...])
+        guard bodyBytes.count >= contentLength else { return nil }
+
+        let rawPath = String(parts[1])
+        return (
+            String(parts[0]),
+            rawPath,
+            String(rawPath.split(separator: "?", maxSplits: 1).first ?? ""),
+            String(data: bodyBytes.prefix(contentLength), encoding: .utf8) ?? ""
+        )
     }
 
     private static func httpResponse(body: String) -> Data {
