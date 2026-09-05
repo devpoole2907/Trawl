@@ -578,3 +578,9 @@ Every result must be accepted by `python3 Scripts/assert-test-results.py <result
 ## Request selection in an iPad detail pane
 
 Native split-view columns contain the detail artwork. `SeerrDashboardView` keys the selected detail by request ID so media loaded for a previous selection cannot remain in view. `ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` uses the opt-in request responses in `SeerrUIFixtureServer` to open a movie, select a series from the still-usable list, and assert the series response appears. Before the identity fix, the series-detail assertion failed. Full-screen attachments provide visual coverage of artwork containment; XCTest accessibility alone does not detect background overdraw.
+
+## Grouped administration detail forms
+
+Providers, indexer details, quality-profile details, Jellyfin library details and unified user details use grouped forms on macOS. Existing `ArrUncoveredScreensJourneyUITests`, `ProwlarrJourneyUITests`, `MoreSettingsBreadthUITests`, `JellyfinLibrariesJourneyUITests` and `JellyfinUserEditorJourneyUITests` own their request/navigation regression coverage. Mac grouped-card appearance and the language-profile toolbar gradient remain visual checks, without pixel assertions. Provider editing presents a sheet on Mac/iPad and pushes on iPhone; the provider journey opens the fixture-backed editor and checks for Cancel on sidebar devices and its absence on iPhone. Activity is available through Logs and no longer appears in `SidebarSection.mediaServer`.
+
+The Subtitles hub supplies its list selection binding only in split-view columns. A selection binding on iPhone consumed the value links without pushing either destination; the provider editor journey and the language-profile journey in `MoreSettingsBreadthUITests` cover the compact route.

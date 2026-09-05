@@ -143,11 +143,11 @@ actor SeerrAPIClient {
         try await get(kind.servicePath(id: id))
     }
 
-    func createDVRSettings(_ kind: SeerrDVRKind, body: SeerrDVRSettings) async throws -> SeerrDVRSettings {
+    func createDVRSettings(_ kind: SeerrDVRKind, body: SeerrDVRSettingsPayload) async throws -> SeerrDVRSettings {
         try await post(kind.settingsPath, body: body)
     }
 
-    func updateDVRSettings(_ kind: SeerrDVRKind, id: Int, body: SeerrDVRSettings) async throws -> SeerrDVRSettings {
+    func updateDVRSettings(_ kind: SeerrDVRKind, id: Int, body: SeerrDVRSettingsPayload) async throws -> SeerrDVRSettings {
         try await put(kind.settingsItemPath(id: id), body: body)
     }
 

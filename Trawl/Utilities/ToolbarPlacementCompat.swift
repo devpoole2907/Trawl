@@ -4,7 +4,7 @@ var platformTopBarLeadingPlacement: ToolbarItemPlacement {
     #if os(iOS)
     .topBarLeading
     #else
-    .automatic
+    .navigation
     #endif
 }
 

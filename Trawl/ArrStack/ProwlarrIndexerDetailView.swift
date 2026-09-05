@@ -28,7 +28,7 @@ struct ProwlarrIndexerDetailView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             // MARK: Status Section
             Section("Status") {
                 Toggle("Enabled in Prowlarr", isOn: Binding(
@@ -167,6 +167,7 @@ struct ProwlarrIndexerDetailView: View {
                 }
             }
         }
+        .serviceSettingsFormStyle()
         .paneAwareNavigationTitle(indexer.name ?? "Indexer", subtitle: "Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -250,15 +251,10 @@ struct ProwlarrIndexerDetailView: View {
     }
 
     private func detailRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
+        LabeledContent(label) {
             Text(value)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
                 .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
         }
     }
 }

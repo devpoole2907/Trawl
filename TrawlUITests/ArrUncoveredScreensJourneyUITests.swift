@@ -50,9 +50,9 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
         XCTAssertTrue(openDestination(.logs, in: app), "Logs should be reachable.")
 
-        let logs = firstButton(labelContaining: "Logs", in: app)
-        XCTAssertTrue(tapWhenHittable(logs, in: app, timeout: 12), "System should expose Logs.")
-        XCTAssertTrue(app.navigationBars["Logs"].waitForExistence(in: app, timeout: 10), "The Logs hub should render.")
+        let logs = firstButton(labelContaining: "Logs & Activity", in: app)
+        XCTAssertTrue(tapWhenHittable(logs, in: app, timeout: 12), "System should expose Logs & Activity.")
+        XCTAssertTrue(app.navigationBars["Logs & Activity"].waitForExistence(in: app, timeout: 10), "The Logs & Activity hub should render.")
 
         let events = firstButton(labelContaining: "Events", in: app)
         XCTAssertTrue(tapWhenHittable(events, in: app, timeout: 12), "Logs should expose the Arr Events screen.")
@@ -85,11 +85,11 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         // fail three steps later.
         XCTAssertTrue(openDestination(.subtitles, in: app), "Subtitles should be reachable.")
 
-        let subtitles = firstButton(labelContaining: "Subtitles", in: app)
-        XCTAssertTrue(tapWhenHittable(subtitles, in: app, timeout: 12), "Library Management should expose the Subtitles area for a configured Bazarr.")
         XCTAssertTrue(app.navigationBars["Subtitles"].waitForExistence(in: app, timeout: 10), "The Subtitles hub should render.")
 
-        let providers = firstButton(labelContaining: "Providers", in: app)
+        let providers = TrawlChrome.isSidebar
+            ? app.staticTexts["Providers"].firstMatch
+            : firstButton(labelContaining: "Providers", in: app)
         XCTAssertTrue(tapWhenHittable(providers, in: app, timeout: 12), "Subtitles should expose Bazarr's Providers screen.")
         XCTAssertTrue(app.navigationBars["Providers"].waitForExistence(in: app, timeout: 10), "Providers should render its own screen.")
 
@@ -115,6 +115,20 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
             bazarr.requests.contains { $0.method == "GET" && $0.path == "/api/providers" },
             "The screen must have fetched providers over real HTTP."
         )
+
+        let provider = app.staticTexts[BazarrUIFixtureServer.providerDisplayName].firstMatch
+        XCTAssertTrue(tapWhenHittable(provider, in: app, timeout: 10))
+        XCTAssertTrue(app.navigationBars[BazarrUIFixtureServer.providerDisplayName].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Configuration"].exists, "The selected provider must open its populated editor.")
+        if TrawlChrome.isSidebar {
+            let cancel = app.buttons["Cancel"].firstMatch
+            XCTAssertTrue(cancel.exists, "Sidebar editing must expose a sheet dismissal action.")
+            cancel.tap()
+            XCTAssertTrue(app.navigationBars["Providers"].exists)
+        } else {
+            XCTAssertFalse(app.buttons["Cancel"].exists, "iPhone editing must remain on the navigation stack.")
+        }
+
     }
 
     // MARK: Helpers

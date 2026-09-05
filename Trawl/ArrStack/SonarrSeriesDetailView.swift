@@ -46,6 +46,7 @@ struct SonarrSeriesDetailView: View {
     /// third screen on top of the second one, with the list the user is picking from
     /// still beside it.
     @Environment(\.selectLibraryTitle) private var selectLibraryTitle
+    @Environment(\.openMediaInSearch) private var openMediaInSearch
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
@@ -572,7 +573,11 @@ struct SonarrSeriesDetailView: View {
             if credit.isMovie {
                 if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
                     if let selectLibraryTitle {
-                        selectLibraryTitle(resolved.mergeKey)
+                        if serviceManager.calendarViewModel?.radarrMovies.contains(where: { $0.tmdbId == resolved.tmdbId }) == true {
+                            selectLibraryTitle(resolved.mergeKey)
+                        } else {
+                            openMediaInSearch?(.movieLookup(resolved))
+                        }
                     } else {
                         castCreditMovie = resolved
                     }
@@ -585,7 +590,11 @@ struct SonarrSeriesDetailView: View {
             } else {
                 if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
                     if let selectLibraryTitle {
-                        selectLibraryTitle(resolved.mergeKey)
+                        if viewModel.series.contains(where: { $0.tvdbId == resolved.tvdbId }) {
+                            selectLibraryTitle(resolved.mergeKey)
+                        } else {
+                            openMediaInSearch?(.seriesLookup(resolved))
+                        }
                     } else {
                         castCreditSeries = resolved
                     }

@@ -1976,7 +1976,7 @@ enum MoreSearchIndex {
                 destination: .logsAndEvents,
                 icon: "text.document.fill",
                 color: .brown,
-                title: "Logs",
+                title: "Logs & Activity",
                 subtitle: "Server logs and activity across all services",
                 category: "System",
                 keywords: ["events", "activity", "history", "server"]
@@ -3110,7 +3110,7 @@ private struct SubtitleManagementView: View {
     }
 
     private var subtitleList: some View {
-        List(selection: selectionStore.binding) {
+        List(selection: showsDetailPane ? selectionStore.binding : nil) {
             if !serviceManager.hasBazarrInstance {
                 HubEmptyState(
                     title: "Bazarr Not Set Up",
@@ -3418,7 +3418,7 @@ private struct SystemHubView: View {
                     NavigationMenuRow(
                         icon: "text.document.fill",
                         color: MoreDestinationAccent.logsAndEvents.color,
-                        title: "Logs",
+                        title: "Logs & Activity",
                         subtitle: "Server logs and activity across all services"
                     )
                 }
@@ -3644,7 +3644,7 @@ private struct LogsAndEventsHubView: View {
         // Two panes at regular width. A log is read against another log - a failed
         // grab in Sonarr's events next to what the download client said about it -
         // and one-at-a-time turns that into a navigation exercise.
-        TrawlListDetailPanes(title: "Logs") {
+        TrawlListDetailPanes(title: "Logs & Activity") {
             logList
         } detail: {
             selectedLogDetail

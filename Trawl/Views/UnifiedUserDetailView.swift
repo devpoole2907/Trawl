@@ -52,13 +52,14 @@ struct UnifiedUserDetailView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             headerSection
 
             jellyfinSection
 
             seerrSection
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .listStyle(.insetGrouped)
         #else

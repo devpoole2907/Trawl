@@ -422,7 +422,6 @@ struct RecentNotificationsSheet: View {
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
     @State private var queuedImportCommands: [QueuedImportCommand] = []
-    @State private var runningActions: Set<NotificationQuickAction> = []
     /// Requests with an approve/decline call in flight, so the row can't be
     /// double-tapped while the server is still deciding.
     @State private var requestActionIDs: Set<Int> = []
@@ -887,7 +886,9 @@ struct RecentNotificationsSheet: View {
     private var availableActions: [NotificationQuickAction] {
         var actions: [NotificationQuickAction] = []
 
-        if !sonarrTargets.isEmpty || !radarrTargets.isEmpty {
+        let hasSonarr = arrServiceManager.sonarrInstances.contains { $0.isConnected && $0.client != nil }
+        let hasRadarr = arrServiceManager.radarrInstances.contains { $0.isConnected && $0.client != nil }
+        if hasSonarr || hasRadarr {
             actions.append(contentsOf: [.refreshLibrary, .rssSync, .searchAllMissing])
         }
         if arrServiceManager.prowlarrConnected, arrServiceManager.prowlarrClient != nil {
@@ -899,38 +900,20 @@ struct RecentNotificationsSheet: View {
         if sabnzbdServiceManager.isConnected, sabnzbdServiceManager.activeClient != nil {
             actions.append(sabnzbdServiceManager.queue?.paused == true ? .resumeUsenetQueue : .pauseUsenetQueue)
         }
+        if syncService.serverState != nil {
+            actions.append(contentsOf: [.pauseQBittorrent, .resumeQBittorrent])
+        }
 
         return actions
     }
 
-    /// Connected Sonarr instances. The label falls back to the plain service name
-    /// when there's only one instance so summaries read "Refreshed Sonarr" rather
-    /// than echoing a profile name the user never had to choose between.
-    private var sonarrTargets: [ArrActionTarget<SonarrAPIClient>] {
-        let connected = arrServiceManager.sonarrInstances.filter(\.isConnected)
-        return connected.compactMap { entry in
-            guard let client = entry.client else { return nil }
-            let name = connected.count > 1 ? entry.displayName : ServiceIdentity.sonarr.displayName
-            return ArrActionTarget(name: name, client: client)
-        }
-    }
-
-    private var radarrTargets: [ArrActionTarget<RadarrAPIClient>] {
-        let connected = arrServiceManager.radarrInstances.filter(\.isConnected)
-        return connected.compactMap { entry in
-            guard let client = entry.client else { return nil }
-            let name = connected.count > 1 ? entry.displayName : ServiceIdentity.radarr.displayName
-            return ArrActionTarget(name: name, client: client)
-        }
-    }
-
     @ViewBuilder
     private func quickActionRow(_ action: NotificationQuickAction) -> some View {
-        let isRunning = runningActions.contains(action)
+        let isRunning = inAppNotificationCenter.runningQuickActions.contains(action)
         let tint = action.tint
 
         Button {
-            perform(action)
+            NotificationCenter.default.post(name: .trawlQuickAction, object: action.rawValue)
         } label: {
             HStack(alignment: .center, spacing: 12) {
                 ZStack {
@@ -967,129 +950,6 @@ struct RecentNotificationsSheet: View {
         .disabled(isRunning)
         .accessibilityLabel(action.title)
         .accessibilityValue(isRunning ? "Running" : "")
-    }
-
-    /// Runs an action once, keeping the row spinning and untappable until every
-    /// fanned-out call has come back.
-    private func perform(_ action: NotificationQuickAction) {
-        guard !runningActions.contains(action) else { return }
-        runningActions.insert(action)
-        Task {
-            let outcome = await runOutcome(for: action)
-            runningActions.remove(action)
-            report(action, outcome: outcome)
-        }
-    }
-
-    private func runOutcome(for action: NotificationQuickAction) async -> NotificationQuickActionOutcome {
-        var outcome = NotificationQuickActionOutcome()
-
-        switch action {
-        case .refreshLibrary:
-            for target in sonarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.refreshSeries() }
-                outcome.append(step)
-            }
-            for target in radarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.refreshMovie() }
-                outcome.append(step)
-            }
-
-        case .rssSync:
-            for target in sonarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.rssSync() }
-                outcome.append(step)
-            }
-            for target in radarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.rssSync() }
-                outcome.append(step)
-            }
-
-        case .searchAllMissing:
-            for target in sonarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.searchAllMissing() }
-                outcome.append(step)
-            }
-            for target in radarrTargets {
-                let step = await attempt(target.name) { _ = try await target.client.searchAllMissing() }
-                outcome.append(step)
-            }
-
-        case .syncIndexers:
-            if let client = arrServiceManager.prowlarrClient {
-                let step = await attempt(ServiceIdentity.prowlarr.displayName) {
-                    _ = try await client.syncApplications()
-                }
-                outcome.append(step)
-            }
-
-        case .rescanJellyfinLibraries:
-            if let client = jellyfinServiceManager.activeClient {
-                let step = await attempt(ServiceIdentity.jellyfin.displayName) {
-                    try await client.refreshAllLibraries()
-                }
-                outcome.append(step)
-            }
-
-        case .pauseUsenetQueue:
-            let paused = await attempt(ServiceIdentity.sabnzbd.displayName) {
-                try await sabnzbdServiceManager.pauseAll()
-            }
-            outcome.append(paused)
-
-        case .resumeUsenetQueue:
-            let resumed = await attempt(ServiceIdentity.sabnzbd.displayName) {
-                try await sabnzbdServiceManager.resumeAll()
-            }
-            outcome.append(resumed)
-        }
-
-        return outcome
-    }
-
-    /// Runs one fanned-out call and turns the throw into a recorded failure so a
-    /// single unreachable instance never aborts the rest of the fan-out.
-    private func attempt(_ target: String, _ work: () async throws -> Void) async -> NotificationQuickActionStep {
-        do {
-            try await work()
-            return .succeeded(target)
-        } catch {
-            return .failed(target: target, message: error.localizedDescription)
-        }
-    }
-
-    /// One summary banner per action rather than one per service - on a partial
-    /// failure the successes and the failure reasons share a single line.
-    private func report(_ action: NotificationQuickAction, outcome: NotificationQuickActionOutcome) {
-        guard !outcome.isEmpty else {
-            inAppNotificationCenter.showError(
-                title: action.bannerTitle,
-                message: "No connected service handled this command."
-            )
-            return
-        }
-
-        var parts: [String] = []
-        if !outcome.succeeded.isEmpty {
-            parts.append("\(action.successVerb) \(formattedList(outcome.succeeded))")
-        }
-        parts.append(contentsOf: outcome.failures.map { "\($0.target) failed: \($0.message)" })
-        let message = parts.joined(separator: " · ")
-
-        if outcome.failures.isEmpty {
-            inAppNotificationCenter.showSuccess(title: action.bannerTitle, message: "\(message).")
-        } else {
-            inAppNotificationCenter.showError(title: action.bannerTitle, message: message)
-        }
-    }
-
-    private func formattedList(_ names: [String]) -> String {
-        switch names.count {
-        case 0: return ""
-        case 1: return names[0]
-        case 2: return "\(names[0]) and \(names[1])"
-        default: return "\(names.dropLast().joined(separator: ", ")) and \(names[names.count - 1])"
-        }
     }
 
     private func icon(for entry: NotificationLogEntry) -> String {
@@ -1728,151 +1588,6 @@ private struct NotificationDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-    }
-}
-
-// MARK: - Quick Action Model
-
-/// Section headers for the Actions segment, ordered the way they render.
-private enum NotificationQuickActionGroup: String, CaseIterable, Identifiable {
-    case library
-    case indexers
-    case mediaServer
-    case downloads
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .library: "Library"
-        case .indexers: "Indexers"
-        case .mediaServer: "Media Server"
-        case .downloads: "Downloads"
-        }
-    }
-}
-
-/// A global service verb. Everything here is object-free - it acts on whole
-/// services, never on a single queue item, grab, or release.
-private enum NotificationQuickAction: String, CaseIterable, Identifiable {
-    case refreshLibrary
-    case rssSync
-    case searchAllMissing
-    case syncIndexers
-    case rescanJellyfinLibraries
-    case pauseUsenetQueue
-    case resumeUsenetQueue
-
-    var id: String { rawValue }
-
-    var group: NotificationQuickActionGroup {
-        switch self {
-        case .refreshLibrary, .rssSync, .searchAllMissing: .library
-        case .syncIndexers: .indexers
-        case .rescanJellyfinLibraries: .mediaServer
-        case .pauseUsenetQueue, .resumeUsenetQueue: .downloads
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .refreshLibrary: "Refresh Library"
-        case .rssSync: "Check for New Releases"
-        case .searchAllMissing: "Search All Missing"
-        case .syncIndexers: "Sync Indexers to Apps"
-        case .rescanJellyfinLibraries: "Rescan Libraries"
-        case .pauseUsenetQueue: "Pause Usenet Queue"
-        case .resumeUsenetQueue: "Resume Usenet Queue"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .refreshLibrary: "Rescan every series and movie on disk across Sonarr and Radarr."
-        case .rssSync: "Run an RSS sync so monitored items pick up fresh releases."
-        case .searchAllMissing: "Start an indexer search for everything still missing."
-        case .syncIndexers: "Push Prowlarr's indexers out to its linked applications."
-        case .rescanJellyfinLibraries: "Scan every Jellyfin library for new and changed media."
-        case .pauseUsenetQueue: "Hold every SABnzbd download until you resume."
-        case .resumeUsenetQueue: "Restart the paused SABnzbd queue."
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .refreshLibrary: "arrow.clockwise"
-        case .rssSync: "dot.radiowaves.up.forward"
-        case .searchAllMissing: "magnifyingglass"
-        case .syncIndexers: "arrow.triangle.2.circlepath"
-        case .rescanJellyfinLibraries: "rectangle.stack.badge.play"
-        case .pauseUsenetQueue: "pause.circle"
-        case .resumeUsenetQueue: "play.circle"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .refreshLibrary, .rssSync, .searchAllMissing: .accentColor
-        case .syncIndexers: ServiceIdentity.prowlarr.brandColor
-        case .rescanJellyfinLibraries: ServiceIdentity.jellyfin.brandColor
-        case .pauseUsenetQueue, .resumeUsenetQueue: ServiceIdentity.sabnzbd.brandColor
-        }
-    }
-
-    /// Title of the single summary banner posted when the fan-out finishes.
-    var bannerTitle: String {
-        switch self {
-        case .refreshLibrary: "Refresh Library"
-        case .rssSync: "RSS Sync"
-        case .searchAllMissing: "Search All Missing"
-        case .syncIndexers: "Sync Indexers"
-        case .rescanJellyfinLibraries: "Rescan Libraries"
-        case .pauseUsenetQueue: "Pause Queue"
-        case .resumeUsenetQueue: "Resume Queue"
-        }
-    }
-
-    /// Leads the summary line: "<verb> Sonarr and Radarr".
-    var successVerb: String {
-        switch self {
-        case .refreshLibrary: "Refreshed"
-        case .rssSync: "Synced"
-        case .searchAllMissing: "Started search on"
-        case .syncIndexers: "Synced"
-        case .rescanJellyfinLibraries: "Rescanned"
-        case .pauseUsenetQueue: "Paused"
-        case .resumeUsenetQueue: "Resumed"
-        }
-    }
-}
-
-/// One connected instance an action fans out to, paired with the label used for
-/// it in the summary banner.
-private struct ArrActionTarget<Client: SharedArrClient> {
-    let name: String
-    let client: Client
-}
-
-private enum NotificationQuickActionStep {
-    case succeeded(String)
-    case failed(target: String, message: String)
-}
-
-/// Collected results of a fan-out, so a partial failure can be reported as one
-/// line instead of a stack of per-service banners.
-private struct NotificationQuickActionOutcome {
-    private(set) var succeeded: [String] = []
-    private(set) var failures: [(target: String, message: String)] = []
-
-    var isEmpty: Bool { succeeded.isEmpty && failures.isEmpty }
-
-    mutating func append(_ step: NotificationQuickActionStep) {
-        switch step {
-        case .succeeded(let name):
-            succeeded.append(name)
-        case .failed(let target, let message):
-            failures.append((target: target, message: message))
-        }
     }
 }
 

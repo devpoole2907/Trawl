@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftData
 
+#if os(macOS)
+import AppKit
+#endif
+
 struct SearchView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
@@ -66,10 +70,17 @@ struct SearchView: View {
     }
 
     private let presentation: Presentation
+    @Binding var programmaticDestination: ArrMediaDestination?
 
-    init(presentation: Presentation = .stack) {
+    #if os(macOS)
+    #endif
+
+    init(presentation: Presentation = .stack, programmaticDestination: Binding<ArrMediaDestination?> = .constant(nil)) {
         self.presentation = presentation
+        self._programmaticDestination = programmaticDestination
     }
+
+
 
     // MARK: - Body
 
@@ -91,28 +102,35 @@ struct SearchView: View {
             ZStack(alignment: .top) {
                 content
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
-
-                if viewModel.isSearchPresented && viewModel.searchText.isEmpty {
-                    TrawlSegmentBar(
-                        "Scope",
-                        selection: $viewModel.scope,
-                        items: SearchScope.segmentBarItems,
-                        alignment: .center
-                    )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
             }
             .safeAreaInset(edge: .top) {
-                if !viewModel.searchText.isEmpty {
-                    filterSegmentBar
+                VStack(spacing: 0) {
+                    if viewModel.isSearchPresented && viewModel.searchText.isEmpty {
+                        TrawlSegmentBar(
+                            "Scope",
+                            selection: $viewModel.scope,
+                            items: SearchScope.segmentBarItems,
+                            alignment: .center
+                        )
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else if !viewModel.searchText.isEmpty {
+                        filterSegmentBar
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isSearchPresented)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.scope)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.searchText.isEmpty)
-            .navigationTitle(viewModel.isSearchPresented ? "" : "Search")
+            #if os(macOS)
+            .navigationTitle("")
+            #else
+            .navigationTitle(presentation == .stack ? (viewModel.isSearchPresented ? "" : "Search") : "")
+            #endif
             .toolbarTitleDisplayMode(.inlineLarge)
+            #if os(macOS)
+            .toolbar { macOSSearchBarToolbarItem }
+            #endif
             .arrMediaNavigationDestinations(
                 onLibraryChanged: { await refreshLibrary() },
                 zoomNamespace: trendingTransition
@@ -139,7 +157,14 @@ struct SearchView: View {
     /// same behaviour on both, and only their container differs.
     @ViewBuilder
     private func searchChrome(@ViewBuilder _ root: () -> some View) -> some View {
+        #if os(iOS)
         root()
+        .navigationDestination(item: $programmaticDestination) { dest in
+            ArrMediaDetailPane(
+                destination: dest,
+                onLibraryChanged: { await refreshLibrary() }
+            )
+        }
         .searchable(
             text: $viewModel.searchText,
             isPresented: $viewModel.isSearchPresented,
@@ -203,7 +228,68 @@ struct SearchView: View {
             trendingLookupTask?.cancel()
             trendingLookupTask = nil
         }
+        #else
+        root()
+        .navigationDestination(item: $programmaticDestination) { dest in
+            ArrMediaDetailPane(
+                destination: dest,
+                onLibraryChanged: { await refreshLibrary() }
+            )
+        }
+        .onChange(of: viewModel.scope) { _, newScope in
+            if newScope == .arr {
+                startArrLookup(immediate: true)
+            } else {
+                viewModel.arrLookupTask?.cancel()
+            }
+        }
+        .onChange(of: viewModel.searchText) { _, newValue in
+            if viewModel.scope == .arr {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    resetArrLookup()
+                } else {
+                    startArrLookup()
+                }
+            } else {
+                startLibrarySearch()
+            }
+        }
+        .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
+            await viewModel.loadTrending(arrServiceManager: arrServiceManager, seerrServiceManager: seerrServiceManager)
+        }
+        .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
+            // Reuses whatever the Series/Movies tabs already fetched, rather than
+            // pulling both full libraries again just to build match badges.
+            await refreshLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+            createLookupViewModels()
+            await reconcileTrendingMatches()
+        }
+        .refreshable {
+            await loadTrending()
+            await refreshLibrary()
+            await reconcileTrendingMatches()
+        }
+        .errorAlert(item: $viewModel.actionErrorAlert)
+        .sheet(isPresented: $showArrSetupSheet) {
+            ArrSetupSheet(onComplete: {
+                Task { await arrServiceManager.refreshConfiguration() }
+            })
+            .environment(arrServiceManager)
+        }
+        .onDisappear {
+            trendingLookupTask?.cancel()
+            trendingLookupTask = nil
+        }
+        #endif
     }
+
 
     /// Where the search field sits, which depends on the container it is in.
     ///
@@ -214,7 +300,7 @@ struct SearchView: View {
     /// chrome actually keeps one.
     private var searchFieldPlacement: SearchFieldPlacement {
         #if os(macOS)
-        .automatic
+        .sidebar
         #else
         // `.navigationBarDrawer(.always)` on both. `.automatic` in a split view's
         // content column produced no field at all on iPadOS 26: the split view
@@ -960,6 +1046,31 @@ struct SearchView: View {
     private func clearRecents() {
         saveRecents([])
     }
+
+    #if os(macOS)
+    @ToolbarContentBuilder
+    private var macOSSearchBarToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            MacSearchField(
+                text: $viewModel.searchText,
+                placeholder: searchPrompt,
+                onFocusChanged: { isFocused in
+                    if viewModel.isSearchPresented != isFocused {
+                        viewModel.isSearchPresented = isFocused
+                    }
+                },
+                onSubmit: {
+                    recordRecent(viewModel.searchText)
+                    if viewModel.scope == .arr {
+                        startArrLookup(immediate: true)
+                    }
+                }
+            )
+            .frame(minWidth: 150, idealWidth: 200, maxWidth: 300)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isSearchPresented)
+        }
+    }
+    #endif
 }
 
 // MARK: - Arr result rows
@@ -1145,6 +1256,7 @@ fileprivate enum SearchResultEntry: Identifiable {
     }
 }
 
+
 #if DEBUG
 extension SearchView {
     init(previewViewModel: SearchViewModel) {
@@ -1202,6 +1314,76 @@ extension SearchView {
             trendingTV: [],
             hasSearchedArr: true
         ))
+    }
+
+}
+#endif
+
+#if os(macOS)
+class TrawlMacSearchField: NSSearchField {
+    var onFocusChanged: ((Bool) -> Void)?
+    private var observer: NSKeyValueObservation?
+    private var isCurrentlyFocused = false
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window = window {
+            observer = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] win, _ in
+                guard let self = self else { return }
+                let focused = (win.firstResponder == self) || (self.currentEditor() != nil && win.firstResponder == self.currentEditor())
+                if focused != self.isCurrentlyFocused {
+                    self.isCurrentlyFocused = focused
+                    DispatchQueue.main.async { self.onFocusChanged?(focused) }
+                }
+            }
+        } else {
+            observer = nil
+        }
+    }
+}
+
+struct MacSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onFocusChanged: (Bool) -> Void
+    var onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let searchField = TrawlMacSearchField()
+        searchField.placeholderString = placeholder
+        searchField.delegate = context.coordinator
+        searchField.target = context.coordinator
+        searchField.action = #selector(Coordinator.submit(_:))
+        searchField.onFocusChanged = onFocusChanged
+        return searchField
+    }
+
+    func updateNSView(_ nsView: NSSearchField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: MacSearchField
+
+        init(_ parent: MacSearchField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            if let field = obj.object as? NSSearchField {
+                parent.text = field.stringValue
+            }
+        }
+        
+        @objc func submit(_ sender: NSSearchField) {
+            parent.onSubmit()
+        }
     }
 }
 #endif

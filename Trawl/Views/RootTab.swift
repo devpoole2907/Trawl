@@ -32,7 +32,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
         case .requests:
             [.requests, .issues, .users]
         case .mediaServer:
-            [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins, .jellyfinActivity]
+            [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
         case .integrations:
             [.indexers, .downloadClients, .qbittorrent, .sabnzbd, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
@@ -133,7 +133,7 @@ enum RootTab: Hashable, CaseIterable {
         case .setupCheck: "Setup Check"
         case .health: "Health"
         case .tasks: "Tasks"
-        case .logs: "Logs"
+        case .logs: "Logs & Activity"
         case .diskSpace: "Disk Space"
         case .updates: "Updates"
         case .backups: "Backups"

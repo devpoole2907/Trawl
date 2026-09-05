@@ -36,6 +36,9 @@ struct BazarrLanguageProfilesView: View {
     var body: some View {
         availabilityContent
         .navigationTitle("Language Profiles")
+        #if os(macOS)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        #endif
         .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)

@@ -150,7 +150,7 @@ enum TrawlDestination: CaseIterable {
         case .setupCheck: "Setup Check"
         case .health: "Health"
         case .tasks: "Tasks"
-        case .logs: "Logs"
+        case .logs: "Logs & Activity"
         case .diskSpace: "Disk Space"
         case .updates: "Updates"
         case .backups: "Backups"

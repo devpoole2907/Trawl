@@ -1178,6 +1178,10 @@ private struct SelectLibraryTitleKey: EnvironmentKey {
     static let defaultValue: ((ArrMergeKey) -> Void)? = nil
 }
 
+private struct OpenMediaInSearchKey: EnvironmentKey {
+    static let defaultValue: ((ArrMediaDestination) -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -1253,6 +1257,11 @@ extension EnvironmentValues {
     var selectLibraryTitle: ((ArrMergeKey) -> Void)? {
         get { self[SelectLibraryTitleKey.self] }
         set { self[SelectLibraryTitleKey.self] = newValue }
+    }
+
+    var openMediaInSearch: ((ArrMediaDestination) -> Void)? {
+        get { self[OpenMediaInSearchKey.self] }
+        set { self[OpenMediaInSearchKey.self] = newValue }
     }
 }
 

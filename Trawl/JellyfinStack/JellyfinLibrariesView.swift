@@ -414,7 +414,7 @@ private struct JellyfinLibraryDetailView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             // Opens with the library. In a detail pane this is also the only thing
             // that names it: macOS draws one title for the whole window, and the
             // list column beside this one has already claimed it for "Libraries".
@@ -508,6 +508,7 @@ private struct JellyfinLibraryDetailView: View {
                 Text("Paths")
             }
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif

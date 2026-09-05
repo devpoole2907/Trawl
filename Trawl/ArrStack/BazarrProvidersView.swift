@@ -10,6 +10,7 @@ struct BazarrProvidersView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var addSheetPresented = false
+    @State private var editingProvider: BazarrProviderDefinition?
     @State private var deleteTarget: BazarrProviderDefinition?
     @State private var antiCaptchaProvider: BazarrAntiCaptchaProvider = .none
     @State private var antiCaptchaKey = ""
@@ -67,6 +68,19 @@ struct BazarrProvidersView: View {
         #endif
         .searchable(text: $searchText, prompt: "Search providers")
         .toolbar {
+            // Both `.primaryAction`, so they stay together at the trailing edge
+            // beside the search field. `.secondaryAction` put Reset in the Mac
+            // toolbar's other region, adrift near the leading edge with nothing
+            // to say it belonged to this pane.
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await resetProviders() }
+                } label: {
+                    Label("Reset Provider Status", systemImage: "arrow.counterclockwise")
+                }
+                .disabled(providerStatuses.isEmpty)
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     addSheetPresented = true
@@ -75,15 +89,17 @@ struct BazarrProvidersView: View {
                 }
                 .disabled(client == nil)
             }
-
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    Task { await resetProviders() }
-                } label: {
-                    Label("Reset Provider Status", systemImage: "arrow.counterclockwise")
-                }
-                .disabled(providerStatuses.isEmpty)
+        }
+        .sheet(item: $editingProvider) { provider in
+            NavigationStack {
+                providerEditor(provider)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { editingProvider = nil }
+                        }
+                    }
             }
+            .macSheetSizing()
         }
         .sheet(isPresented: $addSheetPresented) {
             BazarrProviderPickerView(
@@ -157,7 +173,7 @@ struct BazarrProvidersView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        List {
+        Form {
             if let errorMessage {
                 ServiceErrorView(
                     title: "Providers Unavailable",
@@ -180,26 +196,7 @@ struct BazarrProvidersView: View {
             } else {
                 Section("Enabled Providers") {
                     ForEach(filteredProviders) { provider in
-                        NavigationLink {
-                            BazarrProviderEditorView(
-                                provider: provider,
-                                settings: settings,
-                                mode: .edit,
-                                onRemove: {
-                                    Task { await disable(provider) }
-                                }
-                            ) { values in
-                                await save(provider: provider, values: values, enabling: false)
-                            }
-                        } label: {
-                            BazarrProviderRowView(
-                                title: provider.displayName,
-                                subtitle: subtitle(for: provider),
-                                barColor: MoreDestinationAccent.providers.color,
-                                isEnabled: true,
-                                warningState: warningState(for: provider)
-                            )
-                        }
+                        providerLink(provider)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 deleteTarget = provider
@@ -223,10 +220,52 @@ struct BazarrProvidersView: View {
         #else
         .listStyle(.inset)
         #endif
+        .serviceSettingsFormStyle()
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .refreshable { await load() }
         .animation(.easeInOut(duration: 0.25), value: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @ViewBuilder
+    private func providerLink(_ provider: BazarrProviderDefinition) -> some View {
+        if usesNavigationBarSearch {
+            NavigationLink {
+                providerEditor(provider)
+            } label: {
+                providerRow(provider)
+            }
+        } else {
+            Button {
+                editingProvider = provider
+            } label: {
+                providerRow(provider)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func providerRow(_ provider: BazarrProviderDefinition) -> some View {
+        BazarrProviderRowView(
+            title: provider.displayName,
+            subtitle: subtitle(for: provider),
+            barColor: MoreDestinationAccent.providers.color,
+            isEnabled: true,
+            warningState: warningState(for: provider)
+        )
+    }
+
+    private func providerEditor(_ provider: BazarrProviderDefinition) -> some View {
+        BazarrProviderEditorView(
+            provider: provider,
+            settings: settings,
+            mode: .edit,
+            onRemove: { Task { await disable(provider) } }
+        ) { values in
+            await save(provider: provider, values: values, enabling: false)
+        }
     }
 
     private var loadingRows: some View {

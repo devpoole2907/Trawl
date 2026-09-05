@@ -606,7 +606,7 @@ private struct FormState {
         && !activeDirectory.isEmpty
     }
 
-    func makePayload(kind: SeerrDVRKind, activeProfileName: String?) -> SeerrDVRSettings? {
+    func makePayload(kind: SeerrDVRKind, activeProfileName: String?) -> SeerrDVRSettingsPayload? {
         guard
             let port = Int(portText),
             let activeProfileId,
@@ -615,8 +615,7 @@ private struct FormState {
             return nil
         }
 
-        var payload = SeerrDVRSettings(
-            id: 0,
+        var payload = SeerrDVRSettingsPayload(
             name: name,
             hostname: hostname,
             port: port,

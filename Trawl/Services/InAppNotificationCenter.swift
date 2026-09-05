@@ -17,6 +17,7 @@ final class InAppNotificationCenter {
     private(set) var recentNotifications: [NotificationLogEntry] = InAppNotificationCenter.loadPersistedNotifications()
     private(set) var lastReadDate: Date = InAppNotificationCenter.loadLastReadDate()
     private(set) var activeImportJobs: [ActiveImportJob] = []
+    var runningQuickActionIDs: Set<String> = []
     var isPresentingRecentNotifications = false
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
     var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }

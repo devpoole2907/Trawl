@@ -316,7 +316,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             //
             // `ArrEventsView` carries its own scope subtitle, so the detail bar is
             // two strings rather than one.
-            ("logs", "Logs", "Arr Events", ["All Servers", "Events"]),
+            ("logs", "Logs & Activity", "Arr Events", ["All Servers", "Events"]),
         ]
 
         for (offset, pane) in panes.enumerated() {

@@ -13,6 +13,8 @@ extension Notification.Name {
     /// `ContentView`, and threading one into the other would mean hoisting the app's
     /// whole navigation state up a level for one menu item.
     static let trawlOpenSettings = Notification.Name("com.poole.james.Trawl.openSettings")
+    /// Posted by the menu bar Tools commands to execute global quick actions.
+    static let trawlQuickAction = Notification.Name("com.poole.james.Trawl.quickAction")
 }
 
 #if os(iOS)
@@ -98,6 +100,7 @@ struct ContentView: View {
     @State private var downloadSelection: DownloadDetailSelection?
     @State private var seriesSelection: ArrMergeKey?
     @State private var moviesSelection: ArrMergeKey?
+    @State private var searchDetailDestination: ArrMediaDestination?
     @State private var indexerBrowser = ProwlarrIndexerBrowserState()
     @State private var downloadClientSelection = TrawlColumnSelection<MoreDestination>()
     @State private var linkedApplicationSelection = TrawlColumnSelection<MoreDestination>()
@@ -333,6 +336,20 @@ struct ContentView: View {
             // link, so the two can't drift apart.
             guard let url = notification.object as? URL else { return }
             handleIncomingURL(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trawlOpenSettings)) { _ in
+            openSettingsFromShortcut()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trawlQuickAction)) { notification in
+            guard let rawValue = notification.object as? String,
+                  let action = NotificationQuickAction(rawValue: rawValue) else { return }
+            QuickActionRunner(
+                arrServiceManager: arrServiceManager,
+                jellyfinServiceManager: jellyfinServiceManager,
+                sabnzbdServiceManager: sabnzbdServiceManager,
+                torrentService: (appServices ?? disconnectedServices).torrentService,
+                inAppNotificationCenter: inAppNotificationCenter
+            ).perform(action)
         }
         .task(id: seerrProfilesSyncKey) {
             #if DEBUG
@@ -643,12 +660,6 @@ struct ContentView: View {
                 twoColumnLayout(services: services, downloadBadge: downloadBadge)
             }
         }
-        #if os(macOS)
-        .onReceive(NotificationCenter.default.publisher(for: .trawlOpenSettings)) { _ in
-            selectedTab = .settings
-            sidebarPath(for: .settings).wrappedValue = []
-        }
-        #endif
         #if os(iOS)
         .environment(\.setTabChromeHidden) { isHidden in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
@@ -664,12 +675,14 @@ struct ContentView: View {
             sidebarColumn(services: services, downloadBadge: downloadBadge)
         } content: {
             contentColumn(for: selectedTab, services: services)
-                .navigationSplitViewColumnWidth(min: 360, ideal: 420, max: 560)
+                .navigationSplitViewColumnWidth(min: 390, ideal: 450, max: 600)
         } detail: {
             detailColumn(for: selectedTab, services: services)
+                .navigationSplitViewColumnWidth(min: 400, ideal: 500)
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.selectLibraryTitle, selectLibraryTitle)
+        .environment(\.openMediaInSearch, openMediaInSearch)
         .environment(\.showsSidebarAttentionBanner, true)
     }
 
@@ -717,7 +730,7 @@ struct ContentView: View {
                 sidebarNotificationBar(services: services)
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
-            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
     }
 
     /// The setup-attention banner, at the top of the sidebar rather than on each
@@ -1041,6 +1054,13 @@ struct ContentView: View {
         }
     }
 
+    private var openMediaInSearch: ((ArrMediaDestination) -> Void)? {
+        { dest in
+            searchDetailDestination = dest
+            selectedTab = .search
+        }
+    }
+
     /// The detail column: what a selection from the middle column opens into.
     ///
     /// The library destinations put a placeholder here and let their own pushes fill
@@ -1067,7 +1087,7 @@ struct ContentView: View {
                     .id(id)
                     .environment(sabnzbdServiceManager)
             case nil:
-                ContentUnavailableView("Select a download", systemImage: "tray.and.arrow.down")
+                listDetailPlaceholder("Select a download", systemImage: "tray.and.arrow.down")
             }
         case .series:
             // A detail view builds its own view model from the service manager -
@@ -1090,7 +1110,7 @@ struct ContentView: View {
                 .id(seriesSelection)
                 .environment(services.syncService)
             } else {
-                ContentUnavailableView("Select a series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+                listDetailPlaceholder("Select a series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
             }
         case .movies:
             if let moviesSelection {
@@ -1105,7 +1125,7 @@ struct ContentView: View {
                 .id(moviesSelection)
                 .environment(services.syncService)
             } else {
-                ContentUnavailableView("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
+                listDetailPlaceholder("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
             }
         case .indexers:
             ProwlarrIndexerListView(showsSelectedIndexer: true)
@@ -1116,7 +1136,7 @@ struct ContentView: View {
              .subtitles, .logs, .settings, .health:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
-            ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
+            listDetailPlaceholder("Search Trawl", systemImage: "magnifyingglass")
         default:
             moreStack(
                 rootedAt: destination.moreRoot,
@@ -1193,7 +1213,7 @@ struct ContentView: View {
         services: AppServices,
         presentation: SearchView.Presentation = .stack
     ) -> some View {
-        SearchView(presentation: presentation)
+        SearchView(presentation: presentation, programmaticDestination: $searchDetailDestination)
             .environment(arrServiceManager)
             .environment(services.syncService)
             .environment(services.torrentService)
@@ -1294,6 +1314,21 @@ struct ContentView: View {
         sidebarPath(for: .settings).wrappedValue = []
         settingsSelection.selection = destination
         selectedTab = .settings
+    }
+
+    /// Opens Settings when triggered from the menu bar shortcut (⌘,), adapting
+    /// to whether the current chrome uses the sidebar or the compact More tab.
+    private func openSettingsFromShortcut() {
+        #if os(iOS)
+        if hSizeClass == .regular {
+            showSettings(nil)
+        } else {
+            selectedTab = .more
+            morePath = [.settings]
+        }
+        #else
+        showSettings(nil)
+        #endif
     }
 
     /// Single entry point for every URL that reaches the app - external links,

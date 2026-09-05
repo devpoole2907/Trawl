@@ -396,10 +396,18 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         }
     }
 
+    private var titleMenuPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        .navigation
+        #else
+        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        #endif
+    }
+
     @ToolbarContentBuilder
     private var titleMenuToolbarItem: some ToolbarContent {
         if showsTitleMenu {
-            ToolbarItem(placement: detailSelection == nil ? .principal : platformTopBarLeadingPlacement) {
+            ToolbarItem(placement: titleMenuPlacement) {
                 TrawlTitleMenu(
                     options: titleMenuOptions,
                     selection: titleMenuSelection,

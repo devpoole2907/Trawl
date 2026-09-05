@@ -338,7 +338,7 @@ struct ArrQualityProfileDetailView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             Section {
                 if let instance {
                     LabeledContent("Server") {
@@ -429,6 +429,7 @@ struct ArrQualityProfileDetailView: View {
                 }
             }
         }
+        .serviceSettingsFormStyle()
         .paneAwareNavigationTitle(profile.name, subtitle: serviceType.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

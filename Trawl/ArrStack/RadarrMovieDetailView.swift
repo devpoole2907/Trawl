@@ -52,6 +52,7 @@ struct RadarrMovieDetailView: View {
     /// third screen on top of the second one, with the list the user is picking from
     /// still beside it.
     @Environment(\.selectLibraryTitle) private var selectLibraryTitle
+    @Environment(\.openMediaInSearch) private var openMediaInSearch
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
@@ -443,7 +444,11 @@ struct RadarrMovieDetailView: View {
             if credit.isMovie {
                 if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
                     if let selectLibraryTitle {
-                        selectLibraryTitle(resolved.mergeKey)
+                        if viewModel.movies.contains(where: { $0.tmdbId == resolved.tmdbId }) {
+                            selectLibraryTitle(resolved.mergeKey)
+                        } else {
+                            openMediaInSearch?(.movieLookup(resolved))
+                        }
                     } else {
                         castCreditMovie = resolved
                     }
@@ -455,8 +460,13 @@ struct RadarrMovieDetailView: View {
                 }
             } else {
                 if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
+                    // Check if it exists in Sonarr (we don't have SonarrViewModel here, so we check if its ID is > 0 or if ArrServiceManager's cache has it)
                     if let selectLibraryTitle {
-                        selectLibraryTitle(resolved.mergeKey)
+                        if serviceManager.calendarViewModel?.sonarrSeries.contains(where: { $0.tvdbId == resolved.tvdbId }) == true {
+                            selectLibraryTitle(resolved.mergeKey)
+                        } else {
+                            openMediaInSearch?(.seriesLookup(resolved))
+                        }
                     } else {
                         castCreditSeries = resolved
                     }

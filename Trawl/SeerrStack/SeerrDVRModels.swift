@@ -73,6 +73,35 @@ nonisolated struct SeerrDVRSettings: Codable, Identifiable, Sendable {
     }
 }
 
+/// The payload sent to `/api/v1/settings/{sonarr|radarr}` to create or update a server.
+/// Omits `id` because the Overseerr API schema marks it as read-only and rejects requests that include it.
+nonisolated struct SeerrDVRSettingsPayload: Encodable, Sendable {
+    var name: String
+    var hostname: String
+    var port: Int
+    var apiKey: String
+    var useSsl: Bool?
+    var baseUrl: String?
+    var activeProfileId: Int
+    var activeProfileName: String?
+    var activeDirectory: String
+    var is4k: Bool?
+    var isDefault: Bool?
+    var externalUrl: String?
+    var syncEnabled: Bool?
+    var preventSearch: Bool?
+    var tagRequests: Bool?
+    var tags: [Int]?
+    // Radarr-only
+    var minimumAvailability: String?
+    // Sonarr-only
+    var activeAnimeProfileId: Int?
+    var activeAnimeDirectory: String?
+    var activeLanguageProfileId: Int?
+    var activeAnimeLanguageProfileId: Int?
+    var enableSeasonFolders: Bool?
+}
+
 /// Body posted to `/api/v1/settings/{sonarr|radarr}/test` to fetch profiles, root folders, and tags
 /// before a server has been saved.
 nonisolated struct SeerrDVRTestBody: Codable, Sendable {
