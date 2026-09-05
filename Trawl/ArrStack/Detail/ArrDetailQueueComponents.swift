@@ -202,6 +202,30 @@ struct ArrDetailImportIssuesCard<Row: View>: View {
     }
 }
 
+/// Opens a download from a detail screen's queue card.
+///
+/// In the sidebar layout (Mac, regular-width iPad) the Downloads tab is still a
+/// place the user can see, so opening a download means selecting it there rather
+/// than stacking a torrent on top of the film they tapped it from. On iPhone
+/// there is no such column and the push is the only sensible move, so
+/// `selectDownload` is nil and this falls back to a `NavigationLink`.
+struct ArrDetailDownloadLink<Label: View, Destination: View>: View {
+    @Environment(\.selectDownload) private var selectDownload
+    let selection: DownloadDetailSelection
+    @ViewBuilder let destination: () -> Destination
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        if let selectDownload {
+            Button { selectDownload(selection) } label: { label() }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink { destination() } label: { label() }
+                .buttonStyle(.plain)
+        }
+    }
+}
+
 // MARK: - Queue item row
 
 struct ArrDetailQueueItemRow: View {
@@ -314,7 +338,7 @@ struct ArrDetailQueueItemRow: View {
             }
 
             if let t = torrent {
-                NavigationLink {
+                ArrDetailDownloadLink(selection: .torrent(hash: t.hash)) {
                     TorrentDetailView(torrentHash: t.hash)
                 } label: {
                     HStack(spacing: 10) {
@@ -344,7 +368,6 @@ struct ArrDetailQueueItemRow: View {
                     .contentShape(Rectangle())
                     .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
                 }
-                .buttonStyle(.plain)
             } else if let job = sabJob {
                 ArrDetailSABJobPanel(job: job)
             } else if let outputPath = item.outputPath, !outputPath.isEmpty {
@@ -402,18 +425,22 @@ struct ArrDetailQueueItemRow: View {
 /// movie/series detail is also reachable from screens that do not inject it.
 struct ArrDetailSABJobPanel: View {
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
+    /// Selecting in the Downloads tab needs no manager of its own - that tab has
+    /// one - so the panel is tappable in the sidebar layout either way.
+    @Environment(\.selectDownload) private var selectDownload
     let job: SABnzbdJob
 
     var body: some View {
-        if let sabnzbdServiceManager {
-            NavigationLink {
-                SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
-                    .environment(sabnzbdServiceManager)
+        if selectDownload != nil || sabnzbdServiceManager != nil {
+            ArrDetailDownloadLink(selection: .sabJob(id: job.id, name: job.name)) {
+                if let sabnzbdServiceManager {
+                    SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
+                        .environment(sabnzbdServiceManager)
+                }
             } label: {
                 panel(showsChevron: true)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
         } else {
             panel(showsChevron: false)
         }

@@ -1182,6 +1182,15 @@ private struct OpenMediaInSearchKey: EnvironmentKey {
     static let defaultValue: ((ArrMediaDestination) -> Void)? = nil
 }
 
+/// Selects a download in the Downloads tab instead of pushing its detail where
+/// it was tapped. Non-nil only in the sidebar layout (Mac and regular-width
+/// iPad): there the Downloads list is a place you can still see, so a download
+/// belongs in it rather than stacked on top of the film you came from. `nil`
+/// on iPhone, where the push is the only sensible move.
+private struct SelectDownloadKey: EnvironmentKey {
+    static let defaultValue: ((DownloadDetailSelection) -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -1262,6 +1271,11 @@ extension EnvironmentValues {
     var openMediaInSearch: ((ArrMediaDestination) -> Void)? {
         get { self[OpenMediaInSearchKey.self] }
         set { self[OpenMediaInSearchKey.self] = newValue }
+    }
+
+    var selectDownload: ((DownloadDetailSelection) -> Void)? {
+        get { self[SelectDownloadKey.self] }
+        set { self[SelectDownloadKey.self] = newValue }
     }
 }
 

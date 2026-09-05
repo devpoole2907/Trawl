@@ -683,6 +683,7 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .environment(\.selectLibraryTitle, selectLibraryTitle)
         .environment(\.openMediaInSearch, openMediaInSearch)
+        .environment(\.selectDownload, selectDownload)
         .environment(\.showsSidebarAttentionBanner, true)
     }
 
@@ -1058,6 +1059,16 @@ struct ContentView: View {
         { dest in
             searchDetailDestination = dest
             selectedTab = .search
+        }
+    }
+
+    /// Same reasoning as `selectLibraryTitle`: with the lists still beside you,
+    /// opening a download means showing it in the Downloads tab, not stacking a
+    /// torrent on top of the film whose card you tapped it from.
+    private var selectDownload: ((DownloadDetailSelection) -> Void)? {
+        { selection in
+            downloadSelection = selection
+            selectedTab = .downloads
         }
     }
 
