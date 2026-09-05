@@ -388,8 +388,17 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         }
     }
 
-    func interactiveSearch(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async throws -> [ArrRelease] {
-        guard let client else { throw ArrError.noServiceConfigured }
+    /// `instanceID` names the server the ids belong to. It is not optional context:
+    /// Sonarr and Sonarr 4K hand out the same small integers, so searching on the
+    /// merely-active client returns a different show's releases whenever the two
+    /// libraries disagree about which title owns an id.
+    func interactiveSearch(
+        episodeId: Int? = nil,
+        seriesId: Int? = nil,
+        seasonNumber: Int? = nil,
+        instanceID: UUID? = nil
+    ) async throws -> [ArrRelease] {
+        guard let client = client(for: instanceID) else { throw ArrError.noServiceConfigured }
         error = nil
         #if DEBUG
         print("[InteractiveSearch][Sonarr] start episodeId=\(episodeId.map(String.init) ?? "nil") seriesId=\(seriesId.map(String.init) ?? "nil") seasonNumber=\(seasonNumber.map(String.init) ?? "nil")")

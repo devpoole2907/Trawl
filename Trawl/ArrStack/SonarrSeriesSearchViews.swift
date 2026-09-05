@@ -441,7 +441,8 @@ struct SonarrInteractiveSearchSheet: View {
                 return try await viewModel.interactiveSearch(
                     episodeId: episode?.id,
                     seriesId: series.id,
-                    seasonNumber: seasonNumber
+                    seasonNumber: seasonNumber,
+                    instanceID: series.instanceID
                 )
             },
             grabAction: { release in

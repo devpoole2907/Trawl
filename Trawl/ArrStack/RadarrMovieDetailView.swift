@@ -100,9 +100,12 @@ struct RadarrMovieDetailView: View {
     init(movie: RadarrMovie, viewModel: RadarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverMovie = movie
         self.mergeKey = nil
-        // If it's already in the library, use its library ID
-        let libraryMatch = viewModel.movies.first { $0.tmdbId == movie.tmdbId }
-        self.movieId = libraryMatch?.id
+        // Deliberately no library ID: a Radarr library ID means nothing without
+        // the server that issued it, and the tmdbId match below is instance-blind,
+        // so it happily returned the 4K server's ID for a title the HD server also
+        // holds under a different ID. `entry` resolves a discover result by TMDb ID
+        // instead, which is the same film on every server.
+        self.movieId = nil
         self.viewModel = viewModel
         self.onAdded = onAdded
     }

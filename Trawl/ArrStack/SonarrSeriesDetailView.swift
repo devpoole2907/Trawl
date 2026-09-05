@@ -96,8 +96,10 @@ struct SonarrSeriesDetailView: View {
     init(series: SonarrSeries, viewModel: SonarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverSeries = series
         self.mergeKey = nil
-        let libraryMatch = viewModel.series.first { $0.tvdbId == series.tvdbId }
-        self.seriesId = libraryMatch?.id
+        // See `RadarrMovieDetailView`'s discover init: a Sonarr library ID is only
+        // meaningful on the server that issued it, so a discover result resolves
+        // through `entry`'s TVDB-ID branch rather than an instance-blind ID match.
+        self.seriesId = nil
         self.viewModel = viewModel
         self.onAdded = onAdded
     }

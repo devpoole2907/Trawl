@@ -639,7 +639,14 @@ struct RadarrInteractiveSearchSheet: View {
             loadingDescription: "Results will appear here as soon as Radarr returns them.",
             loadAction: {
                 guard movie.id > 0 else { return [] }
-                return try await viewModel.interactiveSearchMovie(movieId: movie.id)
+                // `instanceID` is not optional context: both Radarr servers hand out
+                // the same small integers, so dropping it sends `movieId` to whichever
+                // server happens to be active and Radarr answers with a different film's
+                // releases entirely.
+                return try await viewModel.interactiveSearchMovie(
+                    movieId: movie.id,
+                    instanceID: movie.instanceID
+                )
             },
             grabAction: { release in
                 await viewModel.grabRelease(release)

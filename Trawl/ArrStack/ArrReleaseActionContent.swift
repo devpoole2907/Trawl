@@ -929,7 +929,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             }
             .safeAreaInset(edge: .top) {
                 if !releases.isEmpty {
-                    qualityFilterBar
+                    filterHeader
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -1076,17 +1076,16 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             Button("Done") { dismiss() }
         }
 
-        // Two separate items rather than one `ToolbarItemGroup`: on macOS a
-        // sheet's toolbar renders as a bottom button bar, and a group of two
-        // menus there collapses to just the first one - the filter menu (and
-        // with it the torrent/usenet pickers) disappeared entirely.
-        ToolbarItem(placement: platformTopBarTrailingPlacement) {
+        // macOS keeps the sort and filter menus in `filterHeader` instead: a
+        // sheet's toolbar renders as a bottom button bar there, and it dropped
+        // every trailing item after the first - taking the filter menu, and
+        // with it the torrent/usenet indexer pickers, out of reach.
+        #if os(iOS)
+        ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
             sortMenu
-        }
-
-        ToolbarItem(placement: platformTopBarTrailingPlacement) {
             filterMenu
         }
+        #endif
     }
 
     private var sortMenu: some View {
@@ -1110,6 +1109,27 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         } label: {
             Image(systemName: releaseSort.option != .default ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
         }
+    }
+
+    /// The quality segments, plus - on macOS - the sort and filter menus that
+    /// the sheet's bottom toolbar refuses to show.
+    private var filterHeader: some View {
+        #if os(macOS)
+        HStack(spacing: 6) {
+            qualityFilterBar
+
+            sortMenu
+                .menuIndicator(.hidden)
+                .fixedSize()
+
+            filterMenu
+                .menuIndicator(.hidden)
+                .fixedSize()
+        }
+        .padding(.trailing, 12)
+        #else
+        qualityFilterBar
+        #endif
     }
 
     private var qualityFilterBar: some View {
