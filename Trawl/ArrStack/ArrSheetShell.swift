@@ -129,10 +129,15 @@ struct AppSheetShell<Content: View>: View {
                 // fields, which a sheet is rarely wide enough to hold.
                 #if os(macOS)
                 .formStyle(.grouped)
-                .frame(minWidth: 540, idealWidth: 580)
-                .frame(minHeight: minContentHeight)
                 #endif
         }
+        // Sized on the stack, not on its root view: a sheet that pushes carries
+        // its height with it, instead of collapsing to whatever the pushed
+        // `List` claims to need - which is nothing.
+        #if os(macOS)
+        .frame(minWidth: 540, idealWidth: 580)
+        .frame(minHeight: minContentHeight)
+        #endif
         #if os(iOS)
         // A detent is a height a sheet can be dragged to on a phone; a Mac sheet is
         // sized by its content instead, which the frame above does.
