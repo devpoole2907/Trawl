@@ -18,9 +18,10 @@ extension EnvironmentValues {
     }
 }
 
-#if os(iOS)
 struct NotificationTabBarAccessory: View {
+    #if os(iOS)
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    #endif
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
@@ -54,7 +55,11 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var isInline: Bool {
+        #if os(iOS)
         placement == .inline
+        #else
+        false
+        #endif
     }
 
     private var runningImportJobs: [ActiveImportJob] {
@@ -159,7 +164,9 @@ struct NotificationTabBarAccessory: View {
             }
         }
         .buttonStyle(.plain)
+        #if os(iOS)
         .simultaneousGesture(swipeUpGesture)
+        #endif
         .accessibilityLabel("Notifications")
         .accessibilityValue(notificationAccessibilityValue)
         .task {
@@ -172,6 +179,7 @@ struct NotificationTabBarAccessory: View {
         }
     }
 
+    #if os(iOS)
     private var swipeUpGesture: some Gesture {
         DragGesture(minimumDistance: 12)
             .onEnded { value in
@@ -182,6 +190,7 @@ struct NotificationTabBarAccessory: View {
                 }
             }
     }
+    #endif
 
     private var inlineSummary: String {
         if attentionCount > 0 {
@@ -368,7 +377,6 @@ extension NotificationLogEntry {
         return "Trawl"
     }
 }
-#endif
 
 // MARK: - Recent Notifications Sheet
 
@@ -503,13 +511,20 @@ struct RecentNotificationsSheet: View {
     }
 
     var body: some View {
-        AppSheetShell(
+        #if os(macOS)
+        let showsClose = true
+        #else
+        let showsClose = false
+        #endif
+
+        return AppSheetShell(
             title: "Notifications",
             subtitle: subtitleText,
             cancelTitle: "Close",
             cancelSystemImage: "xmark",
-            showsCancel: false,
+            showsCancel: showsClose,
             usesInlineLargeTitle: true,
+            minContentHeight: 520,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {

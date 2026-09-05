@@ -133,10 +133,12 @@ struct ContentView: View {
     #endif
     @State private var hasSetStartupTab = false
     @State private var topBannerPadding: CGFloat = 100
+    /// Only the iPhone's tab chrome ever hides; the sidebar bar reads this too, so it
+    /// lives outside the platform gate and simply stays false on iPad and the Mac.
+    @State private var isTabChromeHidden = false
     #if os(iOS)
     @Namespace private var notificationTransitionNamespace
     @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
-    @State private var isTabChromeHidden = false
     /// The measured width of the sidebar column, so the notification bar can be held
     /// inside it rather than running the width of the window.
     #endif
@@ -711,11 +713,9 @@ struct ContentView: View {
             .safeAreaInset(edge: .top) {
                 sidebarAttentionBanner
             }
-            #if os(iOS)
             .safeAreaInset(edge: .bottom) {
                 sidebarNotificationBar(services: services)
             }
-            #endif
             .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
     }
@@ -747,10 +747,9 @@ struct ContentView: View {
     ///
     /// The tab bar's bottom accessory has no equivalent in this chrome, and the
     /// notification bar is how the app surfaces failures app-wide - dropping it on
-    /// iPad would quietly remove that.
+    /// iPad or Mac would quietly remove that.
     @ViewBuilder
     private func sidebarNotificationBar(services: AppServices) -> some View {
-        #if os(iOS)
         if !isTabChromeHidden {
             NotificationTabBarAccessory()
                 .environment(services.syncService)
@@ -764,7 +763,6 @@ struct ContentView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
         }
-        #endif
     }
 
     /// The sidebar's own list. Searchable, which is the point: it replaces More's

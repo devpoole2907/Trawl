@@ -661,6 +661,7 @@ struct BazarrSubtitleStatusCard: View {
                 showProfilePicker = false
                 Task { await updateProfile() }
             },
+            minContentHeight: 520,
             detents: [.medium]
         ) {
             List {

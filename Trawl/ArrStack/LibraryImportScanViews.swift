@@ -758,6 +758,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                     }
                 }
             },
+            minContentHeight: 520,
             detents: [.large],
             dragIndicator: .visible
         ) {
@@ -1717,6 +1718,7 @@ struct LibraryImportGroupSheet: View {
                 dismiss()
                 Task { await viewModel.importItems(items) }
             },
+            minContentHeight: 520,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
@@ -1862,6 +1864,7 @@ private struct LibraryImportSelectionReviewSheet: View {
                 dismiss()
                 Task { await viewModel.performImport() }
             },
+            minContentHeight: 520,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
@@ -1958,6 +1961,7 @@ private struct LibraryImportBlockedGroupSheet: View {
         AppSheetShell(
             title: group.displayTitle,
             cancelTitle: "Close",
+            minContentHeight: 520,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {

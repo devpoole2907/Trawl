@@ -927,7 +927,7 @@ private struct LanguagePickerSheet: View {
     }
 
     var body: some View {
-        AppSheetShell(title: "Add Language") {
+        AppSheetShell(title: "Add Language", minContentHeight: 520) {
             Group {
                 if filtered.isEmpty {
                     ContentUnavailableView(
@@ -961,7 +961,16 @@ private struct LanguagePickerSheet: View {
                     #endif
                 }
             }
-            .searchable(text: $searchText, prompt: "Search languages")
+            .safeAreaInset(edge: .top) {
+                if !usesNavigationBarSearch {
+                    // A sheet has no navigation bar for `.searchable` on iPad or the Mac.
+                    ArrAddItemSearchBar(text: $searchText, placeholder: "Search languages")
+                        // The component's listRowInsets only apply inside a List.
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                }
+            }
+            .navigationBarSearchable(text: $searchText, prompt: "Search languages")
         }
     }
 }

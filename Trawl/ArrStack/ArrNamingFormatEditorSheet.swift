@@ -113,7 +113,16 @@ struct ArrNamingFormatEditorSheet: View {
                     }
                 }
             }
-            .searchable(text: $tokenFilter, prompt: "Find tokens")
+            .safeAreaInset(edge: .top) {
+                if !usesNavigationBarSearch {
+                    // A sheet has no navigation bar for `.searchable` on iPad or the Mac.
+                    ArrAddItemSearchBar(text: $tokenFilter, placeholder: "Find tokens")
+                        // The component's listRowInsets only apply inside a List.
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                }
+            }
+            .navigationBarSearchable(text: $tokenFilter, prompt: "Find tokens")
         }
         .alert("Save Format?", isPresented: $showSaveAlert) {
             Button("Save") {

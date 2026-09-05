@@ -655,8 +655,14 @@ private struct BazarrProviderPickerView: View {
     }
 
     var body: some View {
-        AppSheetShell(title: "Add Provider") {
+        AppSheetShell(title: "Add Provider", minContentHeight: 520) {
             List {
+                if !usesNavigationBarSearch {
+                    // A sheet has no navigation bar for `.searchable` on iPad or the Mac,
+                    // where it lands on top of the sheet's own title instead.
+                    ArrAddItemSearchBar(text: $searchText, placeholder: "Search providers")
+                }
+
                 if availableProviders.isEmpty {
                     ContentUnavailableView(
                         searchText.isEmpty ? "All Providers Enabled" : "No Results",
@@ -691,7 +697,7 @@ private struct BazarrProviderPickerView: View {
             #else
             .listStyle(.inset)
             #endif
-            .searchable(text: $searchText, prompt: "Search providers")
+            .navigationBarSearchable(text: $searchText, prompt: "Search providers")
         }
     }
 }

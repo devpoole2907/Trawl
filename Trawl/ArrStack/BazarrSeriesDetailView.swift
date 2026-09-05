@@ -184,6 +184,7 @@ struct BazarrSeriesDetailView: View {
             title: "Language Profile",
             confirmTitle: "Save",
             onConfirm: { showProfilePicker = false; Task { await updateProfile() } },
+            minContentHeight: 520,
             detents: [.medium]
         ) {
             List {

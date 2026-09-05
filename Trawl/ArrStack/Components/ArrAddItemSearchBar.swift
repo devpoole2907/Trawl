@@ -3,13 +3,17 @@ import SwiftUI
 struct ArrAddItemSearchBar: View {
     @Binding var text: String
     let placeholder: String
-    let onSubmit: () -> Void
+    var onSubmit: () -> Void = {}
     
     var body: some View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField(placeholder, text: $text)
+            // A hint, not a label: macOS draws a field's title beside it, which would
+            // repeat the text next to the magnifying glass.
+            TextField("", text: $text, prompt: Text(placeholder))
+                .labelsHidden()
+                .textFieldStyle(.plain)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 #endif
