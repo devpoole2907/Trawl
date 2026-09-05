@@ -446,7 +446,7 @@ struct SonarrInteractiveSearchSheet: View {
                 )
             },
             grabAction: { release in
-                await viewModel.grabRelease(release)
+                await viewModel.grabRelease(release, instanceID: series.instanceID)
             },
             currentErrorMessage: {
                 viewModel.error

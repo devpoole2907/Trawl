@@ -649,7 +649,7 @@ struct RadarrInteractiveSearchSheet: View {
                 )
             },
             grabAction: { release in
-                await viewModel.grabRelease(release)
+                await viewModel.grabRelease(release, instanceID: movie.instanceID)
             },
             currentErrorMessage: {
                 viewModel.error

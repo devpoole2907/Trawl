@@ -713,8 +713,24 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     // MARK: - Release grab
 
-    func grabRelease(_ release: ArrRelease) async -> Bool {
-        guard let client else { return false }
+    /// `instanceID` names the server that produced the release, and it is not
+    /// optional context. Sonarr and Radarr hold the results of an interactive
+    /// search in a per-process cache and will only accept a grab for a guid they
+    /// themselves handed out, so posting a 4K server's release to the active
+    /// server fails with "Couldn't find requested release in cache". Resolution
+    /// fails closed: a named server that isn't reachable is an error rather than
+    /// a silent grab onto whichever server happens to be active.
+    func grabRelease(_ release: ArrRelease, instanceID: UUID? = nil) async -> Bool {
+        let client: Client?
+        if let instanceID {
+            client = self.client(forExplicitInstanceID: instanceID)
+        } else {
+            client = self.client
+        }
+        guard let client else {
+            capture(ArrServiceError.clientNotAvailable, notificationTitle: "Grab Failed")
+            return false
+        }
         error = nil
         do {
             try await client.grabRelease(release)
