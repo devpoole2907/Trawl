@@ -260,6 +260,13 @@ struct JellyfinLibrariesView: View {
             }
         }
         .padding(.vertical, 4)
+        // macOS measures a List row once, and a row measured before its column has
+        // settled sticks at that height - the subtitle and the badge get clipped
+        // away until something (a refresh, a re-entry) remeasures. A floor the real
+        // content never needs makes the bad measurement harmless.
+        #if os(macOS)
+        .frame(minHeight: 44)
+        #endif
     }
 
     private func loadLibraries() async {
