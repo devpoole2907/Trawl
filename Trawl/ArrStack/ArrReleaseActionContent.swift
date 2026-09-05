@@ -939,7 +939,9 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            #if os(iOS)
             .toolbar { browserToolbar }
+            #endif
             .task {
                 await loadReleases()
             }
@@ -1100,10 +1102,10 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         #endif
     }
 
+    #if os(iOS)
+    /// iOS only - macOS uses `macBottomBar`; see the note there.
     @ToolbarContentBuilder
     private var browserToolbar: some ToolbarContent {
-        // macOS uses `macBottomBar` for all three; see the note there.
-        #if os(iOS)
         ToolbarItem(placement: .cancellationAction) {
             Button("Done") { dismiss() }
         }
@@ -1112,8 +1114,9 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             sortMenu
             filterMenu
         }
-        #endif
     }
+
+    #endif
 
     private var sortMenu: some View {
         Menu {
