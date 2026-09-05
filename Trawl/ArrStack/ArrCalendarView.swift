@@ -797,12 +797,16 @@ struct ArrCalendarView: View {
         switch event {
         case .episode(let episode, _, _):
             if let seriesID = episode.seriesId {
-                calendarEventRow(event: event, instance: instance, destination: .series(id: seriesID))
+                calendarEventRow(
+                    event: event,
+                    instance: instance,
+                    destination: .series(id: seriesID, instanceID: episode.instanceID)
+                )
             } else {
                 EventRow(event: event, instance: instance)
             }
         case .movie(let movie, _, _):
-            calendarEventRow(event: event, instance: instance, destination: .movie(id: movie.id))
+            calendarEventRow(event: event, instance: instance, destination: .movie(id: movie.id, instanceID: movie.instanceID))
         }
     }
 

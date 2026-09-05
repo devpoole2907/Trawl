@@ -11,6 +11,9 @@ struct SonarrSeriesDetailView: View {
 
     // Library mode: look up series by ID from viewModel
     private let seriesId: Int?
+    /// Which server issued `seriesId`. See `RadarrMovieDetailView.movieInstanceID`:
+    /// Sonarr and Sonarr 4K reuse the same small integers for different shows.
+    private let seriesInstanceID: UUID?
     // Blended-library mode: the title, resolved across every server holding it.
     private let mergeKey: ArrMergeKey?
     // Discover mode: series object passed directly
@@ -76,6 +79,7 @@ struct SonarrSeriesDetailView: View {
     init(mergeKey: ArrMergeKey, viewModel: SonarrViewModel) {
         self.mergeKey = mergeKey
         self.seriesId = nil
+        self.seriesInstanceID = nil
         self.discoverSeries = nil
         self.viewModel = viewModel
         self.onAdded = nil
@@ -84,8 +88,9 @@ struct SonarrSeriesDetailView: View {
     /// Library init - series lives in the ViewModel's loaded library. Kept for
     /// the entry points that only have a library ID: widgets, Siri intents, Seerr
     /// deep links, calendar and wanted rows.
-    init(seriesId: Int, viewModel: SonarrViewModel) {
+    init(seriesId: Int, instanceID: UUID? = nil, viewModel: SonarrViewModel) {
         self.seriesId = seriesId
+        self.seriesInstanceID = instanceID
         self.mergeKey = nil
         self.discoverSeries = nil
         self.viewModel = viewModel
@@ -100,6 +105,7 @@ struct SonarrSeriesDetailView: View {
         // meaningful on the server that issued it, so a discover result resolves
         // through `entry`'s TVDB-ID branch rather than an instance-blind ID match.
         self.seriesId = nil
+        self.seriesInstanceID = nil
         self.viewModel = viewModel
         self.onAdded = onAdded
     }
@@ -116,7 +122,11 @@ struct SonarrSeriesDetailView: View {
         if let mergeKey {
             return merged.first { $0.id == mergeKey }
         }
-        if let seriesId, let match = merged.first(where: { $0.copy(withLibraryID: seriesId) != nil }) {
+        if let seriesId, let match = merged.first(where: { entry in
+            entry.copies.contains {
+                $0.id == seriesId && (seriesInstanceID == nil || $0.instanceID == seriesInstanceID)
+            }
+        }) {
             return match
         }
         if let tvdbId = discoverSeries?.tvdbId {

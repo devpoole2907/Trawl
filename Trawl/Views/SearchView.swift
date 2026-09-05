@@ -621,7 +621,7 @@ struct SearchView: View {
     @ViewBuilder
     private func librarySeriesRow(_ series: SonarrSeries) -> some View {
         let isMonitored = series.monitored ?? true
-        NavigationLink(value: ArrMediaDestination.series(id: series.id)) {
+        NavigationLink(value: ArrMediaDestination.series(id: series.id, instanceID: series.instanceID)) {
             // Search results stay per-server rather than merging: search answers
             // "find this row", and each row is badged with the server holding it.
             SonarrSeriesRow(
@@ -657,7 +657,7 @@ struct SearchView: View {
     @ViewBuilder
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
         let isMonitored = movie.monitored ?? true
-        NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
+        NavigationLink(value: ArrMediaDestination.movie(id: movie.id, instanceID: movie.instanceID)) {
             RadarrMovieRow(
                 entry: ArrLibraryEntry(copies: [movie]) ?? singleEntry(movie),
                 hasIssue: false,

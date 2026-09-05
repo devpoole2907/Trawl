@@ -9,12 +9,17 @@ import SwiftUI
 /// `NavigationPath.append(_:)` anywhere inside a view tree that has `.arrMediaNavigationDestinations()`
 /// applied, and the shared modifier takes care of constructing the right detail view + ViewModel.
 enum ArrMediaDestination: Hashable {
-    /// An in-library Radarr movie, resolved by its Radarr library ID.
-    case movie(id: Int)
+    /// An in-library Radarr movie, resolved by its Radarr library ID *on a named
+    /// server*. `instanceID` is not decoration: Radarr and Radarr 4K hand out the
+    /// same small integers, so an ID with no server attached resolves to whichever
+    /// library happens to hold it first - which is how tapping a 4K-only film
+    /// opened the HD library's film with the same ID.
+    case movie(id: Int, instanceID: UUID? = nil)
     /// A Radarr discover/lookup result that may or may not already be in the library.
     case movieLookup(RadarrMovie)
-    /// An in-library Sonarr series, resolved by its Sonarr library ID.
-    case series(id: Int)
+    /// An in-library Sonarr series, resolved by its Sonarr library ID on a named
+    /// server. See `.movie` for why the server is part of the address.
+    case series(id: Int, instanceID: UUID? = nil)
     /// A Sonarr discover/lookup result that may or may not already be in the library.
     case seriesLookup(SonarrSeries)
 
@@ -37,8 +42,8 @@ enum ArrMediaDestination: Hashable {
 
     private var identity: Identity {
         switch self {
-        case .movie(let id): .movie(id)
-        case .series(let id): .series(id)
+        case .movie(let id, let instanceID): .movie(id, instanceID)
+        case .series(let id, let instanceID): .series(id, instanceID)
         case .movieLookup(let movie): .movieLookup(movie.lookupIdentity)
         case .seriesLookup(let series): .seriesLookup(series.lookupIdentity)
         }
@@ -47,8 +52,8 @@ enum ArrMediaDestination: Hashable {
     /// Kept as a separate type so the four cases can never collide with one another,
     /// the way a single flattened string key eventually would.
     private enum Identity: Hashable {
-        case movie(Int)
-        case series(Int)
+        case movie(Int, UUID?)
+        case series(Int, UUID?)
         case movieLookup(String)
         case seriesLookup(String)
     }
@@ -131,10 +136,10 @@ struct ArrMediaDetailPane: View {
     @ViewBuilder
     private var content: some View {
         switch destination {
-        case .movie(let id):
-            RadarrMovieDetailView(movieId: id, viewModel: makeRadarrViewModel())
-        case .series(let id):
-            SonarrSeriesDetailView(seriesId: id, viewModel: makeSonarrViewModel())
+        case .movie(let id, let instanceID):
+            RadarrMovieDetailView(movieId: id, instanceID: instanceID, viewModel: makeRadarrViewModel())
+        case .series(let id, let instanceID):
+            SonarrSeriesDetailView(seriesId: id, instanceID: instanceID, viewModel: makeSonarrViewModel())
         case .movieLookup(let movie):
             RadarrMovieDetailView(movie: movie, viewModel: makeRadarrViewModel(), onAdded: onLibraryChanged)
         case .seriesLookup(let series):

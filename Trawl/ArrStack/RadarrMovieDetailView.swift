@@ -12,6 +12,11 @@ struct RadarrMovieDetailView: View {
 
     // Library mode: look up movie by ID from viewModel
     private let movieId: Int?
+    /// Which server issued `movieId`. A Radarr library ID is only unique within one
+    /// server - the pair hand out the same small integers - so an ID entry point that
+    /// does not say which server it came from resolves to whichever film happens to
+    /// hold that ID first. `nil` only for callers that genuinely have no server.
+    private let movieInstanceID: UUID?
     // Blended-library mode: the title, resolved across every server holding it.
     private let mergeKey: ArrMergeKey?
     // Discover mode: movie object passed directly
@@ -80,6 +85,7 @@ struct RadarrMovieDetailView: View {
     init(mergeKey: ArrMergeKey, viewModel: RadarrViewModel) {
         self.mergeKey = mergeKey
         self.movieId = nil
+        self.movieInstanceID = nil
         self.discoverMovie = nil
         self.viewModel = viewModel
         self.onAdded = nil
@@ -88,8 +94,9 @@ struct RadarrMovieDetailView: View {
     /// Library init - movie lives in the ViewModel's loaded library. Kept for the
     /// entry points that only have a library ID: widgets, Siri intents, Seerr
     /// deep links, calendar and wanted rows.
-    init(movieId: Int, viewModel: RadarrViewModel) {
+    init(movieId: Int, instanceID: UUID? = nil, viewModel: RadarrViewModel) {
         self.movieId = movieId
+        self.movieInstanceID = instanceID
         self.mergeKey = nil
         self.discoverMovie = nil
         self.viewModel = viewModel
@@ -106,6 +113,7 @@ struct RadarrMovieDetailView: View {
         // holds under a different ID. `entry` resolves a discover result by TMDb ID
         // instead, which is the same film on every server.
         self.movieId = nil
+        self.movieInstanceID = nil
         self.viewModel = viewModel
         self.onAdded = onAdded
     }
@@ -133,7 +141,11 @@ struct RadarrMovieDetailView: View {
         if let mergeKey {
             return merged.first { $0.id == mergeKey }
         }
-        if let movieId, let match = merged.first(where: { $0.copy(withLibraryID: movieId) != nil }) {
+        if let movieId, let match = merged.first(where: { entry in
+            entry.copies.contains {
+                $0.id == movieId && (movieInstanceID == nil || $0.instanceID == movieInstanceID)
+            }
+        }) {
             return match
         }
         if let tmdbId = discoverMovie?.tmdbId {

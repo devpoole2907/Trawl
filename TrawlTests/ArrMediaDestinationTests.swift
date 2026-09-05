@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Trawl
 
@@ -36,6 +37,39 @@ struct ArrMediaDestinationTests {
     @Test("Series destinations with different ids are not equal")
     func seriesDifferentIDNotEqual() {
         #expect(ArrMediaDestination.series(id: 1) != .series(id: 2))
+    }
+
+    // MARK: - Library-mode cases carry their server
+
+    /// The regression this pins: Radarr and Radarr 4K both issue small integer
+    /// library IDs from 1, so the same integer names a different film on each. A
+    /// destination that carried only the integer resolved to whichever server's
+    /// copy the merged library listed first - adding "The Invite" as id 211 on the
+    /// 4K server made every tap on it open the HD server's id 211 instead.
+    @Test("Movie destinations on different servers are not equal")
+    func movieSameIDDifferentInstanceNotEqual() {
+        let hd = UUID()
+        let uhd = UUID()
+
+        #expect(ArrMediaDestination.movie(id: 211, instanceID: hd) != .movie(id: 211, instanceID: uhd))
+        #expect(ArrMediaDestination.movie(id: 211, instanceID: hd) == .movie(id: 211, instanceID: hd))
+    }
+
+    /// An unstamped destination must not silently collapse onto a stamped one:
+    /// "id 211, server unknown" and "id 211 on the 4K server" are different
+    /// addresses, and treating them as one is exactly the collision above.
+    @Test("An unstamped movie destination is distinct from a stamped one")
+    func movieUnstampedDistinctFromStamped() {
+        #expect(ArrMediaDestination.movie(id: 211) != .movie(id: 211, instanceID: UUID()))
+    }
+
+    @Test("Series destinations on different servers are not equal")
+    func seriesSameIDDifferentInstanceNotEqual() {
+        let hd = UUID()
+        let uhd = UUID()
+
+        #expect(ArrMediaDestination.series(id: 7, instanceID: hd) != .series(id: 7, instanceID: uhd))
+        #expect(ArrMediaDestination.series(id: 7, instanceID: hd) == .series(id: 7, instanceID: hd))
     }
 
     // MARK: - Discover-mode cases (.movieLookup / .seriesLookup)

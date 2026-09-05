@@ -196,8 +196,8 @@ struct ArrWantedView: View {
                                     WantedEpisodeRow(
                                         episode: episode,
                                         instance: badgeInstance(episode.instanceID, .sonarr),
-                                        isSelected: selectedMedia != nil && selectedMedia == episode.seriesId.map { .media(.series(id: $0)) },
-                                        onSelect: selectionAction(for: episode.seriesId.map { .media(.series(id: $0)) })
+                                        isSelected: selectedMedia != nil && selectedMedia == episode.seriesId.map { .media(.series(id: $0, instanceID: episode.instanceID)) },
+                                        onSelect: selectionAction(for: episode.seriesId.map { .media(.series(id: $0, instanceID: episode.instanceID)) })
                                     ) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
@@ -219,8 +219,8 @@ struct ArrWantedView: View {
                                     WantedMovieRow(
                                         movie: movie,
                                         instance: badgeInstance(movie.instanceID, .radarr),
-                                        isSelected: selectedMedia == .media(.movie(id: movie.id)),
-                                        onSelect: selectionAction(for: .media(.movie(id: movie.id)))
+                                        isSelected: selectedMedia == .media(.movie(id: movie.id, instanceID: movie.instanceID)),
+                                        onSelect: selectionAction(for: .media(.movie(id: movie.id, instanceID: movie.instanceID)))
                                     ) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
