@@ -230,6 +230,7 @@ struct JellyfinSessionsView: View {
             }
         }
         .padding(.vertical, 4)
+        .macListRowStableHeight()
     }
 
     private func mediaIcon(for type: String) -> String {

@@ -128,6 +128,7 @@ struct JellyfinPluginsView: View {
             }
         }
         .padding(.vertical, 4)
+        .macListRowStableHeight()
     }
 
     /// Jellyfin reports a plugin's status as a bare enum name - `NotSupported`,

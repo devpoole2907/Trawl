@@ -585,6 +585,7 @@ struct UnifiedUserRowView: View {
             }
         }
         .padding(.vertical, 4)
+        .macListRowStableHeight()
     }
 
     @ViewBuilder
