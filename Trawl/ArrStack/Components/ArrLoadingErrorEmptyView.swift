@@ -36,6 +36,7 @@ struct ArrLoadingErrorEmptyView<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error, isEmpty {
             ServiceErrorView(title: "Failed to Load", message: error, onRetry: onRetry)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if isEmpty {
             ContentUnavailableView {
                 Label(emptyTitle, systemImage: emptyIcon)
@@ -44,6 +45,7 @@ struct ArrLoadingErrorEmptyView<Content: View>: View {
                     Text(emptyDescription)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
                 if let error {
