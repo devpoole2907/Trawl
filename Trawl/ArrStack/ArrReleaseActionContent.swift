@@ -1076,8 +1076,15 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             Button("Done") { dismiss() }
         }
 
-        ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+        // Two separate items rather than one `ToolbarItemGroup`: on macOS a
+        // sheet's toolbar renders as a bottom button bar, and a group of two
+        // menus there collapses to just the first one - the filter menu (and
+        // with it the torrent/usenet pickers) disappeared entirely.
+        ToolbarItem(placement: platformTopBarTrailingPlacement) {
             sortMenu
+        }
+
+        ToolbarItem(placement: platformTopBarTrailingPlacement) {
             filterMenu
         }
     }
