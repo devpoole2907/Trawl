@@ -29,6 +29,10 @@ struct AppSheetShell<Content: View>: View {
         case prominentBottom
     }
 
+    /// A macOS sheet is sized by its content, but a `List` has no intrinsic height and
+    /// collapses to nothing. A sheet whose content scrolls must state the height it wants.
+    let minContentHeight: CGFloat?
+
     let detents: Set<PresentationDetent>
     let dragIndicator: Visibility
     let content: Content
@@ -45,6 +49,7 @@ struct AppSheetShell<Content: View>: View {
         onConfirm: (() -> Void)? = nil,
         confirmPlacement: ConfirmPlacement = .toolbar,
         usesInlineLargeTitle: Bool = false,
+        minContentHeight: CGFloat? = nil,
         detents: Set<PresentationDetent> = [.large],
         dragIndicator: Visibility = .hidden,
         @ViewBuilder content: () -> Content
@@ -60,6 +65,7 @@ struct AppSheetShell<Content: View>: View {
         self.onConfirm = onConfirm
         self.confirmPlacement = confirmPlacement
         self.usesInlineLargeTitle = usesInlineLargeTitle
+        self.minContentHeight = minContentHeight
         self.detents = detents
         self.dragIndicator = dragIndicator
         self.content = content()
@@ -124,6 +130,7 @@ struct AppSheetShell<Content: View>: View {
                 #if os(macOS)
                 .formStyle(.grouped)
                 .frame(minWidth: 540, idealWidth: 580)
+                .frame(minHeight: minContentHeight)
                 #endif
         }
         #if os(iOS)

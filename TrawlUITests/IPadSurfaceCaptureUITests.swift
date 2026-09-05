@@ -310,6 +310,13 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             ("linkedApplications", "Linked Applications", "Indexer Sync", ["Linked Apps", "Prowlarr"]),
             ("qualityProfiles", "Quality Profiles", "Fixture HD Profile", ["Fixture HD Profile", "Sonarr"]),
             ("tasks", "Tasks", "Arr Tasks", ["Arr Tasks"]),
+            // Subtitles is deliberately absent: this suite seeds no Bazarr fixture,
+            // so its hub is the "Bazarr Not Set Up" empty state and there is no row
+            // to select. Adding it here asserted against a screen that cannot exist.
+            //
+            // `ArrEventsView` carries its own scope subtitle, so the detail bar is
+            // two strings rather than one.
+            ("logs", "Logs", "Arr Events", ["All Servers", "Events"]),
         ]
 
         for (offset, pane) in panes.enumerated() {

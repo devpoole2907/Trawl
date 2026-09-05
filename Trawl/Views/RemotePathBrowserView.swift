@@ -96,7 +96,10 @@ struct RemotePathBrowserView: View {
                     .font(.title3)
                     .frame(width: 45)
 
-                TextField("/media", text: $manualPath)
+                // An example value, not a label: macOS draws a field's title beside it, where this
+                // reads as another entry that has already been added.
+                TextField("", text: $manualPath, prompt: Text("/media"))
+                    .labelsHidden()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
@@ -148,6 +151,9 @@ struct RemotePathBrowserView: View {
         .refreshable {
             await loadEntries()
         }
+        #if os(macOS)
+        .frame(minWidth: 540, idealWidth: 580, minHeight: 400)
+        #endif
     }
 
     private var trimmedManualPath: String {
@@ -203,3 +209,27 @@ struct RemotePathBrowserView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Remote Path Browser") {
+    NavigationStack {
+        RemotePathBrowserView(
+            title: "Sonarr Folders",
+            source: RemotePathBrowserSource(
+                serviceName: "Sonarr",
+                loadRoots: {
+                    [
+                        RemotePathEntry(name: "app", path: "/app", kind: .directory, isDirectory: true),
+                        RemotePathEntry(name: "media", path: "/media", kind: .directory, isDirectory: true),
+                        RemotePathEntry(name: "config", path: "/config", kind: .directory, isDirectory: true)
+                    ]
+                },
+                loadChildren: { _ in [] }
+            ),
+            initialPath: "",
+            onClose: {},
+            onSelect: { _ in }
+        )
+    }
+}
+#endif

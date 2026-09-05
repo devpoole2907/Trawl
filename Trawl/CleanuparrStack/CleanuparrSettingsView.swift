@@ -13,7 +13,7 @@ struct CleanuparrSettingsView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             Section {
                 if let profile {
                     HStack {
@@ -104,6 +104,7 @@ struct CleanuparrSettingsView: View {
             }
         }
         .navigationTitle("Cleanuparr")
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -168,3 +169,13 @@ struct CleanuparrSettingsView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Cleanuparr Settings - Connected") {
+    PreviewHost(profiles: .cleanuparrOnly) {
+        NavigationStack {
+            CleanuparrSettingsView()
+        }
+    }
+}
+#endif

@@ -434,6 +434,12 @@ struct ArrQualityProfileDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer keeps these actions at the trailing edge,
+            // clear of the list column's toolbar group.
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            #endif
             if let onEdit {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button("Edit") {

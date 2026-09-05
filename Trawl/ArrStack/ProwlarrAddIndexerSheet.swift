@@ -40,7 +40,7 @@ struct ProwlarrAddIndexerSheet: View {
     }
 
     var body: some View {
-        ArrSheetShell(title: "Add Indexer") {
+        ArrSheetShell(title: "Add Indexer", minContentHeight: 520) {
             Group {
                 if viewModel.isLoadingSchema {
                     ProgressView("Loading indexer types…")
@@ -103,21 +103,33 @@ struct ProwlarrAddIndexerSheet: View {
             }
             .safeAreaInset(edge: .top) {
                 if !viewModel.isLoadingSchema, viewModel.schemaError == nil, !protocolSegments.isEmpty {
-                    TrawlSegmentBar(
-                        "Protocol",
-                        selection: Binding(
-                            get: { protocolFilter },
-                            set: { newValue in
-                                withAnimation(.smooth(duration: 0.25)) {
-                                    protocolFilter = newValue
-                                }
-                            }
-                        ),
-                        items: protocolSegments
-                    )
+                    let protocolSelection = Binding {
+                        protocolFilter
+                    } set: { newValue in
+                        withAnimation(.smooth(duration: 0.25)) {
+                            protocolFilter = newValue
+                        }
+                    }
+
+                    if usesNavigationBarSearch {
+                        // The iPhone sheet carries search in its navigation bar instead.
+                        TrawlSegmentBar(
+                            "Protocol",
+                            selection: protocolSelection,
+                            items: protocolSegments
+                        )
+                    } else {
+                        TrawlSegmentBar(
+                            "Protocol",
+                            selection: protocolSelection,
+                            items: protocolSegments,
+                            searchText: $searchText,
+                            searchHint: "Search indexers"
+                        )
+                    }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search indexers")
+            .navigationBarSearchable(text: $searchText, prompt: "Search indexers")
             .task {
                 guard loadsSchemaOnAppear else { return }
                 await viewModel.loadSchema()
@@ -293,7 +305,7 @@ private struct IndexerConfigView: View {
             Section {
                 LabeledContent("Name") {
                     TextField("Name", text: $indexerName)
-                        .multilineTextAlignment(.trailing)
+                        .labeledContentField()
                 }
                 Stepper("Priority: \(priority)", value: $priority, in: 1...50)
 
@@ -411,19 +423,19 @@ private struct IndexerConfigView: View {
         case "textbox":
             LabeledContent(label) {
                 TextField(label, text: stringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
             }
         case "password":
             LabeledContent(label) {
                 SecureField(label, text: stringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
             }
         case "checkbox":
             Toggle(label, isOn: boolBinding(for: key))
         case "number":
             LabeledContent(label) {
                 TextField(label, text: numberStringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
@@ -439,7 +451,7 @@ private struct IndexerConfigView: View {
         default:
             LabeledContent(label) {
                 TextField(label, text: stringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
             }
         }
     }

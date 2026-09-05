@@ -465,13 +465,13 @@ struct ArrRemotePathMappingEditorSheet: View {
 
                     if isCustom && selectedService != .bazarr {
                         LabeledContent("Hostname") {
-                            TextField("192.168.1.10", text: $host)
+                            TextField("Hostname", text: $host, prompt: Text("192.168.1.10"))
+                                .labeledContentField()
                                 #if os(iOS)
                                 .keyboardType(.URL)
                                 .textInputAutocapitalization(.never)
                                 #endif
                                 .autocorrectionDisabled()
-                                .multilineTextAlignment(.trailing)
                         }
                     }
                 } header: {
@@ -490,21 +490,21 @@ struct ArrRemotePathMappingEditorSheet: View {
 
                 Section {
                     LabeledContent("Remote Path") {
-                        TextField("/downloads/", text: $remotePath)
+                        TextField("Remote Path", text: $remotePath, prompt: Text("/downloads/"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
 
                     LabeledContent("Local Path") {
-                        TextField("/media/downloads/", text: $localPath)
+                        TextField("Local Path", text: $localPath, prompt: Text("/media/downloads/"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
                 } header: {
                     Text("Paths")

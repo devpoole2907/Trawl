@@ -3055,11 +3055,62 @@ private enum SubtitleLanguageProfileTipState {
 
 private struct SubtitleManagementView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    /// Which subtitle screen the detail pane is showing, at regular width. Nil on
+    /// iPhone, where the row pushes instead.
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedScreen: MoreDestination? { selectionStore.selection }
 
     @State private var showLanguageProfileTip = false
 
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func subtitleRow<Label: View>(
+        _ destination: MoreDestination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(destination)
+        } else {
+            NavigationLink(value: destination, label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever subtitle screen is selected. The same views
+    /// the rows push without a pane, so both routes run one code path.
+    @ViewBuilder
+    private var selectedScreenDetail: some View {
+        switch selectedScreen {
+        case .bazarrLanguageProfiles:
+            BazarrLanguageProfilesView()
+                .environment(serviceManager)
+        case .bazarrProviders:
+            BazarrProvidersView()
+                .environment(serviceManager)
+        default:
+            listDetailPlaceholder("Select a Subtitle Setting", systemImage: "captions.bubble")
+        }
+    }
+
     var body: some View {
-        List {
+        // Two panes at regular width, like every other list-of-screens hub: the
+        // language profile decides what the providers are asked for, so the two are
+        // read together.
+        TrawlListDetailPanes(title: "Subtitles") {
+            subtitleList
+        } detail: {
+            selectedScreenDetail
+        }
+    }
+
+    private var subtitleList: some View {
+        List(selection: selectionStore.binding) {
             if !serviceManager.hasBazarrInstance {
                 HubEmptyState(
                     title: "Bazarr Not Set Up",
@@ -3086,7 +3137,7 @@ private struct SubtitleManagementView: View {
                 }
 
                 Section {
-                    NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
+                    subtitleRow(.bazarrLanguageProfiles) {
                         NavigationMenuRow(
                             icon: "globe",
                             color: MoreDestinationAccent.languageProfiles.color,
@@ -3095,7 +3146,7 @@ private struct SubtitleManagementView: View {
                         )
                     }
 
-                    NavigationLink(value: MoreDestination.bazarrProviders) {
+                    subtitleRow(.bazarrProviders) {
                         NavigationMenuRow(
                             icon: "person.2.fill",
                             color: MoreDestinationAccent.providers.color,
@@ -3109,7 +3160,6 @@ private struct SubtitleManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Subtitles")
         .moreDestinationBackground(.subtitleManagement)
         .task { await evaluateLanguageProfileTip() }
     }
@@ -3518,6 +3568,66 @@ private struct LogsAndEventsHubView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    /// Optional because the detail pane is built here rather than by the More
+    /// destination switch, and the torrent service only exists once a qBittorrent
+    /// server is connected.
+    @Environment(TorrentService.self) private var torrentService: TorrentService?
+    /// Whose log the detail pane is showing, at regular width. Nil on iPhone, where
+    /// the row pushes instead.
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedLogSource: MoreDestination? { selectionStore.selection }
+
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func logRow<Label: View>(
+        _ destination: MoreDestination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(destination)
+        } else {
+            NavigationLink(value: destination, label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever service's log is selected. The same views the
+    /// rows push without a pane.
+    @ViewBuilder
+    private var selectedLogDetail: some View {
+        switch selectedLogSource {
+        case .qbittorrentLog:
+            if let torrentService {
+                QBittorrentLogView()
+                    .environment(torrentService)
+            } else {
+                listDetailPlaceholder("qBittorrent Not Connected", systemImage: ServiceIdentity.qbittorrent.systemImage)
+            }
+        case .arrEvents:
+            ArrEventsView()
+                .environment(arrServiceManager)
+        case .seerrLogs:
+            if let client = seerrServiceManager.activeClient {
+                SeerrLogsView(apiClient: client)
+            } else {
+                listDetailPlaceholder("Seerr Not Connected", systemImage: ServiceIdentity.seerr.systemImage)
+            }
+        case .jellyfinActivityLog:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinActivityLogView(apiClient: client)
+            } else {
+                listDetailPlaceholder("Jellyfin Not Connected", systemImage: ServiceIdentity.jellyfin.systemImage)
+            }
+        default:
+            listDetailPlaceholder("Select a Log", systemImage: "doc.text.magnifyingglass")
+        }
+    }
 
     private var hasArrEvents: Bool {
         arrServiceManager.hasSonarrInstance ||
@@ -3531,11 +3641,22 @@ private struct LogsAndEventsHubView: View {
     }
 
     var body: some View {
-        List {
+        // Two panes at regular width. A log is read against another log - a failed
+        // grab in Sonarr's events next to what the download client said about it -
+        // and one-at-a-time turns that into a navigation exercise.
+        TrawlListDetailPanes(title: "Logs") {
+            logList
+        } detail: {
+            selectedLogDetail
+        }
+    }
+
+    private var logList: some View {
+        List(selection: selectionStore.binding) {
             if hasAnyLogDestination {
                 Section {
                     if hasQBittorrentLog {
-                        NavigationLink(value: MoreDestination.qbittorrentLog) {
+                        logRow(.qbittorrentLog) {
                             NavigationMenuRow(
                                 icon: "doc.text.fill",
                                 color: ServiceIdentity.qbittorrent.brandColor,
@@ -3546,7 +3667,7 @@ private struct LogsAndEventsHubView: View {
                     }
 
                     if hasArrEvents {
-                        NavigationLink(value: MoreDestination.arrEvents) {
+                        logRow(.arrEvents) {
                             NavigationMenuRow(
                                 icon: "list.bullet.rectangle.fill",
                                 color: MoreDestinationAccent.logsAndEvents.color,
@@ -3557,7 +3678,7 @@ private struct LogsAndEventsHubView: View {
                     }
 
                     if seerrServiceManager.activeClient != nil {
-                        NavigationLink(value: MoreDestination.seerrLogs) {
+                        logRow(.seerrLogs) {
                             NavigationMenuRow(
                                 icon: "doc.text.magnifyingglass",
                                 color: ServiceIdentity.seerr.brandColor,
@@ -3568,7 +3689,7 @@ private struct LogsAndEventsHubView: View {
                     }
 
                     if jellyfinServiceManager.activeClient != nil {
-                        NavigationLink(value: MoreDestination.jellyfinActivityLog) {
+                        logRow(.jellyfinActivityLog) {
                             NavigationMenuRow(
                                 icon: "person.crop.rectangle.stack.fill",
                                 color: ServiceIdentity.jellyfin.brandColor,
@@ -3589,7 +3710,6 @@ private struct LogsAndEventsHubView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Logs")
         .moreDestinationBackground(.logsAndEvents)
     }
 }

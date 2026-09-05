@@ -124,8 +124,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
     private var connectionSection: some View {
         Section {
             LabeledContent("Server Name") {
-                TextField("\(kind.displayName) instance", text: $form.name)
-                    .multilineTextAlignment(.trailing)
+                TextField("Server Name", text: $form.name, prompt: Text("\(kind.displayName) instance"))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.words)
                     #endif
@@ -134,8 +134,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
             }
 
             LabeledContent("Hostname or IP") {
-                TextField("192.168.1.50", text: $form.hostname)
-                    .multilineTextAlignment(.trailing)
+                TextField("Hostname or IP", text: $form.hostname, prompt: Text("192.168.1.50"))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
@@ -145,8 +145,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
             }
 
             LabeledContent("Port") {
-                TextField(kind == .sonarr ? "8989" : "7878", text: $form.portText)
-                    .multilineTextAlignment(.trailing)
+                TextField("Port", text: $form.portText, prompt: Text(kind == .sonarr ? "8989" : "7878"))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
@@ -157,8 +157,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 .disabled(isUsingSavedServer)
 
             LabeledContent("API Key") {
-                SecureField("API key", text: $form.apiKey)
-                    .multilineTextAlignment(.trailing)
+                SecureField("API Key", text: $form.apiKey, prompt: Text("API key"))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
@@ -167,8 +167,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
             }
 
             LabeledContent("URL Base") {
-                TextField("/\(kind.rawValue)", text: $form.baseUrl)
-                    .multilineTextAlignment(.trailing)
+                TextField("URL Base", text: $form.baseUrl, prompt: Text("/\(kind.rawValue)"))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
@@ -271,8 +271,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
     private var advancedSection: some View {
         Section {
             LabeledContent("External URL") {
-                TextField("https://...", text: $form.externalUrl)
-                    .multilineTextAlignment(.trailing)
+                TextField("External URL", text: $form.externalUrl, prompt: Text("https://..."))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)

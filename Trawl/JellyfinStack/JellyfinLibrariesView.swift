@@ -710,8 +710,8 @@ private struct JellyfinAddLibrarySheet: View {
             Form {
                 Section {
                     LabeledContent("Name") {
-                        TextField("Movies", text: $name)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Name", text: $name, prompt: Text("Movies"))
+                            .labeledContentField()
                     }
 
                     LabeledContent("Content Type") {
@@ -737,7 +737,10 @@ private struct JellyfinAddLibrarySheet: View {
                     }
 
                     HStack {
-                        TextField("/media/movies", text: $manualPath)
+                        // An example value, not a label: macOS draws a field's title beside it, where this
+                        // reads as another entry that has already been added.
+                        TextField("", text: $manualPath, prompt: Text("/media/movies"))
+                            .labelsHidden()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
@@ -828,12 +831,12 @@ private struct JellyfinAddPathSheet: View {
             Form {
                 Section {
                     LabeledContent("Path") {
-                        TextField("/media/movies", text: $path)
+                        TextField("Path", text: $path, prompt: Text("/media/movies"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
 
                     Button {
@@ -906,8 +909,8 @@ private struct JellyfinRenameLibrarySheet: View {
             Form {
                 Section {
                     LabeledContent("Name") {
-                        TextField("Library Name", text: $name)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Name", text: $name, prompt: Text("Library Name"))
+                            .labeledContentField()
                     }
                 }
             }

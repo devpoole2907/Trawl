@@ -212,18 +212,18 @@ struct ArrDownloadClientEditorSheet: View {
 
                 Section("General") {
                     LabeledContent("Name") {
-                        TextField(implementationDisplayName.isEmpty ? "Name" : implementationDisplayName, text: $name)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Name", text: $name, prompt: Text(implementationDisplayName.isEmpty ? "Name" : implementationDisplayName))
+                            .labeledContentField()
                     }
 
                     if supportsCategory {
                         LabeledContent("Category") {
-                            TextField(serviceType == .sonarr ? "tv-sonarr" : "radarr", text: $category)
+                            TextField("Category", text: $category, prompt: Text(serviceType == .sonarr ? "tv-sonarr" : "radarr"))
+                                .labeledContentField()
                                 #if os(iOS)
                                 .textInputAutocapitalization(.never)
                                 #endif
                                 .autocorrectionDisabled()
-                                .multilineTextAlignment(.trailing)
                         }
                     }
                 }
@@ -353,16 +353,16 @@ struct ArrDownloadClientEditorSheet: View {
         case "password":
             LabeledContent(label) {
                 SecureField(label, text: stringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
                     .disabled(isLocked)
             }
         case "number":
             LabeledContent(label) {
                 TextField(label, text: numberStringBinding(for: key))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
-                    .multilineTextAlignment(.trailing)
                     .disabled(isLocked)
             }
         case "select":
@@ -376,19 +376,19 @@ struct ArrDownloadClientEditorSheet: View {
             } else {
                 LabeledContent(label) {
                     TextField(label, text: stringBinding(for: key))
-                        .multilineTextAlignment(.trailing)
+                        .labeledContentField()
                         .disabled(isLocked)
                 }
             }
         default:
             LabeledContent(label) {
-                TextField(field.placeholder ?? label, text: portAwareBinding(for: key))
+                TextField(label, text: portAwareBinding(for: key), prompt: Text(field.placeholder ?? label))
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(key == "port" ? .numberPad : .URL)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
                     .disabled(isLocked)
             }
         }

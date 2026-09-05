@@ -32,7 +32,11 @@ struct TrawlTitleMenu<Value: Hashable>: View {
     var animation: Animation = .snappy
 
     private var titleFont: Font {
+        #if os(macOS)
+        isCompact ? .headline : .title2.bold()
+        #else
         isCompact ? .headline : .title.bold()
+        #endif
     }
 
     private var chevronFont: Font {

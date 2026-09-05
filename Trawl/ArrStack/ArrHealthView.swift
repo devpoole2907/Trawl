@@ -62,8 +62,21 @@ struct ArrServiceFilterBar: View {
 struct ArrHealthView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var serviceFilter: ArrServiceFilter = .all
+    /// The sheet route, used only without a detail pane beside the list.
     @State private var selectedItem: HealthItem?
     @State private var showSettings = false
+    /// Which check the detail pane is showing, at regular width. Nil on iPhone,
+    /// where the row opens the sheet instead.
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrHealthBrowserState.self) private var sharedBrowser: ArrHealthBrowserState?
+    @State private var localBrowser = ArrHealthBrowserState()
+    private var browser: ArrHealthBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+    private var selectedCheck: HealthItem? {
+        browser.selectedCheckID.flatMap { id in filteredChecks.first { $0.id == id } }
+    }
     private let previewHealthItems: [HealthItem]?
 
     init() {
@@ -121,12 +134,35 @@ struct ArrHealthView: View {
     }
 
     var body: some View {
+        // Two panes at regular width. A health check is read and then acted on -
+        // open its help page, check the server that raised it - and the sheet that
+        // carried it on iPhone has no dismiss affordance on a Mac at all.
+        TrawlListDetailPanes(title: "Health", subtitle: navigationSubtitle) {
+            healthContent
+        } detail: {
+            selectedCheckDetail
+        }
+    }
+
+    /// The right-hand pane: whichever check is selected. The same body the sheet
+    /// shows without a pane, so both routes render one view.
+    @ViewBuilder
+    private var selectedCheckDetail: some View {
+        if let selectedCheck {
+            HealthDetailSheet(item: selectedCheck)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(backgroundGradient)
+                .navigationTitle(selectedCheck.check.source ?? selectedCheck.source.displayName)
+        } else {
+            listDetailPlaceholder("Select a Health Check", systemImage: "stethoscope")
+        }
+    }
+
+    private var healthContent: some View {
         Group {
             contentView
         }
         .background(backgroundGradient)
-        .navigationTitle("Health")
-        .navigationSubtitle(navigationSubtitle)
         .safeAreaInset(edge: .top) {
             if hasConfiguredService {
                 ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
@@ -144,10 +180,19 @@ struct ArrHealthView: View {
             }
             await serviceManager.loadHealth()
         }
+        // Only without a pane. On a Mac this sheet has no dismiss affordance of its
+        // own and no edge to swipe, so a tapped check used to trap the window.
         .sheet(item: $selectedItem) { item in
             HealthDetailSheet(item: item)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+        }
+        .onChange(of: filteredChecks.map(\.id)) { _, ids in
+            // A warning the servers stopped reporting must not leave a row looking
+            // selected beside an empty pane.
+            if let id = browser.selectedCheckID, !ids.contains(id) {
+                browser.selectedCheckID = nil
+            }
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -218,7 +263,8 @@ struct ArrHealthView: View {
     }
 
     private var healthList: some View {
-        List {
+        @Bindable var browser = self.browser
+        return List(selection: $browser.selectedCheckID) {
             if filteredChecks.isEmpty {
                 ContentUnavailableView(
                     "No Health Issues",
@@ -228,10 +274,16 @@ struct ArrHealthView: View {
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(filteredChecks) { item in
-                    Button { selectedItem = item } label: {
+                    // Selects beside a detail pane, opens the sheet without one.
+                    if showsDetailPane {
                         HealthCheckRow(item: item)
+                            .tag(item.id)
+                    } else {
+                        Button { selectedItem = item } label: {
+                            HealthCheckRow(item: item)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }

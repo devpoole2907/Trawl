@@ -35,7 +35,10 @@ struct AddImportLocationSheet: View {
             Form {
                 Section {
                     HStack {
-                        TextField("Absolute path on server", text: $path)
+                        // An example value, not a label: macOS draws a field's title beside it, where this
+                        // reads as another entry that has already been added.
+                        TextField("", text: $path, prompt: Text("Absolute path on server"))
+                            .labelsHidden()
                             .autocorrectionDisabled()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)

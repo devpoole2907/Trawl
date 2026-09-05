@@ -84,12 +84,18 @@ struct QBittorrentLogView: View {
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        // Without an explicit style the Mac list falls back to the default, whose
+        // own opaque background survives `scrollContentBackground(.hidden)` and
+        // leaves the filter bar's inset sitting on white instead of the gradient.
+        // Seerr Logs and Jellyfin Activity name `.inset` and do not have the bug.
+        .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
+        .background(backgroundGradient)
         .refreshable {
             await load()
         }
-        .background(backgroundGradient)
         .navigationTitle("Logs")
         .navigationSubtitle("qBittorrent")
         #if os(iOS)

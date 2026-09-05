@@ -320,29 +320,29 @@ struct BazarrProvidersView: View {
                     EmptyView()
                 case .antiCaptcha:
                     LabeledContent("Account Key") {
-                        SecureField("Account key", text: $antiCaptchaKey)
+                        SecureField("Account Key", text: $antiCaptchaKey, prompt: Text("Account key"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
                 case .deathByCaptcha:
                     LabeledContent("Username") {
                         TextField("Username", text: $deathByCaptchaUsername)
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
                     LabeledContent("Password") {
                         SecureField("Password", text: $deathByCaptchaPassword)
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
                 }
 
@@ -830,12 +830,12 @@ private struct BazarrProviderEditorView: View {
         case .text:
             LabeledContent(field.displayName) {
                 TextField(field.displayName, text: stringBinding(for: field.key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
             }
         case .password:
             LabeledContent(field.displayName) {
                 SecureField(field.displayName, text: stringBinding(for: field.key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
             }
         case .toggle:
             Toggle(field.displayName, isOn: boolBinding(for: field.key))

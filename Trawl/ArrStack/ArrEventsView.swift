@@ -194,23 +194,6 @@ struct ArrEventsView: View {
         .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.logsAndEvents)
         .toolbar { eventsToolbar }
-        .safeAreaInset(edge: .top) {
-            if !availableServices.isEmpty {
-                TrawlSegmentBar(
-                    "Service",
-                    selection: Binding(
-                        get: { selectedSelection },
-                        set: { newSelection in withAnimation { selectedSelection = newSelection } }
-                    ),
-                    items: segmentItems,
-                    searchText: $searchText,
-                    searchHint: "Search events",
-                    isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
-                )
-            }
-        }
         .loadServicesPeriodically(
             id: availableInstances.map(\.id.uuidString).joined(separator: "|"),
             keys: availableInstances
@@ -312,6 +295,28 @@ struct ArrEventsView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
+        // Background and filter bar both on the list, in that order - the
+        // arrangement Seerr Logs and Jellyfin Activity use, and the one this screen
+        // did not: it painted the gradient on the outer `Group` and then added the
+        // bar outside it, so the bar sat on unpainted white. The outer `Group` keeps
+        // its own background for the empty and unreachable states, which are not
+        // lists and have no list background to clear.
+        .moreDestinationBackground(.logsAndEvents)
+        .safeAreaInset(edge: .top) {
+            TrawlSegmentBar(
+                "Service",
+                selection: Binding(
+                    get: { selectedSelection },
+                    set: { newSelection in withAnimation { selectedSelection = newSelection } }
+                ),
+                items: segmentItems,
+                searchText: $searchText,
+                searchHint: "Search events",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading,
+                alignment: .leading
+            )
+        }
         .refreshable {
             await withTaskGroup(of: Void.self) { group in
                 for instance in availableInstances {

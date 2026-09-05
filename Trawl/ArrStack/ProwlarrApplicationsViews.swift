@@ -402,8 +402,8 @@ struct ProwlarrApplicationEditorSheet: View {
             Form {
                 Section("General") {
                     LabeledContent("Name") {
-                        TextField("Application name", text: $name)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Name", text: $name, prompt: Text("Application name"))
+                            .labeledContentField()
                     }
 
                     Picker("Sync Level", selection: $syncLevel) {
@@ -446,13 +446,13 @@ struct ProwlarrApplicationEditorSheet: View {
 
                 Section {
                     LabeledContent("Prowlarr Server") {
-                        TextField("https://prowlarr.local", text: $prowlarrURL)
+                        TextField("Prowlarr Server", text: $prowlarrURL, prompt: Text("https://prowlarr.local"))
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
 
                     Picker("\(appType.displayName) Server", selection: $selectedRemoteProfileID) {
@@ -463,23 +463,23 @@ struct ProwlarrApplicationEditorSheet: View {
                     }
 
                     LabeledContent("\(appType.displayName) URL") {
-                        TextField("https://\(appType.rawValue).local", text: $remoteURL)
+                        TextField("\(appType.displayName) URL", text: $remoteURL, prompt: Text("https://\(appType.rawValue).local"))
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                             .disabled(!isUsingCustomRemoteServer)
                     }
 
                     LabeledContent("API Key") {
-                        SecureField("API key", text: $apiKey)
+                        SecureField("API Key", text: $apiKey, prompt: Text("API key"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
                 } header: {
                     Text("Connection")

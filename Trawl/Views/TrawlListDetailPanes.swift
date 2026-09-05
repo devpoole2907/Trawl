@@ -42,6 +42,20 @@ extension View {
     func listDetailPlaceholder(_ title: String, systemImage: String) -> some View {
         ContentUnavailableView(title, systemImage: systemImage)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #if os(macOS)
+            // The window's toolbar only splits into per-column regions for columns
+            // that contribute items. With an empty detail the list column's
+            // .primaryAction items resolve against the window's trailing edge and
+            // float out over this placeholder, then jump back over the list as soon
+            // as a selection brings its own toolbar. A zero-sized item claims the
+            // detail's region from the start so they never move. EmptyView is
+            // dropped outright, so it has to be a real view.
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Color.clear.frame(width: 0, height: 0)
+                }
+            }
+            #endif
     }
 }
 

@@ -670,7 +670,10 @@ private struct JellyfinResetPasswordSheet: View {
         ) {
             Form {
                 Section {
-                    SecureField("Optional", text: $currentPassword)
+                    // An example value, not a label: macOS draws a field's title beside it, where this
+                    // reads as another entry that has already been added.
+                    SecureField("", text: $currentPassword, prompt: Text("Optional"))
+                        .labelsHidden()
                         .textContentType(.password)
                 } header: {
                     Text("Current Password")

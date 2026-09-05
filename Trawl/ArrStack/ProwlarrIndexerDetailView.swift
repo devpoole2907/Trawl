@@ -171,6 +171,14 @@ struct ProwlarrIndexerDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer stops the list column's items from bleeding
+            // into this detail pane's toolbar region.
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+            #endif
+        }
         .task {
             await viewModel.loadTags()
             if !didSeedTags {

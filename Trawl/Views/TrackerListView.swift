@@ -334,7 +334,9 @@ private struct EditTrackerSheet: View {
                         .textSelection(.enabled)
                 }
                 Section("New URL") {
-                    TextField("https://tracker.example.org/announce", text: $newURL, axis: .vertical)
+                    // A hint, not a label - macOS draws a field's title as a leading label.
+                    TextField("", text: $newURL, prompt: Text("https://tracker.example.org/announce"), axis: .vertical)
+                        .labelsHidden()
                         .font(.callout.monospaced())
                         #if os(iOS)
                         .keyboardType(.URL)

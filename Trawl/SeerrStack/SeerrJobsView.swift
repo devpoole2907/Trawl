@@ -17,6 +17,34 @@ struct SeerrJobsView: View {
     }
 
     var body: some View {
+        Group {
+            jobsList
+        }
+        .paneAwareNavigationTitle("Seerr Jobs")
+        .moreDestinationBackground(.seerr)
+        .alert("Job Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+        .refreshable { await load() }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            await load()
+            startPolling()
+        }
+        .onDisappear {
+            pollingTask?.cancel()
+        }
+    }
+
+    @ViewBuilder
+    private var jobsList: some View {
         List {
             if let error = errorMessage {
                 ServiceErrorView(
@@ -59,27 +87,6 @@ struct SeerrJobsView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
-        .paneAwareNavigationTitle("Seerr Jobs")
-        .alert("Job Action Failed", isPresented: Binding(
-            get: { actionError != nil },
-            set: { if !$0 { actionError = nil } }
-        )) {
-            Button("OK", role: .cancel) { actionError = nil }
-        } message: {
-            Text(actionError ?? "")
-        }
-        .refreshable { await load() }
-        .task {
-            #if DEBUG
-            if isPreview { return }
-            #endif
-            await load()
-            startPolling()
-        }
-        .onDisappear {
-            pollingTask?.cancel()
-        }
     }
 
     private func load() async {

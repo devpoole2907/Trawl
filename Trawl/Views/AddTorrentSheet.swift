@@ -148,10 +148,9 @@ struct AddTorrentSheet: View {
             handleFileImport(result, vm: vm)
         }
         #if os(macOS)
+        // The enclosing Group already sizes the sheet; a grouped Form brings its own
+        // insets, so padding and width frames here only stack up extra margin.
         .formStyle(.grouped)
-        .padding(20)
-        .frame(maxWidth: 760, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
     }
 
@@ -176,8 +175,12 @@ struct AddTorrentSheet: View {
                 LabeledContent(destination.displayName) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(server.name)
-                        Text(server.host)
-                            .foregroundStyle(.secondary)
+                        // An unnamed profile falls back to its host URL, so showing both
+                        // would print the same address twice.
+                        if server.host != server.name {
+                            Text(server.host)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .font(.subheadline)
                     .multilineTextAlignment(.trailing)
@@ -236,8 +239,8 @@ struct AddTorrentSheet: View {
         @Bindable var vm = vm
         Section {
             LabeledContent("Save Path") {
-                TextField(vm.serverDefaultSavePath ?? "Server default", text: $vm.savePath)
-                    .multilineTextAlignment(.trailing)
+                TextField("Save Path", text: $vm.savePath, prompt: Text(vm.serverDefaultSavePath ?? "Server default"))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
@@ -285,8 +288,8 @@ struct AddTorrentSheet: View {
             // server, so a picker is worth having wherever we can build one.
             if vm.sabCategories.isEmpty {
                 LabeledContent("Category") {
-                    TextField("Server default", text: $vm.sabCategory)
-                        .multilineTextAlignment(.trailing)
+                    TextField("Category", text: $vm.sabCategory, prompt: Text("Server default"))
+                        .labeledContentField()
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
                         #endif
@@ -324,8 +327,8 @@ struct AddTorrentSheet: View {
             }
 
             LabeledContent("Password") {
-                SecureField("Optional", text: $vm.sabPassword)
-                    .multilineTextAlignment(.trailing)
+                SecureField("Password", text: $vm.sabPassword, prompt: Text("Optional"))
+                    .labeledContentField()
             }
         } header: {
             Text("Options")
@@ -344,9 +347,13 @@ struct AddTorrentSheet: View {
             .autocorrectionDisabled()
             .lineLimit(3...6)
         #else
-        return TextField(placeholder, text: text, axis: .vertical)
+        // The string is a hint, not a label: macOS would draw it as a leading label, so it
+        // belongs in `prompt`. A Mac field also starts at one line and grows; reserving
+        // three leaves a blank slab.
+        return TextField("", text: text, prompt: Text(placeholder), axis: .vertical)
+            .labelsHidden()
             .autocorrectionDisabled()
-            .lineLimit(3...6)
+            .lineLimit(1...4)
         #endif
     }
 

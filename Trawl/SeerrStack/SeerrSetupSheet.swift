@@ -163,7 +163,7 @@ struct SeerrSettingsView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             Section {
                 if let profile {
                     HStack {
@@ -262,6 +262,7 @@ struct SeerrSettingsView: View {
             }
         }
         .navigationTitle("Seerr")
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

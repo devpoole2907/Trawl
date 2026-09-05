@@ -783,8 +783,8 @@ private struct LanguageProfileEditorView: View {
         Form {
             Section("Profile") {
                 LabeledContent("Name") {
-                    TextField("Profile Name", text: $draft.name)
-                        .multilineTextAlignment(.trailing)
+                    TextField("Name", text: $draft.name, prompt: Text("Profile Name"))
+                        .labeledContentField()
                 }
             }
 

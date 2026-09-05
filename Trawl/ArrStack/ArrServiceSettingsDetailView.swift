@@ -103,7 +103,7 @@ struct ArrServiceSettingsView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             // Only when there is nothing to list below: with a pair configured the
             // Servers section already shows this server, and showing it twice -
             // same name, same host, same status - read as two more servers.
@@ -416,6 +416,7 @@ struct ArrServiceSettingsView: View {
             }
         }
         .navigationTitle(serviceType.displayName)
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

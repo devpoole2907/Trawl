@@ -162,7 +162,7 @@ struct JellyfinSettingsView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             Section {
                 if let profile {
                     HStack {
@@ -312,6 +312,7 @@ struct JellyfinSettingsView: View {
             }
         }
         .navigationTitle("Jellyfin")
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

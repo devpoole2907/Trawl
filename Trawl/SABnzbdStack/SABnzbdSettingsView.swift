@@ -21,7 +21,7 @@ struct SABnzbdSettingsView: View {
     }
 
     var body: some View {
-        List {
+        Form {
             Section {
                 if let profile {
                     HStack {
@@ -178,6 +178,7 @@ struct SABnzbdSettingsView: View {
             }
         }
         .navigationTitle("SABnzbd Settings")
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -307,3 +308,13 @@ struct SABnzbdSettingsView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("SABnzbd Settings - Connected") {
+    PreviewHost(profiles: .sabnzbdOnly) {
+        NavigationStack {
+            SABnzbdSettingsView()
+        }
+    }
+}
+#endif

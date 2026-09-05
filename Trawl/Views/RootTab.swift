@@ -240,7 +240,8 @@ enum RootTab: Hashable, CaseIterable {
         switch self {
         case .downloads, .series, .movies, .search, .indexers,
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
-             .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries: true
+             .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
+             .libraryImport, .subtitles, .logs, .settings, .health: true
         default: false
         }
     }

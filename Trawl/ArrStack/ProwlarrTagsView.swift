@@ -29,6 +29,7 @@ struct ProwlarrTagsListView: View {
             await viewModel.loadTags()
         }
         .toolbar {
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button {
                     showCreateTagAlert = true

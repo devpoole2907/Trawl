@@ -129,6 +129,7 @@ struct ProwlarrProxiesListView: View {
             await viewModel.loadProxies()
         }
         .toolbar {
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
                     if viewModel.sortedSchemas.isEmpty {
@@ -299,8 +300,8 @@ struct ProwlarrProxyEditorSheet: View {
             Form {
                 Section("General") {
                     LabeledContent("Name") {
-                        TextField("Proxy name", text: $name)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Name", text: $name, prompt: Text("Proxy name"))
+                            .labeledContentField()
                     }
                 }
 
@@ -377,18 +378,18 @@ struct ProwlarrProxyEditorSheet: View {
         case "password":
             LabeledContent(label) {
                 SecureField(label, text: stringBinding(for: key))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
             }
         case "checkbox":
             Toggle(label, isOn: boolBinding(for: key))
         case "number":
             LabeledContent(label) {
                 TextField(label, text: numberStringBinding(for: key))
-                    .multilineTextAlignment(.trailing)
+                    .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
@@ -403,17 +404,17 @@ struct ProwlarrProxyEditorSheet: View {
             } else {
                 LabeledContent(label) {
                     TextField(label, text: stringBinding(for: key))
-                        .multilineTextAlignment(.trailing)
+                        .labeledContentField()
                 }
             }
         default:
             LabeledContent(label) {
                 TextField(label, text: stringBinding(for: key))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
             }
         }
     }

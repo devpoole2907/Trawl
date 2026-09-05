@@ -52,14 +52,36 @@ struct ArrImportLocationView: View {
     let kind: ArrImportKind
 
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrImportLocationBrowserState.self) private var sharedBrowser: ArrImportLocationBrowserState?
     @Query private var allProfiles: [ArrServiceProfile]
 
-    @State private var selectedInstanceID: UUID?
+    /// Only the Library Import root sits in the sidebar's split view; Manual
+    /// Import is pushed from More and owns its own selection.
+    @State private var localBrowser = ArrImportLocationBrowserState()
+    private var browser: ArrImportLocationBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
+    private var selectedInstanceID: UUID? {
+        get { browser.selectedInstanceID }
+        nonmutating set { browser.selectedInstanceID = newValue }
+    }
+
+    /// Which folder the detail pane is scanning. Nil on iPhone, where the row
+    /// pushes instead.
+    private var selectedPath: String? {
+        get { browser.selectedPath }
+        nonmutating set { browser.selectedPath = newValue }
+    }
+
     @State private var showAddLocation = false
 
     init(kind: ArrImportKind = .library) {
         self.kind = kind
     }
+
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -102,7 +124,26 @@ struct ArrImportLocationView: View {
         currentProfile?.importFolders ?? []
     }
 
+    /// Every location the list offers, in the order it shows them. The selection
+    /// is reconciled against this, so a path that the scope bar took away does not
+    /// leave a row looking selected beside an empty pane.
+    private var allLocationPaths: [String] {
+        rootFolders.map(\.path) + customFolders
+    }
+
     var body: some View {
+        // Two panes at regular width: picking a folder to scan and reading the scan
+        // are one task, and the folder list is short enough that pushing over it
+        // only costs a round trip back.
+        TrawlListDetailPanes(title: kind.navigationTitle) {
+            locationList
+        } detail: {
+            selectedLocationDetail
+        }
+    }
+
+    @ViewBuilder
+    private var locationList: some View {
         Group {
             if availableServices.isEmpty {
                 emptyState
@@ -116,11 +157,45 @@ struct ArrImportLocationView: View {
                 listContent
             }
         }
-        .navigationTitle(kind.navigationTitle)
         .moreDestinationBackground(kind.accent)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    /// The right-hand pane: the scan of whichever folder is selected.
+    ///
+    /// The same view the row pushes without a pane, given the same arguments, so a
+    /// scan started from either side is the same session-scoped scan.
+    @ViewBuilder
+    private var selectedLocationDetail: some View {
+        if let selectedPath {
+            scanView(path: selectedPath)
+                .id("\(selectedInstance?.id.uuidString ?? "")|\(selectedPath)")
+        } else {
+            listDetailPlaceholder("Select a Folder", systemImage: "folder")
+        }
+    }
+
+    private func scanView(path: String) -> some View {
+        LibraryImportScanView(
+            path: path,
+            service: selectedService,
+            serviceManager: serviceManager,
+            instanceID: selectedInstance?.id,
+            kind: kind
+        )
+    }
+
+    /// Keeps the pane pointed at a folder the current server actually offers.
+    private func reconcileSelection() {
+        guard showsDetailPane else {
+            selectedPath = nil
+            return
+        }
+        if let selectedPath, !allLocationPaths.contains(selectedPath) {
+            self.selectedPath = nil
+        }
     }
 
     private var emptyState: some View {
@@ -135,13 +210,14 @@ struct ArrImportLocationView: View {
     }
 
     private var listContent: some View {
-        List {
+        @Bindable var browser = self.browser
+        return List(selection: $browser.selectedPath) {
             importTipsSection
 
             if !rootFolders.isEmpty {
                 Section {
                     ForEach(rootFolders) { folder in
-                        NavigationLink(value: scanDestination(path: folder.path)) {
+                        locationLink(path: folder.path) {
                             locationRow(
                                 icon: "internaldrive",
                                 title: folder.path,
@@ -162,7 +238,7 @@ struct ArrImportLocationView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(customFolders, id: \.self) { path in
-                        NavigationLink(value: scanDestination(path: path)) {
+                        locationLink(path: path) {
                             locationRow(
                                 icon: "folder",
                                 title: path,
@@ -198,7 +274,7 @@ struct ArrImportLocationView: View {
         .scrollContentBackground(.hidden)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedInstanceID)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+            ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
         }
         .sheet(isPresented: $showAddLocation) {
             AddImportLocationSheet(service: selectedService, instanceID: selectedInstance?.id) { path in
@@ -207,6 +283,25 @@ struct ArrImportLocationView: View {
         }
         .onAppear {
             selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+            reconcileSelection()
+        }
+        // The scope bar rebuilds the list from a different server, and a saved
+        // location is removed; both leave a selection naming a folder that is no
+        // longer on offer.
+        .onChange(of: selectedInstanceID) { reconcileSelection() }
+        .onChange(of: allLocationPaths) { reconcileSelection() }
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func locationLink<Label: View>(path: String, @ViewBuilder label: () -> Label) -> some View {
+        if showsDetailPane {
+            label()
+                .tag(path)
+        } else {
+            NavigationLink(value: scanDestination(path: path)) {
+                label()
+            }
         }
     }
 

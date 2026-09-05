@@ -233,7 +233,7 @@ struct DirectIndexerSchemaPickerSheet: View {
     }
 
     var body: some View {
-        ArrSheetShell(title: "Add Indexer") {
+        ArrSheetShell(title: "Add Indexer", minContentHeight: 520) {
             Group {
                 if viewModel.isLoadingSchema(for: profile.id) {
                     ProgressView("Loading indexer types…")
@@ -298,21 +298,33 @@ struct DirectIndexerSchemaPickerSheet: View {
             }
             .safeAreaInset(edge: .top) {
                 if !viewModel.isLoadingSchema(for: profile.id), viewModel.schemaError(for: profile.id) == nil, !protocolSegments.isEmpty {
-                    TrawlSegmentBar(
-                        "Protocol",
-                        selection: Binding(
-                            get: { protocolFilter },
-                            set: { newValue in
-                                withAnimation(.smooth(duration: 0.25)) {
-                                    protocolFilter = newValue
-                                }
-                            }
-                        ),
-                        items: protocolSegments
-                    )
+                    let protocolSelection = Binding {
+                        protocolFilter
+                    } set: { newValue in
+                        withAnimation(.smooth(duration: 0.25)) {
+                            protocolFilter = newValue
+                        }
+                    }
+
+                    if usesNavigationBarSearch {
+                        // The iPhone sheet carries search in its navigation bar instead.
+                        TrawlSegmentBar(
+                            "Protocol",
+                            selection: protocolSelection,
+                            items: protocolSegments
+                        )
+                    } else {
+                        TrawlSegmentBar(
+                            "Protocol",
+                            selection: protocolSelection,
+                            items: protocolSegments,
+                            searchText: $searchText,
+                            searchHint: "Search indexers"
+                        )
+                    }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search indexers")
+            .navigationBarSearchable(text: $searchText, prompt: "Search indexers")
             .task {
                 await viewModel.loadSchema(for: profile.id, serviceType: serviceType)
             }
@@ -470,8 +482,8 @@ struct DirectIndexerEditorView: View {
 
             Section {
                 LabeledContent("Name") {
-                    TextField("Indexer name", text: $indexerName)
-                        .multilineTextAlignment(.trailing)
+                    TextField("Name", text: $indexerName, prompt: Text("Indexer name"))
+                        .labeledContentField()
                 }
 
                 Stepper("Priority: \(priority)", value: $priority, in: 1...50)
@@ -527,6 +539,12 @@ struct DirectIndexerEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer stops the list column's items from bleeding
+            // into this detail pane's toolbar region.
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+            #endif
             ToolbarItem(placement: .confirmationAction) {
                 if isSaving {
                     ProgressView()
@@ -663,14 +681,14 @@ private struct DirectIndexerFieldRow: View {
 
                 case "password":
                     LabeledContent(label) {
-                        SecureField(field.placeholder ?? label, text: stringBinding(for: key))
-                            .multilineTextAlignment(.trailing)
+                        SecureField(label, text: stringBinding(for: key), prompt: Text(field.placeholder ?? label))
+                            .labeledContentField()
                     }
 
                 case "number":
                     LabeledContent(label) {
-                        TextField(field.placeholder ?? label, text: numberStringBinding(for: key, isFloat: field.isFloat == true))
-                            .multilineTextAlignment(.trailing)
+                        TextField(label, text: numberStringBinding(for: key, isFloat: field.isFloat == true), prompt: Text(field.placeholder ?? label))
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(field.isFloat == true ? .decimalPad : .numberPad)
                             #endif
@@ -678,8 +696,8 @@ private struct DirectIndexerFieldRow: View {
 
                 default:
                     LabeledContent(label) {
-                        TextField(field.placeholder ?? label, text: stringBinding(for: key))
-                            .multilineTextAlignment(.trailing)
+                        TextField(label, text: stringBinding(for: key), prompt: Text(field.placeholder ?? label))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif

@@ -16,6 +16,15 @@ struct UnifiedUserDetailView: View {
     @State private var isImportingToSeerr = false
     @State private var importAlert: ImportAlert?
     @State private var showDeleteSeerrConfirmation = false
+    @State private var editorRoute: UserEditorRoute?
+
+    /// Which account the Edit menu is opening. Both editors are reached from the
+    /// toolbar rather than from a row, so the detail pane always contributes a
+    /// toolbar item and the window's toolbar keeps its column split.
+    private enum UserEditorRoute: Hashable {
+        case jellyfin
+        case seerr
+    }
 
     init(
         user: UnifiedUserViewModel.UnifiedUser,
@@ -60,6 +69,51 @@ struct UnifiedUserDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            // The window's single toolbar carries the list column's actions and this
+            // screen's, and both arrive as `.primaryAction`, so this menu would land
+            // against the leading edge of the detail column, a few points from the
+            // list's own group. The spacer pushes it to the window's trailing edge.
+            #if os(macOS)
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+            #endif
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                Menu {
+                    if jellyfinUser != nil {
+                        Button {
+                            editorRoute = .jellyfin
+                        } label: {
+                            Label("Edit Jellyfin Account", systemImage: ServiceIdentity.jellyfin.systemImage)
+                        }
+                    }
+                    if seerrUser != nil, seerrClient != nil {
+                        Button {
+                            editorRoute = .seerr
+                        } label: {
+                            Label("Edit Seerr Account", systemImage: ServiceIdentity.seerr.systemImage)
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            showDeleteSeerrConfirmation = true
+                        } label: {
+                            Label("Remove from Seerr", systemImage: "trash")
+                        }
+                    }
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .accessibilityLabel("Edit")
+                // Kept present, and merely disabled, for an account that exists on
+                // neither service: an item that comes and goes with the selection
+                // moves every other toolbar item with it.
+                .disabled(!hasEditableAccount)
+            }
+        }
+        .navigationDestination(item: $editorRoute) { route in
+            editor(for: route)
+        }
         .alert("Remove Seerr User?", isPresented: $showDeleteSeerrConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
@@ -74,6 +128,39 @@ struct UnifiedUserDetailView: View {
                 message: Text(alert.message),
                 dismissButton: .default(Text("OK"))
             )
+        }
+    }
+
+    private var hasEditableAccount: Bool {
+        jellyfinUser != nil || (seerrUser != nil && seerrClient != nil)
+    }
+
+    /// The editors the Edit menu pushes. Same views, same callbacks as the rows that
+    /// used to sit in each section.
+    @ViewBuilder
+    private func editor(for route: UserEditorRoute) -> some View {
+        switch route {
+        case .jellyfin:
+            if let jf = jellyfinUser {
+                JellyfinUserEditorView(
+                    user: jf,
+                    apiClient: jellyfinClient
+                ) { updated in
+                    jellyfinUser = updated
+                    onJellyfinUserUpdated(updated)
+                } onDelete: {
+                    jellyfinUser = nil
+                    onJellyfinUserDeleted()
+                }
+                .environment(inAppNotificationCenter)
+            }
+        case .seerr:
+            if let seerr = seerrUser, let client = seerrClient {
+                SeerrUserEditorView(user: seerr, apiClient: client) { updated in
+                    seerrUser = updated
+                    onSeerrUserUpdated(updated)
+                }
+            }
         }
     }
 
@@ -145,7 +232,8 @@ struct UnifiedUserDetailView: View {
     /// This screen used to answer "what can this person do?" with a single row
     /// labelled "Edit Jellyfin Account" - the answer was only reachable by opening
     /// the editor, which is the wrong way round for a pane you are looking at
-    /// precisely because you wanted to know.
+    /// precisely because you wanted to know. Editing now lives in the toolbar's
+    /// Edit menu, so the section is purely what the account *is*.
     @ViewBuilder
     private var jellyfinSection: some View {
         Section {
@@ -194,22 +282,6 @@ struct UnifiedUserDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                NavigationLink {
-                    JellyfinUserEditorView(
-                        user: jf,
-                        apiClient: jellyfinClient
-                    ) { updated in
-                        jellyfinUser = updated
-                        onJellyfinUserUpdated(updated)
-                    } onDelete: {
-                        jellyfinUser = nil
-                        onJellyfinUserDeleted()
-                    }
-                    .environment(inAppNotificationCenter)
-                } label: {
-                    Label("Edit Jellyfin Account", systemImage: "pencil")
-                }
             } else {
                 Label("Not in Jellyfin", systemImage: ServiceIdentity.jellyfin.tabSystemImage)
                     .foregroundStyle(.secondary)
@@ -243,7 +315,7 @@ struct UnifiedUserDetailView: View {
     @ViewBuilder
     private var seerrSection: some View {
         Section {
-            if let seerr = seerrUser, let client = seerrClient {
+            if let seerr = seerrUser, seerrClient != nil {
                 LabeledContent("Display Name", value: seerr.displayName)
 
                 if let username = seerr.username ?? seerr.jellyfinUsername, !username.isEmpty {
@@ -280,21 +352,6 @@ struct UnifiedUserDetailView: View {
                         Text(relativeDate(from: created))
                             .foregroundStyle(.secondary)
                     }
-                }
-
-                NavigationLink {
-                    SeerrUserEditorView(user: seerr, apiClient: client) { updated in
-                        seerrUser = updated
-                        onSeerrUserUpdated(updated)
-                    }
-                } label: {
-                    Label("Edit Seerr Account", systemImage: "pencil")
-                }
-
-                Button(role: .destructive) {
-                    showDeleteSeerrConfirmation = true
-                } label: {
-                    Label("Remove from Seerr", systemImage: "trash")
                 }
             } else if seerrClient != nil {
                 if let jf = jellyfinUser {

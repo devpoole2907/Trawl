@@ -349,7 +349,10 @@ private struct AddRootFolderSheet: View {
 
                 Section {
                     HStack {
-                        TextField("/mnt/media/shows", text: $path)
+                        // An example value, not a label: macOS draws a field's title beside it, where this
+                        // reads as another entry that has already been added.
+                        TextField("", text: $path, prompt: Text("/mnt/media/shows"))
+                            .labelsHidden()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif

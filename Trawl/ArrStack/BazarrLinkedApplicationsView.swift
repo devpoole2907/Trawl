@@ -342,6 +342,31 @@ private enum BazarrLinkedApplicationsPreviewData {
         ]),
     ]
 
+    /// Sonarr with every advanced field carrying a value, so the rows below the fold -
+    /// minimum score, excluded tags, the series-type toggles - all render populated.
+    static let advancedSettings: [String: JSONValue] = [
+        "general": .object([
+            "use_sonarr": .bool(true),
+            "use_radarr": .bool(false),
+            "minimum_score": .string("85"),
+            "minimum_score_movie": .string("75"),
+        ]),
+        "sonarr": .object([
+            "ip": .string("sonarr.local"),
+            "port": .string("8989"),
+            "base_url": .string("/sonarr"),
+            "apikey": .string("preview-sonarr-key"),
+            "ssl": .bool(true),
+            "series_sync_on_live": .bool(true),
+            "only_monitored": .bool(true),
+            "defer_search_signalr": .bool(true),
+            "excluded_tags": .array([.string("anime"), .string("documentary"), .string("kids")]),
+            "excluded_series_types": .array([.string("daily"), .string("anime")]),
+            "exclude_season_zero": .bool(true),
+            "http_timeout": .string("120"),
+        ]),
+    ]
+
     static let emptySettings: [String: JSONValue] = [
         "general": .object([
             "use_sonarr": .bool(false),
@@ -524,49 +549,49 @@ private struct BazarrLinkedApplicationEditorSheet: View {
 
                 Section("Host") {
                     LabeledContent("Address") {
-                        TextField("Hostname or IPv4 Address", text: $host)
+                        TextField("Address", text: $host, prompt: Text("Hostname or IPv4 Address"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                             .disabled(!isUsingCustomServer)
                     }
 
                     LabeledContent("Port") {
                         TextField("Port", text: $port)
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(.numberPad)
                             #endif
-                            .multilineTextAlignment(.trailing)
                             .disabled(!isUsingCustomServer)
                     }
 
                     LabeledContent("Base URL") {
-                        TextField("/", text: $baseURL)
+                        TextField("Base URL", text: $baseURL, prompt: Text("/"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                             .disabled(!isUsingCustomServer)
                     }
 
                     LabeledContent("HTTP Timeout") {
-                        TextField("60", text: $httpTimeout)
+                        TextField("HTTP Timeout", text: $httpTimeout, prompt: Text("60"))
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(.numberPad)
                             #endif
-                            .multilineTextAlignment(.trailing)
                     }
 
                     LabeledContent("API Key") {
-                        SecureField("API key", text: $apiKey)
+                        SecureField("API Key", text: $apiKey, prompt: Text("API key"))
+                            .labeledContentField()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
-                            .multilineTextAlignment(.trailing)
                     }
 
                     Toggle("SSL", isOn: $ssl)
@@ -576,16 +601,16 @@ private struct BazarrLinkedApplicationEditorSheet: View {
                     Toggle("Sync on live connection", isOn: $syncOnLive)
 
                     LabeledContent(appType.minimumScoreLabel) {
-                        TextField("Score", text: $minimumScore)
+                        TextField(appType.minimumScoreLabel, text: $minimumScore, prompt: Text("Score"))
+                            .labeledContentField()
                             #if os(iOS)
                             .keyboardType(.numberPad)
                             #endif
-                            .multilineTextAlignment(.trailing)
                     }
 
                     LabeledContent("Excluded Tags") {
-                        TextField("tag-one, tag-two", text: $excludedTags)
-                            .multilineTextAlignment(.trailing)
+                        TextField("Excluded Tags", text: $excludedTags, prompt: Text("tag-one, tag-two"))
+                            .labeledContentField()
                     }
 
                     if appType == .sonarr {
@@ -924,6 +949,20 @@ private struct ParsedServerURL {
             settings: BazarrLinkedApplicationsPreviewData.linkedSettings,
             onSave: { _ in await Task.yield(); return true }
         )
+    }
+}
+
+/// The editor is taller than a preview canvas, so this one opens anchored at the bottom to
+/// cover the advanced rows - minimum score, excluded tags, the Sonarr series-type toggles -
+/// that the two previews above push off-screen.
+#Preview("Editor Sonarr - Advanced") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrLinkedApplicationEditorSheet(
+            appType: .sonarr,
+            settings: BazarrLinkedApplicationsPreviewData.advancedSettings,
+            onSave: { _ in await Task.yield(); return true }
+        )
+        .defaultScrollAnchor(.bottom)
     }
 }
 

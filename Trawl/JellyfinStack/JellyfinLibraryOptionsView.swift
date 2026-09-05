@@ -88,25 +88,25 @@ struct JellyfinLibraryOptionsView: View {
     private var metadataLanguageSection: some View {
         Section {
             LabeledContent("Preferred Language") {
-                TextField("en", text: $options.preferredMetadataLanguage)
+                TextField("Preferred Language", text: $options.preferredMetadataLanguage, prompt: Text("en"))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
             }
             LabeledContent("Country / Region") {
-                TextField("US", text: $options.metadataCountryCode)
+                TextField("Country / Region", text: $options.metadataCountryCode, prompt: Text("US"))
+                    .labeledContentField()
                     #if os(iOS)
                     .textInputAutocapitalization(.characters)
                     #endif
                     .autocorrectionDisabled()
-                    .multilineTextAlignment(.trailing)
             }
             if isTVLike {
                 LabeledContent("Special Season Name") {
-                    TextField("Specials", text: $options.seasonZeroDisplayName)
-                        .multilineTextAlignment(.trailing)
+                    TextField("Special Season Name", text: $options.seasonZeroDisplayName, prompt: Text("Specials"))
+                        .labeledContentField()
                 }
             }
         } header: {

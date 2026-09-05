@@ -38,6 +38,15 @@ struct SettingsView: View {
     @Environment(\.navigateToCleanuparrSettings) private var navigateToCleanuparrSettings
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager
     @Query private var cleanuparrProfiles: [CleanuparrServiceProfile]
+    /// Which service's settings the detail pane is showing, at regular width. Nil on
+    /// iPhone and in the Settings sheet, where the row pushes instead.
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(TrawlColumnSelection<MoreDestination>.self) private var sharedSelection: TrawlColumnSelection<MoreDestination>?
+    @State private var localSelection = TrawlColumnSelection<MoreDestination>()
+    private var selectionStore: TrawlColumnSelection<MoreDestination> {
+        sidebarColumn == nil ? localSelection : (sharedSelection ?? localSelection)
+    }
+    private var selectedService: MoreDestination? { selectionStore.selection }
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
@@ -46,9 +55,78 @@ struct SettingsView: View {
         self.showsDoneButton = showsDoneButton
     }
 
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
     var body: some View {
+        // Two panes at regular width. Settings is a list of servers you open one at a
+        // time to check a URL or a key, and pushing over the list for each of them
+        // hides the very thing the check is against - the other servers' state.
+        TrawlListDetailPanes(title: "Settings") {
+            settingsList
+        } detail: {
+            selectedServiceDetail
+        }
+    }
+
+    /// The right-hand pane: whichever service's settings are selected. The same
+    /// screens the rows open without a pane, so both routes run one code path.
+    @ViewBuilder
+    private var selectedServiceDetail: some View {
+        switch selectedService {
+        case .qbittorrentSettings:
+            QBittorrentSettingsView()
+                .environment(syncService)
+                .environment(torrentService)
+        case .sabnzbdSettings:
+            SABnzbdSettingsView()
+                .environment(sabnzbdServiceManager)
+        case .sonarrSettings:
+            ArrServiceSettingsView(serviceType: .sonarr)
+                .environment(arrServiceManager)
+        case .radarrSettings:
+            ArrServiceSettingsView(serviceType: .radarr)
+                .environment(arrServiceManager)
+        case .prowlarrSettings:
+            ArrServiceSettingsView(serviceType: .prowlarr)
+                .environment(arrServiceManager)
+        case .bazarrSettings:
+            ArrServiceSettingsView(serviceType: .bazarr)
+                .environment(arrServiceManager)
+        case .seerrSettings:
+            SeerrSettingsView()
+        case .jellyfinSettings:
+            JellyfinSettingsView()
+        case .cleanuparrSettings:
+            CleanuparrSettingsView()
+                .environment(cleanuparrServiceManager)
+        default:
+            listDetailPlaceholder("Select a Service", systemImage: "gearshape")
+        }
+    }
+
+    /// Opens a service's settings: selects it beside a detail pane, and pushes
+    /// through the chrome's own route without one.
+    private func openService(_ destination: MoreDestination, push: @escaping () -> Void) {
+        if showsDetailPane {
+            selectionStore.selection = destination
+        } else {
+            push()
+        }
+    }
+
+    /// The selected row's tint. `Form` has no `selection:`, so the highlight is
+    /// drawn rather than inherited - the rows are buttons, not list tags.
+    @ViewBuilder
+    private func serviceRowBackground(_ destination: MoreDestination) -> some View {
+        if showsDetailPane && selectedService == destination {
+            Color.accentColor.opacity(0.15)
+        } else {
+            Color.clear
+        }
+    }
+
+    private var settingsList: some View {
         settingsForm
-            .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -140,7 +218,9 @@ struct SettingsView: View {
     private var settingsForm: some View {
         Form {
             Section("Services") {
-                Button(action: navigateToQbittorrentSettings) {
+                Button {
+                    openService(.qbittorrentSettings, push: navigateToQbittorrentSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
                         name: activeServer?.displayName ?? "qBittorrent",
@@ -151,8 +231,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.qbittorrentSettings))
 
-                Button(action: navigateToSABnzbdSettings) {
+                Button {
+                    openService(.sabnzbdSettings, push: navigateToSABnzbdSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
                         name: sabnzbdProfile?.displayName ?? "SABnzbd",
@@ -163,8 +246,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.sabnzbdSettings))
 
-                Button(action: navigateToSonarrSettings) {
+                Button {
+                    openService(.sonarrSettings, push: navigateToSonarrSettings)
+                } label: {
                     arrServiceRow(
                         identity: .sonarr,
                         defaultName: "Sonarr",
@@ -176,8 +262,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.sonarrSettings))
 
-                Button(action: navigateToRadarrSettings) {
+                Button {
+                    openService(.radarrSettings, push: navigateToRadarrSettings)
+                } label: {
                     arrServiceRow(
                         identity: .radarr,
                         defaultName: "Radarr",
@@ -189,8 +278,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.radarrSettings))
 
-                Button(action: navigateToProwlarrSettings) {
+                Button {
+                    openService(.prowlarrSettings, push: navigateToProwlarrSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
                         name: prowlarrProfile?.displayName ?? "Prowlarr",
@@ -201,8 +293,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.prowlarrSettings))
 
-                Button(action: navigateToBazarrSettings) {
+                Button {
+                    openService(.bazarrSettings, push: navigateToBazarrSettings)
+                } label: {
                     arrServiceRow(
                         identity: .bazarr,
                         defaultName: "Bazarr",
@@ -214,8 +309,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.bazarrSettings))
 
-                Button(action: navigateToSeerrSettings) {
+                Button {
+                    openService(.seerrSettings, push: navigateToSeerrSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
                         name: seerrProfile?.displayName ?? "Seerr",
@@ -226,8 +324,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.seerrSettings))
 
-                Button(action: navigateToJellyfinSettings) {
+                Button {
+                    openService(.jellyfinSettings, push: navigateToJellyfinSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
                         name: jellyfinProfile?.displayName ?? "Jellyfin",
@@ -238,8 +339,11 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.jellyfinSettings))
 
-                Button(action: navigateToCleanuparrSettings) {
+                Button {
+                    openService(.cleanuparrSettings, push: navigateToCleanuparrSettings)
+                } label: {
                     serviceRow(
                         icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
                         name: cleanuparrProfile?.displayName ?? "Cleanuparr",
@@ -250,6 +354,7 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowBackground(serviceRowBackground(.cleanuparrSettings))
             }
 
             #if os(iOS)
@@ -340,9 +445,8 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         #if os(macOS)
         .formStyle(.grouped)
-        .padding(20)
         #endif
-        .readableFormWidth()
+
     }
 
     // MARK: - Helpers
@@ -523,47 +627,88 @@ struct QBittorrentSettingsView: View {
     @State private var speedLimitErrorAlert: ErrorAlertItem?
     @State private var isUpdatingAlternativeSpeed = false
     @State private var isUpdatingDefaultSavePath = false
+    
+    @State private var serverToEdit: ServerProfile?
+    @State private var showAddSheet = false
+    @State private var showRemoveConfirmation = false
+    @State private var isDeleting = false
+    
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
 
     init() {}
+    
+    @MainActor
+    private func deleteServer(_ server: ServerProfile) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        defer {
+            isDeleting = false
+        }
+
+        do {
+            try await KeychainHelper.shared.delete(key: server.usernameKey)
+            try await KeychainHelper.shared.delete(key: server.passwordKey)
+        } catch {
+            return
+        }
+
+        modelContext.delete(server)
+
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Delete Server",
+                message: error.localizedDescription
+            )
+        }
+    }
 
     var body: some View {
         Form {
             Section {
-                NavigationLink {
-                    ServerListView()
-                        .environment(syncService)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Servers")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                            if let server = viewModel.serverProfile {
+                if let server = viewModel.serverProfile {
+                    Button {
+                        serverToEdit = server
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(server.displayName)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("No qBittorrent server configured")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Text(server.hostURL)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                        }
-                        Spacer()
-                        if viewModel.serverProfile != nil {
+                            Spacer()
                             Label(syncService.isPolling ? "Connected" : "Disconnected", systemImage: syncService.isPolling ? "circle.fill" : "circle")
                                 .font(.caption)
                                 .foregroundStyle(syncService.isPolling ? .green : .secondary)
                                 .labelStyle(.titleAndIcon)
                         }
                     }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        serverToEdit = server
+                    } label: {
+                        Label("Edit Server", systemImage: "pencil")
+                    }
+                } else {
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label("Add Server", systemImage: "plus")
+                    }
                 }
             } header: {
                 Text("Server")
             } footer: {
-                Text("Manage multiple qBittorrent servers and switch the active one here.")
+                if viewModel.serverProfile == nil {
+                    Text("Connect your qBittorrent server to manage torrents in Trawl.")
+                }
             }
 
             Section("Downloads") {
@@ -580,7 +725,10 @@ struct QBittorrentSettingsView: View {
             }
 
             Section {
-                TextField("/downloads", text: $defaultSavePath)
+                // An example value, not a label: macOS draws a field's title beside it, where this
+                // reads as another entry that has already been added.
+                TextField("", text: $defaultSavePath, prompt: Text("/downloads"))
+                    .labelsHidden()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
@@ -668,16 +816,42 @@ struct QBittorrentSettingsView: View {
                     }
                 }
             }
+            
+            if viewModel.serverProfile != nil {
+                Section {
+                    Button("Remove qBittorrent Server", systemImage: "trash", role: .destructive) {
+                        showRemoveConfirmation = true
+                    }
+                    .confirmationDialog(
+                        "Remove qBittorrent Server?",
+                        isPresented: $showRemoveConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Remove", role: .destructive) {
+                            Task {
+                                if let profile = viewModel.serverProfile {
+                                    await deleteServer(profile)
+                                }
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This removes the saved qBittorrent connection and credentials from Trawl.")
+                    }
+                }
+            }
         }
         .navigationTitle("qBittorrent")
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        #if os(macOS)
-        .formStyle(.grouped)
-        .padding(20)
-        #endif
-        .readableFormWidth()
+        .sheet(item: $serverToEdit) { server in
+            OnboardingSheet(serverProfile: server) {}
+        }
+        .sheet(isPresented: $showAddSheet) {
+            OnboardingSheet(serverProfile: nil) {}
+        }
         .task {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
@@ -1166,26 +1340,4 @@ extension QBittorrentSettingsView {
 #endif
 
 
-extension View {
-    /// Caps a settings form at a readable width and centres it - on macOS only.
-    ///
-    /// A Mac window is a window: the form is the whole of it, and centring a 720pt
-    /// column in it reads as a document. A split-view detail column is not, and the
-    /// same treatment there looked wrong in a way the width alone does not explain:
-    /// the navigation bar, the background and the scroll view all span the column
-    /// while the rows sit in a narrow strip in the middle, so the screen reads as an
-    /// iPhone view cropped into a wide pane with its own Back button stranded to the
-    /// left of it.
-    ///
-    /// iPadOS's own Settings runs its grouped lists at the full width of the pane.
-    /// The long gap between a label and its control is the cost of that, and it is a
-    /// smaller cost than looking broken.
-    func readableFormWidth(_ width: CGFloat = 720) -> some View {
-        #if os(macOS)
-        frame(maxWidth: width, maxHeight: .infinity, alignment: .top)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #else
-        self
-        #endif
-    }
-}
+

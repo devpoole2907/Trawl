@@ -102,9 +102,14 @@ struct ContentView: View {
     @State private var downloadClientSelection = TrawlColumnSelection<MoreDestination>()
     @State private var linkedApplicationSelection = TrawlColumnSelection<MoreDestination>()
     @State private var taskSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var subtitleSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var logSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var settingsSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var healthBrowser = ArrHealthBrowserState()
     @State private var calendarSelection = TrawlColumnSelection<ArrMediaDestination>()
     @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
     @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
+    @State private var importLocationBrowser = ArrImportLocationBrowserState()
     @State private var requestBrowser = SeerrRequestBrowserState()
     @State private var issueBrowser = SeerrIssueBrowserState()
     @State private var userBrowser = UnifiedUserBrowserState()
@@ -985,7 +990,8 @@ struct ContentView: View {
             )
             .environment(indexerBrowser)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries:
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
+             .subtitles, .logs, .settings, .health:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
@@ -1097,7 +1103,8 @@ struct ContentView: View {
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries:
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
+             .subtitles, .logs, .settings, .health:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
@@ -1130,6 +1137,8 @@ struct ContentView: View {
         .environment(calendarSelection)
         .environment(missingSelection)
         .environment(qualityProfileBrowser)
+        .environment(importLocationBrowser)
+        .environment(healthBrowser)
         .environment(requestBrowser)
         .environment(issueBrowser)
         .environment(userBrowser)
@@ -1142,6 +1151,9 @@ struct ContentView: View {
         case .downloadClients: downloadClientSelection
         case .linkedApplications: linkedApplicationSelection
         case .tasks: taskSelection
+        case .subtitles: subtitleSelection
+        case .logs: logSelection
+        case .settings: settingsSelection
         default: nil
         }
     }
@@ -1257,14 +1269,22 @@ struct ContentView: View {
             path.wrappedValue.append(destination ?? .settings)
             return
         }
-        let settingsPath = sidebarPath(for: .settings)
-        settingsPath.wrappedValue = destination.map { [$0] } ?? []
-        selectedTab = .settings
+        showSettings(destination)
         #else
-        let settingsPath = sidebarPath(for: .settings)
-        settingsPath.wrappedValue = destination.map { [$0] } ?? []
-        selectedTab = .settings
+        showSettings(destination)
         #endif
+    }
+
+    /// Puts the sidebar chrome on Settings, showing the requested service in its
+    /// detail pane.
+    ///
+    /// Settings is a native split view here, so the service screens are a *selection*
+    /// rather than a push: appending to Settings' stack would have pushed the screen
+    /// over the list column beside the pane it belongs in.
+    private func showSettings(_ destination: MoreDestination?) {
+        sidebarPath(for: .settings).wrappedValue = []
+        settingsSelection.selection = destination
+        selectedTab = .settings
     }
 
     /// Single entry point for every URL that reaches the app - external links,
