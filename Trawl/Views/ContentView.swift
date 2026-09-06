@@ -112,6 +112,7 @@ struct ContentView: View {
     @State private var updatesBrowser = ArrUpdatesBrowserState()
     @State private var backupsBrowser = ArrBackupsBrowserState()
     @State private var remotePathMappingBrowser = ArrRemotePathMappingBrowserState()
+    @State private var cleanuparrBrowser = CleanuparrBrowserState()
     @State private var calendarSelection = TrawlColumnSelection<ArrMediaDestination>()
     @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
     @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
@@ -1020,7 +1021,7 @@ struct ContentView: View {
             .environment(indexerBrowser)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
-             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths:
+             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
@@ -1150,7 +1151,7 @@ struct ContentView: View {
                 .environment(arrServiceManager)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
-             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths:
+             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             listDetailPlaceholder("Search Trawl", systemImage: "magnifyingglass")
@@ -1188,6 +1189,7 @@ struct ContentView: View {
         .environment(updatesBrowser)
         .environment(backupsBrowser)
         .environment(remotePathMappingBrowser)
+        .environment(cleanuparrBrowser)
         .environment(requestBrowser)
         .environment(issueBrowser)
         .environment(userBrowser)

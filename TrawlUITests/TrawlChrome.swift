@@ -484,7 +484,13 @@ extension XCTestCase {
                 "\(destination.title),"
             ))
             .firstMatch
-        guard row.waitForExistence(timeout: 10) else { return false }
+        if !row.waitForExistence(timeout: 3) {
+            for _ in 0..<8 {
+                app.swipeUp()
+                if row.waitForExistence(timeout: 1) { break }
+            }
+        }
+        guard row.waitForExistence(timeout: 5) else { return false }
 
         // A TabView keeps off-screen tabs mounted. The shared scrolling helper can
         // therefore find the previous tab's retained list before More's visible

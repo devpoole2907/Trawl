@@ -248,7 +248,7 @@ enum RootTab: Hashable, CaseIterable {
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
              .libraryImport, .subtitles, .logs, .settings, .health,
-             .updates, .backups, .remotePaths: true
+             .updates, .backups, .remotePaths, .cleanuparr: true
         default: false
         }
     }
