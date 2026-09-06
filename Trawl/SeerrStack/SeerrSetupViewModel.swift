@@ -5,7 +5,12 @@ import Observation
 @MainActor
 @Observable
 final class SeerrSetupViewModel {
-    var displayName: String = "Seerr"
+    var displayName: String = "Seerr" {
+        didSet {
+            guard !isRestoringProfile else { return }
+            hasExplicitDisplayName = true
+        }
+    }
     var hostURL: String = ""
     var username: String = ""
     var password: String = ""
@@ -19,6 +24,8 @@ final class SeerrSetupViewModel {
 
     private var seededProfileID: UUID?
     private var hasSeeded = false
+    private var isRestoringProfile = false
+    private var hasExplicitDisplayName = false
 
     var canConnect: Bool {
         !isAuthenticating
@@ -32,6 +39,12 @@ final class SeerrSetupViewModel {
         hasSeeded = true
         seededProfileID = profile?.id
         error = nil
+
+        isRestoringProfile = true
+        defer {
+            isRestoringProfile = false
+            hasExplicitDisplayName = false
+        }
 
         guard let profile else {
             displayName = "Seerr"
@@ -102,7 +115,13 @@ final class SeerrSetupViewModel {
             let originalSessionCookie = isNewProfile ? nil : try await KeychainHelper.shared.read(key: sessionCookieKey)
 
             let chosenName = trimmed(displayName)
-            savedProfile.displayName = chosenName.isEmpty ? "Seerr" : chosenName
+            let keepsExistingName = !isNewProfile
+                && !hasExplicitDisplayName
+                && chosenName == "Seerr"
+                && savedProfile.displayName != "Seerr"
+            if !keepsExistingName {
+                savedProfile.displayName = chosenName.isEmpty ? "Seerr" : chosenName
+            }
             savedProfile.hostURL = normalizedURL
             savedProfile.isEnabled = true
             savedProfile.allowsUntrustedTLS = allowsUntrustedTLS

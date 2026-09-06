@@ -286,10 +286,10 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         replace(username, into: usernameField, in: app, deleting: 0)
         replace("wrong-password", into: passwordField, in: app, deleting: 0)
 
-        let signIn = app.buttons["Sign In"]
+        let saveConnection = app.buttons["Save Connection"]
         XCTAssertTrue(
-            tapInEditor(signIn, in: app, timeout: 15),
-            "A fully populated Seerr edit form should enable Sign In and keep it reachable: the editor presents at .large precisely so this button is on screen without scrolling."
+            tapInEditor(saveConnection, in: app, timeout: 15),
+            "A fully populated Seerr edit form should enable Save Connection and keep it reachable: the editor presents at .large precisely so this button is on screen without scrolling."
         )
 
         XCTAssertTrue(
@@ -327,7 +327,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         replace(password, into: passwordField, in: app, deleting: "wrong-password".count)
         XCTAssertTrue(
-            tapInEditor(signIn, in: app, timeout: 15),
+            tapInEditor(saveConnection, in: app, timeout: 15),
             "Correcting the password should allow a second real sign-in attempt."
         )
 

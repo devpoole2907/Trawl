@@ -214,6 +214,38 @@ struct SeerrSetupViewModelTests {
         }
     }
 
+    @Test("An explicit rename to Seerr replaces an existing custom display name")
+    func loginCanExplicitlyResetAnExistingDisplayName() async throws {
+        let server = try await SeerrSetupLoopbackServer(label: "reset-name")
+        defer { server.stop() }
+        server.route("POST /api/v1/auth/jellyfin", SeerrSetupFakeResponse(
+            body: Data(#"{"id":1,"displayName":"Ada","permissions":2}"#.utf8),
+            setCookie: "connect.sid=s%3Arenamed; Path=/; HttpOnly"
+        ))
+
+        let context = try makeInMemoryContext()
+        let existing = SeerrServiceProfile(displayName: "Old Seerr", hostURL: "https://old.seerr.test")
+        existing.isEnabled = true
+        context.insert(existing)
+        try context.save()
+
+        let viewModel = SeerrSetupViewModel()
+        viewModel.seed(from: existing)
+        viewModel.hostURL = server.baseURL
+        viewModel.username = "ada"
+        viewModel.password = "hunter2"
+        viewModel.displayName = "Seerr"
+
+        let result = await viewModel.login(modelContext: context)
+        let profiles = try context.fetch(FetchDescriptor<SeerrServiceProfile>())
+
+        try await cleaningUpKeychain(for: profiles) {
+            #expect(result == true)
+            let saved = try #require(profiles.first)
+            #expect(saved.displayName == "Seerr")
+        }
+    }
+
     @Test("Signing in leaves exactly one profile enabled even when the store starts with two enabled")
     func loginEnforcesExactlyOneEnabledProfile() async throws {
         let server = try await SeerrSetupLoopbackServer(label: "exclusive")

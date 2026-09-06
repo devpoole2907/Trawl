@@ -114,7 +114,9 @@ struct JellyfinSetupViewModelTests {
         // re-saved by accident.
         #expect(viewModel.hostURL.isEmpty)
         #expect(viewModel.displayName == "Jellyfin")
-        #expect(viewModel.authMode == .apiKey)
+        // Username/password is the onboarding default so a just-configured
+        // Jellyfin account can be offered to Seerr on the next sheet.
+        #expect(viewModel.authMode == .userPass)
         #expect(viewModel.allowsUntrustedTLS == false)
         #expect(viewModel.username.isEmpty)
         #expect(viewModel.password.isEmpty)
