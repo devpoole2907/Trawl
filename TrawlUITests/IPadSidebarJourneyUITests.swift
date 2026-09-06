@@ -222,6 +222,11 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             currentDownload.waitForExistence(timeout: 20),
             "A downloading Arr queue row must stay visible on the movie detail card. Requests: \(movieServer.requests)"
         )
+        await movieServer.waitForRequestCount(method: "GET", path: "/api/v3/queue", atLeast: 2)
+        XCTAssertTrue(
+            currentDownload.exists,
+            "A second queue poll must retain the current-download card rather than briefly rendering then dropping it. Requests: \(movieServer.requests)"
+        )
         XCTAssertTrue(tapWhenPossible(currentDownload, timeout: 10))
 
         XCTAssertTrue(

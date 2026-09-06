@@ -89,6 +89,7 @@ func arrDetailIsActiveQueueItem(
 func arrDetailQueueItems<Item: ArrMergeableLibraryItem>(
     for entry: ArrLibraryEntry<Item>?,
     fallbackLibraryID: Int?,
+    fallbackInstanceID: UUID? = nil,
     queueRecords: [ArrInstanced<ArrQueueItem>],
     libraryID: KeyPath<ArrQueueItem, Int?>
 ) -> [ArrInstanced<ArrQueueItem>] {
@@ -107,6 +108,21 @@ func arrDetailQueueItems<Item: ArrMergeableLibraryItem>(
     }
 
     guard let fallbackLibraryID else { return [] }
+    // Legacy deep links can name the issuing server even before the library
+    // refresh has rebuilt its merged entry. Keep that address through the
+    // fallback rather than matching the other server's same numeric ID.
+    if let fallbackInstanceID {
+        return queueRecords
+            .filter { record in
+                record.instance.id == fallbackInstanceID
+                    && record.value[keyPath: libraryID] == fallbackLibraryID
+            }
+            .sorted { $0.value.progress > $1.value.progress }
+    }
+    // A discover result has no library-server address. With a pair configured,
+    // showing either same-ID queue row would be a plausible but wrong card.
+    // Wait for the normal library resolution to provide provenance instead.
+    guard Set(queueRecords.map(\.instance.id)).count <= 1 else { return [] }
     return queueRecords
         .filter { $0.value[keyPath: libraryID] == fallbackLibraryID }
         .sorted { $0.value.progress > $1.value.progress }

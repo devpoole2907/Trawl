@@ -244,6 +244,7 @@ struct SonarrSeriesDetailView: View {
         arrDetailQueueItems(
             for: entry,
             fallbackLibraryID: resolvedSeriesId,
+            fallbackInstanceID: seriesInstanceID,
             queueRecords: viewModel.queueRecords,
             libraryID: \.seriesId
         )
@@ -529,7 +530,9 @@ struct SonarrSeriesDetailView: View {
             year: series.year,
             runtime: series.runtime,
             badges: series.detailBadges(context: ArrBadgeContext(
-                queue: viewModel.queue,
+                // Keep the badge on the same server-scoped queue rows as the
+                // current-download card; library IDs are not global in a pair.
+                queue: queueItems.map(\.value),
                 isInLibrary: isInLibrary,
                 hasBazarr: serviceManager.hasAnyConnectedBazarrInstance,
                 subtitleCoverage: seriesSubtitleCoverage

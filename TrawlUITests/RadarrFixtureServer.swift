@@ -114,6 +114,13 @@ final class RadarrFixtureServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
+    private struct RequestWaiter {
+        let method: String
+        let path: String
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    private var requestWaiters: [RequestWaiter] = []
     /// The only piece of server-side state a real Radarr would also hold across
     /// these requests: whether the fixture movie is currently monitored. Mutated by
     /// a `PUT /api/v3/movie/{id}` and read back by every subsequent `GET`.
@@ -202,7 +209,36 @@ final class RadarrFixtureServer: @unchecked Sendable {
         requests.filter { $0.method == method && $0.path == path }.count
     }
 
+    /// Waits on a real request observed by the loopback server. UI journeys use
+    /// this instead of a timing delay when a contract depends on a second poll.
+    func waitForRequestCount(method: String, path: String, atLeast minimumCount: Int) async {
+        let alreadyReceived = requestCount(method: method, path: path)
+        guard alreadyReceived < minimumCount else { return }
+
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            let count = recordedRequests.count { $0.method == method && $0.path == path }
+            if count >= minimumCount {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                requestWaiters.append(RequestWaiter(
+                    method: method,
+                    path: path,
+                    minimumCount: minimumCount,
+                    continuation: continuation
+                ))
+                lock.unlock()
+            }
+        }
+    }
+
     func stop() {
+        lock.lock()
+        let waiters = requestWaiters
+        requestWaiters.removeAll()
+        lock.unlock()
+        waiters.forEach { $0.continuation.resume() }
         listener.cancel()
     }
 
@@ -243,7 +279,17 @@ final class RadarrFixtureServer: @unchecked Sendable {
     private func handle(_ request: RecordedRequest, on connection: NWConnection) {
         lock.lock()
         recordedRequests.append(request)
+        let readyWaiters = requestWaiters.filter { waiter in
+            recordedRequests.count { $0.method == waiter.method && $0.path == waiter.path }
+                >= waiter.minimumCount
+        }
+        requestWaiters.removeAll { waiter in
+            readyWaiters.contains { $0.minimumCount == waiter.minimumCount
+                && $0.method == waiter.method
+                && $0.path == waiter.path }
+        }
         lock.unlock()
+        readyWaiters.forEach { $0.continuation.resume() }
 
         let body = responseBody(for: request)
         connection.send(

@@ -649,6 +649,7 @@ struct RadarrMovieDetailView: View {
         arrDetailQueueItems(
             for: entry,
             fallbackLibraryID: resolvedLibraryId,
+            fallbackInstanceID: movieInstanceID,
             queueRecords: viewModel.queueRecords,
             libraryID: \.movieId
         )
@@ -674,7 +675,10 @@ struct RadarrMovieDetailView: View {
             year: movie.year,
             runtime: movie.runtime,
             badges: movie.detailBadges(context: ArrBadgeContext(
-                queue: viewModel.queue,
+                // The merged queue's bare numeric IDs collide between HD and 4K
+                // servers. `queueItems` has already matched this detail entry by
+                // both server and library ID, so badges must use that same truth.
+                queue: queueItems.map(\.value),
                 isInLibrary: isInLibrary,
                 hasBazarr: serviceManager.hasAnyConnectedBazarrInstance,
                 subtitleCoverage: serviceManager.subtitleCoverage(for: movie)

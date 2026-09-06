@@ -568,25 +568,148 @@ struct ArrDualInstanceTests {
         #expect(items.map(\.instance.id) == [uhdID])
     }
 
+    @Test("A legacy detail fallback keeps the server address when the library is still resolving")
+    func detailQueueFallbackUsesItsExplicitInstance() throws {
+        let hdID = UUID()
+        let uhdID = UUID()
+        let hd = ArrInstanceRef(id: hdID, serviceType: .radarr, displayName: "Radarr HD", tier: .hd)
+        let uhd = ArrInstanceRef(id: uhdID, serviceType: .radarr, displayName: "Radarr 4K", tier: .uhd)
+        let records = [
+            ArrInstanced(try Self.queueItem(id: 1, movieID: 211, progress: 0.90), on: hd),
+            ArrInstanced(try Self.queueItem(id: 2, movieID: 211, progress: 0.25), on: uhd)
+        ]
+
+        let items = arrDetailQueueItems(
+            for: Optional<ArrLibraryEntry<RadarrMovie>>.none,
+            fallbackLibraryID: 211,
+            fallbackInstanceID: uhdID,
+            queueRecords: records,
+            libraryID: \.movieId
+        )
+
+        #expect(items.map(\.value.id) == [2])
+        #expect(items.map(\.instance.id) == [uhdID])
+    }
+
+    @Test("An unaddressed detail fallback refuses a colliding paired queue")
+    func detailQueueFallbackFailsClosedForPairedInstances() throws {
+        let hd = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr HD", tier: .hd)
+        let uhd = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr 4K", tier: .uhd)
+        let records = [
+            ArrInstanced(try Self.queueItem(id: 1, seriesID: 211, progress: 0.90), on: hd),
+            ArrInstanced(try Self.queueItem(id: 2, seriesID: 211, progress: 0.25), on: uhd)
+        ]
+
+        let items = arrDetailQueueItems(
+            for: Optional<ArrLibraryEntry<SonarrSeries>>.none,
+            fallbackLibraryID: 211,
+            queueRecords: records,
+            libraryID: \.seriesId
+        )
+
+        #expect(items.isEmpty)
+    }
+
+    @Test("Detail hero badges receive only their scoped queue rows")
+    func detailHeroBadgesIgnoreOtherServerQueueCollisions() throws {
+        let hdID = UUID()
+        let uhdID = UUID()
+        let hdRadarr = ArrInstanceRef(id: hdID, serviceType: .radarr, displayName: "Radarr HD", tier: .hd)
+        let uhdRadarr = ArrInstanceRef(id: uhdID, serviceType: .radarr, displayName: "Radarr 4K", tier: .uhd)
+        let targetMovie = try Self.movie(id: 211, title: "The Invite", tmdbId: 1339713).stamped(with: uhdID)
+        let movieEntry = try #require(ArrLibraryEntry(copies: [targetMovie]))
+        let movieRecords = [
+            ArrInstanced(try Self.queueItem(id: 1, movieID: 211, progress: 0.5), on: hdRadarr),
+            ArrInstanced(try Self.queueItem(id: 2, movieID: 999, progress: 0.5), on: uhdRadarr)
+        ]
+        let scopedMovieQueue = arrDetailQueueItems(
+            for: movieEntry,
+            fallbackLibraryID: targetMovie.id,
+            queueRecords: movieRecords,
+            libraryID: \.movieId
+        )
+        let movieBadges = targetMovie.detailBadges(context: ArrBadgeContext(
+            queue: scopedMovieQueue.map(\.value),
+            isInLibrary: true,
+            hasBazarr: false
+        ))
+        #expect(movieBadges.contains { $0.label.contains("Downloading") } == false)
+
+        let hdSonarr = ArrInstanceRef(id: hdID, serviceType: .sonarr, displayName: "Sonarr HD", tier: .hd)
+        let uhdSonarr = ArrInstanceRef(id: uhdID, serviceType: .sonarr, displayName: "Sonarr 4K", tier: .uhd)
+        let targetSeries = try Self.series(id: 211, title: "The Target Show", tvdbId: 7001).stamped(with: uhdID)
+        let seriesEntry = try #require(ArrLibraryEntry(copies: [targetSeries]))
+        let seriesRecords = [
+            ArrInstanced(try Self.queueItem(id: 3, seriesID: 211, progress: 0.5), on: hdSonarr),
+            ArrInstanced(try Self.queueItem(id: 4, seriesID: 999, progress: 0.5), on: uhdSonarr)
+        ]
+        let scopedSeriesQueue = arrDetailQueueItems(
+            for: seriesEntry,
+            fallbackLibraryID: targetSeries.id,
+            queueRecords: seriesRecords,
+            libraryID: \.seriesId
+        )
+        let seriesBadges = targetSeries.detailBadges(context: ArrBadgeContext(
+            queue: scopedSeriesQueue.map(\.value),
+            isInLibrary: true,
+            hasBazarr: false
+        ))
+        #expect(seriesBadges.contains { $0.label.contains("Downloading") } == false)
+    }
+
+    @Test("Immediate Downloads handoff only accepts a real torrent hash")
+    func immediateDownloadHandoffRequiresATorrent() throws {
+        let torrent = try Self.queueItem(
+            id: 1,
+            movieID: 211,
+            progress: 0.5,
+            protocolName: "ToRrEnT",
+            downloadID: "ABC123"
+        )
+        let usenet = try Self.queueItem(
+            id: 2,
+            movieID: 211,
+            progress: 0.5,
+            protocolName: "usenet",
+            downloadID: "SAB-42"
+        )
+        let missingHash = try Self.queueItem(
+            id: 3,
+            movieID: 211,
+            progress: 0.5,
+            protocolName: "torrent"
+        )
+
+        #expect(arrDetailDownloadSelection(for: torrent) == .torrent(hash: "ABC123"))
+        #expect(arrDetailDownloadSelection(for: usenet) == nil)
+        #expect(arrDetailDownloadSelection(for: missingHash) == nil)
+    }
+
     // MARK: - Fixtures
 
     private static func queueItem(
         id: Int,
         movieID: Int? = nil,
         seriesID: Int? = nil,
-        progress: Double
+        progress: Double,
+        protocolName: String? = nil,
+        downloadID: String? = nil
     ) throws -> ArrQueueItem {
         let size = 1_000.0
         let sizeLeft = size * (1 - progress)
         let movie = movieID.map { "\"movieId\": \($0)" } ?? ""
         let series = seriesID.map { "\"seriesId\": \($0)" } ?? ""
+        let protocolField = protocolName.map { "\"protocol\": \"\($0)\"" } ?? ""
+        let download = downloadID.map { "\"downloadId\": \"\($0)\"" } ?? ""
         let fields = [
             "\"id\": \(id)",
             "\"status\": \"downloading\"",
             "\"size\": \(size)",
             "\"sizeleft\": \(sizeLeft)",
             movie,
-            series
+            series,
+            protocolField,
+            download
         ].filter { !$0.isEmpty }.joined(separator: ",")
         return try JSONDecoder().decode(ArrQueueItem.self, from: Data("{\(fields)}".utf8))
     }
