@@ -3284,6 +3284,7 @@ private struct SystemHubView: View {
     @Environment(ConfigurationAuditStore.self) private var auditStore
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var showSetupCheck = false
@@ -3371,6 +3372,7 @@ private struct SystemHubView: View {
             trawlClients: trawlClientHosts,
             seerrServiceManager: seerrServiceManager,
             cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager,
             inputRevision: auditInputRevision
         )
     }

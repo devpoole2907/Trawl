@@ -16,6 +16,12 @@ import Foundation
 struct ConfigurationSnapshot: Sendable, Hashable {
 
     struct DownloadClient: Sendable, Hashable {
+        /// Arr's own id for this row. Carried so a repair can name the exact client
+        /// it is about to rewrite: a server may have several, and matching one back
+        /// up by name would repoint the wrong one the moment two are called the same.
+        /// Zero means "not read from a server" - only test fixtures do that, and no
+        /// repair is offered for one.
+        let id: Int
         let name: String
         /// The `implementation` value Sonarr/Radarr report, e.g. "QBittorrent".
         let implementation: String
@@ -28,6 +34,7 @@ struct ConfigurationSnapshot: Sendable, Hashable {
         let category: String?
 
         init(
+            id: Int = 0,
             name: String,
             implementation: String,
             host: String,
@@ -35,6 +42,7 @@ struct ConfigurationSnapshot: Sendable, Hashable {
             isEnabled: Bool,
             category: String? = nil
         ) {
+            self.id = id
             self.name = name
             self.implementation = implementation
             self.host = host
@@ -147,6 +155,10 @@ struct ConfigurationSnapshot: Sendable, Hashable {
         let remotePathMappings: [RemotePathMapping]?
         /// The address Prowlarr would have to be pointed at to sync this server.
         let host: String?
+        /// HD or 4K, when the user has told Trawl which this is. Used only to name a
+        /// suggested download category, so an unset tier costs a nicer default and
+        /// nothing else.
+        let tier: ArrQualityTier?
 
         init(
             instanceID: UUID,
@@ -160,7 +172,8 @@ struct ConfigurationSnapshot: Sendable, Hashable {
             indexerBaseURLs: [String]? = nil,
             healthChecks: [HealthCheck]? = nil,
             remotePathMappings: [RemotePathMapping]? = nil,
-            host: String? = nil
+            host: String? = nil,
+            tier: ArrQualityTier? = nil
         ) {
             self.instanceID = instanceID
             self.serviceType = serviceType
@@ -174,6 +187,7 @@ struct ConfigurationSnapshot: Sendable, Hashable {
             self.healthChecks = healthChecks
             self.remotePathMappings = remotePathMappings
             self.host = host
+            self.tier = tier
         }
     }
 
@@ -261,6 +275,29 @@ struct ConfigurationSnapshot: Sendable, Hashable {
         }
     }
 
+    /// The SABnzbd Trawl is connected to, as far as the audit needs it.
+    ///
+    /// One, not a list, because `SABnzbdServiceManager` holds a single active
+    /// connection - so this is what Trawl can actually see, and a second configured
+    /// SABnzbd is simply not checked rather than wrongly reported.
+    struct SABnzbdSetup: Sendable, Hashable {
+        /// Host and port, in the spelling `DownloadClient.endpoint` uses, so an Arr's
+        /// client row and this can be compared without either side reformatting.
+        let endpoint: String
+        /// Lowercased category name to the folder it writes into. Nil when the
+        /// category list could not be read.
+        ///
+        /// An empty string is a real value, not a missing one: it means the category
+        /// has no folder of its own and writes into SABnzbd's completed-downloads
+        /// root - which is precisely the shared folder this exists to detect.
+        let categoryDirectories: [String: String]?
+
+        init(endpoint: String, categoryDirectories: [String: String]?) {
+            self.endpoint = endpoint
+            self.categoryDirectories = categoryDirectories
+        }
+    }
+
     /// Seerr takes requests and hands them to Sonarr and Radarr. Everything about it
     /// that can silently do nothing is a question of whether that handover exists.
     struct SeerrSetup: Sendable, Hashable {
@@ -312,6 +349,7 @@ struct ConfigurationSnapshot: Sendable, Hashable {
     var seerr: SeerrSetup?
     /// Nil when no Cleanuparr is configured.
     var cleanuparr: CleanuparrStatus?
+    var sabnzbd: SABnzbdSetup?
 
     init(
         servers: [Server] = [],
@@ -320,7 +358,8 @@ struct ConfigurationSnapshot: Sendable, Hashable {
         isProwlarrConfigured: Bool = false,
         bazarrServers: [BazarrServer] = [],
         seerr: SeerrSetup? = nil,
-        cleanuparr: CleanuparrStatus? = nil
+        cleanuparr: CleanuparrStatus? = nil,
+        sabnzbd: SABnzbdSetup? = nil
     ) {
         self.servers = servers
         self.trawlClients = trawlClients
@@ -329,6 +368,7 @@ struct ConfigurationSnapshot: Sendable, Hashable {
         self.bazarrServers = bazarrServers
         self.seerr = seerr
         self.cleanuparr = cleanuparr
+        self.sabnzbd = sabnzbd
     }
 }
 
@@ -408,6 +448,7 @@ enum ConfigurationAudit {
         }
         issues += sharedRootFolderIssues(in: snapshot)
         issues += sharedDownloadCategoryIssues(in: snapshot)
+        issues += sharedCategoryFolderIssues(in: snapshot)
         issues += unusedTrawlClientIssues(in: snapshot)
         issues += prowlarrIssues(in: snapshot)
         issues += prowlarrDiscoveryIssues(in: snapshot)
@@ -707,34 +748,104 @@ enum ConfigurationAudit {
     ///
     /// Each server treats everything in its category as its own, so an HD download
     /// and a 4K download land in the same bucket and whichever server polls first
-    /// imports both. The category is what keeps them apart, which is why an empty
-    /// one is not evidence of anything and is skipped.
+    /// imports both. The loser does not fail loudly - it retries an import against a
+    /// folder that has already been moved away - so the only visible symptom is a
+    /// file in the wrong library.
+    ///
+    /// A blank category is the same fault, not an absence of one. It means the
+    /// server is not tagging its downloads at all, so its grabs land in the client's
+    /// default location alongside every other untagged grab - which is the widest
+    /// shared bucket there is, not a narrower one. It was previously skipped as
+    /// "no evidence either way", which is exactly how the HD/4K pair that prompted
+    /// this check went unreported: neither Radarr had ever had a category typed in.
+    ///
+    /// Untagged servers are compared **only against their own kind**, because the
+    /// race needs both servers to have the same download in their queue and a Sonarr
+    /// will never hold a movie's download id. Two untagged Radarrs can collide; an
+    /// untagged Radarr and an untagged Sonarr on one qBittorrent cannot, and that
+    /// pair is the ordinary setup of anyone who has never touched categories -
+    /// reporting it would fire on a large share of working installs. A category two
+    /// different kinds of server were both deliberately given is still reported: no
+    /// one arrives at that by default, and it is worth asking about.
     private static func sharedDownloadCategoryIssues(in snapshot: ConfigurationSnapshot) -> [ConfigurationIssue] {
         let servers = snapshot.servers.filter { $0.isConnected && $0.downloadClients != nil }
         guard servers.count > 1 else { return [] }
 
-        var byBucket: [String: [ConfigurationSnapshot.Server]] = [:]
+        /// What makes two entries the same bucket. A struct rather than an
+        /// interpolated string so the untagged case can add the service type without
+        /// the tagged case's key - which is the finding's `discriminator`, and so a
+        /// dismissal that has to keep sticking - changing shape at all.
+        struct Bucket: Hashable, Comparable {
+            let endpoint: String
+            /// Nil for the untagged bucket.
+            let category: String?
+            /// Set only when untagged, to keep the kinds apart.
+            let serviceType: ArrServiceType?
+
+            var discriminator: String {
+                guard let category else { return "\(endpoint)#untagged#\(serviceType?.rawValue ?? "")" }
+                return "\(endpoint)#\(category)"
+            }
+
+            static func < (lhs: Bucket, rhs: Bucket) -> Bool {
+                lhs.discriminator < rhs.discriminator
+            }
+        }
+
+        // The client is carried alongside the server because the repair rewrites one
+        // specific row, and a server with two clients on the same endpoint would
+        // otherwise leave the executor guessing which one put it in this bucket.
+        var byBucket: [Bucket: [(server: ConfigurationSnapshot.Server, client: ConfigurationSnapshot.DownloadClient)]] = [:]
+        for server in servers {
+            for client in (server.downloadClients ?? []).filter(\.isEnabled) {
+                let category = client.normalizedCategory
+                let bucket = Bucket(
+                    endpoint: client.endpoint,
+                    category: category,
+                    serviceType: category == nil ? server.serviceType : nil
+                )
+                byBucket[bucket, default: []].append((server, client))
+            }
+        }
+
+        // Every category already spoken for anywhere on this client, so a suggestion
+        // cannot propose a name that just moves the collision somewhere else.
+        var takenByEndpoint: [String: Set<String>] = [:]
         for server in servers {
             for client in (server.downloadClients ?? []).filter(\.isEnabled) {
                 guard let category = client.normalizedCategory else { continue }
-                byBucket["\(client.endpoint)#\(category)", default: []].append(server)
+                takenByEndpoint[client.endpoint, default: []].insert(category)
             }
         }
 
         return byBucket
             .sorted { $0.key < $1.key }
-            .compactMap { bucket, sharing in
+            .compactMap { bucket, sharing -> ConfigurationIssue? in
                 // Sorted, and only then indexed. A dictionary's values come back in
                 // no particular order, so picking "the first" server out of the group
                 // unsorted gives the finding a different subject - and therefore a
                 // different id - from one audit to the next, which is exactly what
                 // stops a dismissal sticking.
-                let distinct = Dictionary(grouping: sharing, by: \.instanceID).values
+                let distinct = Dictionary(grouping: sharing, by: \.server.instanceID).values
                     .compactMap(\.first)
-                    .sorted { $0.displayName < $1.displayName }
-                guard distinct.count > 1, let primary = distinct.first else { return nil }
-                let names = distinct.map(\.displayName).joined(separator: " and ")
-                let category = bucket.split(separator: "#").last.map(String.init) ?? bucket
+                    .sorted { $0.server.displayName < $1.server.displayName }
+                guard distinct.count > 1, let primary = distinct.first?.server else { return nil }
+                let names = distinct.map(\.server.displayName).joined(separator: " and ")
+                let isUntagged = bucket.category == nil
+                let category = bucket.category ?? ""
+                let endpoint = bucket.endpoint
+
+                let repair = separateCategoriesRepair(
+                    for: distinct,
+                    isUntagged: isUntagged,
+                    taken: takenByEndpoint[endpoint] ?? []
+                )
+                let guidance = "Give \(names) separate download categories."
+                let fallback = ConfigurationFixDestination.arrDownloadClients(
+                    primary.serviceType,
+                    instanceID: primary.instanceID
+                )
+
                 return ConfigurationIssue(
                     kind: .downloadClientCategoryShared,
                     severity: .problem,
@@ -743,16 +854,254 @@ enum ConfigurationAudit {
                         serviceType: primary.serviceType,
                         displayName: names
                     ),
-                    title: "\(names) share the \"\(category)\" download category",
-                    detail: "Both grab into the same category on the same download client, so each will try to import the other's downloads. Give each server its own category.",
-                    fix: .open(
-                        .arrDownloadClients(primary.serviceType, instanceID: primary.instanceID),
-                        actionTitle: "Review Download Clients",
-                        guidance: "Give \(names) separate download categories."
-                    ),
-                    discriminator: bucket
+                    title: isUntagged
+                        ? "\(names) do not tag their downloads"
+                        : "\(names) share the \"\(category)\" download category",
+                    detail: isUntagged
+                        ? "Neither sets a category on the same download client, so both grab into its default location and each will try to import the other's downloads. Give each server its own category."
+                        : "Both grab into the same category on the same download client, so each will try to import the other's downloads. Give each server its own category.",
+                    fix: repair.map {
+                        .guided($0, actionTitle: "Separate the Categories", guidance: guidance, fallback: fallback)
+                    } ?? .open(fallback, actionTitle: "Review Download Clients", guidance: guidance),
+                    discriminator: bucket.discriminator
                 )
             }
+    }
+
+    /// The plan for pulling one shared bucket apart.
+    ///
+    /// Only the servers that actually have to move are included, because re-tagging
+    /// one whose category is already right would strand the downloads running under
+    /// it - a repair that causes a second incident.
+    ///
+    /// The one that stays is the one already using the category it would have been
+    /// given anyway: an HD Radarr on "movies" keeps "movies", and its 4K partner is
+    /// the one moved to "movies-4k". Picking the first server in the list instead
+    /// would move whichever happened to sort first, which on the HD/4K pair that
+    /// prompted this check is the 4K server - leaving the 4K library on the plain
+    /// category and renaming the one that was right.
+    ///
+    /// When none of them is tagged there is nothing to preserve, so all of them move.
+    ///
+    /// Nil when no plan can be trusted - a fixture-built snapshot with no real client
+    /// ids, or a suggestion that cannot be made unique. The finding still stands; it
+    /// just falls back to pointing at the screen.
+    private static func separateCategoriesRepair(
+        for entries: [(server: ConfigurationSnapshot.Server, client: ConfigurationSnapshot.DownloadClient)],
+        isUntagged: Bool,
+        taken: Set<String>
+    ) -> ConfigurationGuidedRepair? {
+        // Zero is the "not read from a server" id, and PUTting one would create a
+        // client rather than repoint the intended row.
+        guard entries.allSatisfy({ $0.client.id > 0 }) else { return nil }
+
+        let anchor = entries.first { entry in
+            guard let current = entry.client.normalizedCategory else { return false }
+            return suggestedCategory(for: entry.server, avoiding: []) == current
+        }
+        let movers: [(server: ConfigurationSnapshot.Server, client: ConfigurationSnapshot.DownloadClient)]
+        if let anchor {
+            movers = entries.filter { $0.server.instanceID != anchor.server.instanceID }
+        } else if isUntagged {
+            movers = entries
+        } else {
+            // No server is on the name it ought to have, so there is nothing to
+            // anchor to and one of them has to be picked. The sorted first is chosen
+            // for the same reason the finding's subject is: it is stable across
+            // audits, which is what keeps the plan from changing under the user.
+            movers = Array(entries.dropFirst())
+        }
+        guard !movers.isEmpty else { return nil }
+
+        var claimed = taken
+        var changes: [ConfigurationGuidedRepair.DownloadCategoryChange] = []
+        for entry in movers {
+            // A mover's own current category is deliberately *not* released back
+            // into the pool. It is tempting to - a name is not a conflict with
+            // itself - but every mover in this bucket is here precisely because it
+            // shares that name with another server, and freeing it hands the mover
+            // back the category it is being moved off. That is how a third Radarr
+            // already sitting on "movies-4k" pushed the 4K server's suggestion back
+            // to "movies", re-creating the collision the repair was pulling apart.
+            guard let suggestion = suggestedCategory(for: entry.server, avoiding: claimed) else { return nil }
+            claimed.insert(suggestion)
+            changes.append(ConfigurationGuidedRepair.DownloadCategoryChange(
+                instanceID: entry.server.instanceID,
+                serviceType: entry.server.serviceType,
+                serverName: entry.server.displayName,
+                downloadClientID: entry.client.id,
+                downloadClientName: entry.client.name,
+                currentCategory: entry.client.normalizedCategory,
+                suggestedCategory: suggestion,
+                endpoint: entry.client.endpoint
+            ))
+        }
+        return .separateDownloadCategories(changes)
+    }
+
+    /// A category name for one server that nothing else on that client is using.
+    ///
+    /// Named after what the server is rather than what it is called, because these
+    /// names end up as folders on disk and in every download client's UI: "movies-4k"
+    /// survives the server being renamed, "radarrs-4k-box-2" does not. The tier is
+    /// what makes an HD/4K pair readable, which is the pair this whole check exists
+    /// for; a server with no tier set falls back to a slug of its name.
+    static func suggestedCategory(
+        for server: ConfigurationSnapshot.Server,
+        avoiding taken: Set<String>
+    ) -> String? {
+        let base = switch server.serviceType {
+        case .sonarr: "tv"
+        case .radarr: "movies"
+        default: categorySlug(server.displayName) ?? "downloads"
+        }
+        var candidates: [String] = []
+        switch server.tier {
+        case .uhd: candidates.append("\(base)-4k")
+        case .hd: candidates.append(base)
+        case nil: break
+        }
+        candidates.append(base)
+        if let slug = categorySlug(server.displayName) {
+            candidates.append(slug)
+            candidates.append("\(base)-\(slug)")
+        }
+        if let first = candidates.first(where: { !taken.contains($0) }) { return first }
+        // Numbered only after every name that means something has been tried, so
+        // "movies-2" is a last resort rather than the usual answer.
+        guard let stem = candidates.first else { return nil }
+        for suffix in 2...20 where !taken.contains("\(stem)-\(suffix)") { return "\(stem)-\(suffix)" }
+        return nil
+    }
+
+    /// A display name reduced to something a download client and a filesystem will
+    /// both accept: lowercase, no spaces, no separators of its own.
+    private static func categorySlug(_ name: String) -> String? {
+        let allowed = CharacterSet.alphanumerics
+        let slug = name.lowercased().unicodeScalars
+            .map { allowed.contains($0) ? Character($0) : "-" }
+            .reduce(into: "") { partial, character in
+                if character == "-", partial.last == "-" || partial.isEmpty { return }
+                partial.append(character)
+            }
+        let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // MARK: Category folders
+
+    /// Two categories that are different names for the same folder.
+    ///
+    /// The companion to the shared-category check, and the one that catches a repair
+    /// somebody did halfway. Separating the categories on the Arr side is only half
+    /// the fix: SABnzbd routes a finished job to its category's folder, and a
+    /// category with no folder set writes into the completed-downloads root like
+    /// every other category with no folder set. So an HD Radarr on "movies" and a 4K
+    /// Radarr on "movies-4k" can look correctly separated from the Arr side, be
+    /// accepted by both servers, and still drop both downloads into one directory -
+    /// which is the same import race with a tidier-looking configuration.
+    ///
+    /// Scoped to servers of the same kind, for the reason the untagged check is: the
+    /// race needs both servers to hold the same download. It matters more here than
+    /// anywhere else, because a new SABnzbd category has *no* folder by default - so
+    /// a Radarr on "movies" and a Sonarr on "tv", both with empty folders, is not a
+    /// fault, it is what SABnzbd does out of the box on nearly every install.
+    private static func sharedCategoryFolderIssues(in snapshot: ConfigurationSnapshot) -> [ConfigurationIssue] {
+        guard let sabnzbd = snapshot.sabnzbd else { return [] }
+
+        // Which servers actually reach this SABnzbd, and under what category. A
+        // server with no category is already covered by the untagged check; adding a
+        // second finding about the same client would be two problems for one fault.
+        var byKind: [ArrServiceType: [(server: ConfigurationSnapshot.Server, category: String)]] = [:]
+        for server in snapshot.servers where server.isConnected {
+            for client in (server.downloadClients ?? []).filter(\.isEnabled)
+            where client.endpoint == sabnzbd.endpoint {
+                guard let category = client.normalizedCategory else { continue }
+                byKind[server.serviceType, default: []].append((server, category))
+            }
+        }
+        let contested = byKind.filter { $0.value.count > 1 }
+        guard !contested.isEmpty else { return [] }
+
+        guard let directories = sabnzbd.categoryDirectories else {
+            // Only raised once the precondition holds. An unreadable category list is
+            // not worth reporting on a setup where no two servers of one kind share
+            // this SABnzbd at all - there would be nothing for it to have told us.
+            return [ConfigurationIssue(
+                kind: .configurationUnavailable,
+                severity: .unknown,
+                subject: ConfigurationIssueSubject(serviceType: .radarr, displayName: "SABnzbd"),
+                title: "SABnzbd's categories could not be checked",
+                detail: "Trawl could not read SABnzbd's category folders, so whether your servers' categories point at separate folders is unknown.",
+                fix: .manual(guidance: "Reconnect SABnzbd, then run the setup check again."),
+                discriminator: sabnzbd.endpoint
+            )]
+        }
+
+        return contested
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .flatMap { _, entries -> [ConfigurationIssue] in
+                // Distinct servers, sorted, for the same identity-stability reason as
+                // every other grouping in this file.
+                let distinct = Dictionary(grouping: entries, by: \.server.instanceID).values
+                    .compactMap(\.first)
+                    .sorted { $0.server.displayName < $1.server.displayName }
+
+                var byFolder: [String: [(server: ConfigurationSnapshot.Server, category: String)]] = [:]
+                for entry in distinct {
+                    // A category the Arr names but SABnzbd does not have is not a
+                    // folder collision - it is a grab that will fail outright, which
+                    // Arr's own health check reports far more precisely than this
+                    // could.
+                    guard let directory = directories[entry.category] else { continue }
+                    byFolder[normalizedDirectory(directory), default: []].append(entry)
+                }
+
+                return byFolder
+                    .sorted { $0.key < $1.key }
+                    .compactMap { folder, sharing -> ConfigurationIssue? in
+                        // Two servers on the *same* category are the other check's
+                        // finding, not this one's.
+                        guard sharing.count > 1,
+                              Set(sharing.map(\.category)).count > 1,
+                              let primary = sharing.first?.server else { return nil }
+                        let names = sharing.map(\.server.displayName).joined(separator: " and ")
+                        let categories = sharing.map { "\"\($0.category)\"" }.joined(separator: " and ")
+                        let where_ = folder.isEmpty
+                            ? "neither has a folder set in SABnzbd, so both download into its completed folder"
+                            : "both point at \(folder) in SABnzbd"
+                        return ConfigurationIssue(
+                            kind: .downloadCategoryFolderShared,
+                            severity: .problem,
+                            subject: ConfigurationIssueSubject(
+                                instanceID: primary.instanceID,
+                                serviceType: primary.serviceType,
+                                displayName: names
+                            ),
+                            title: "\(names) download into the same folder",
+                            detail: "\(names) use different categories - \(categories) - but \(where_). Each will still try to import the other's downloads. Give each category a folder of its own.",
+                            fix: .open(
+                                .sabnzbdCategories,
+                                actionTitle: "Open SABnzbd Categories",
+                                guidance: "Set a different folder on each category in SABnzbd."
+                            ),
+                            discriminator: "\(sabnzbd.endpoint)#folder#\(folder)"
+                        )
+                    }
+            }
+    }
+
+    /// A category folder in the one spelling two of them can be compared in.
+    ///
+    /// Trailing slashes and case are noise; an empty string and a folder genuinely
+    /// named nothing are the same thing. Relative and absolute paths are deliberately
+    /// *not* resolved against SABnzbd's completed-downloads directory - Trawl does not
+    /// know it, and two categories that disagree on that spelling are left alone
+    /// rather than guessed at.
+    private static func normalizedDirectory(_ value: String) -> String {
+        var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        return trimmed == "/" ? "" : trimmed
     }
 
     // MARK: Prowlarr

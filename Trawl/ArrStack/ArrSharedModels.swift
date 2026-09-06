@@ -1454,12 +1454,30 @@ nonisolated struct ArrDownloadClient: Codable, Identifiable, Sendable {
     /// servers that share one client from importing each other's downloads, which is
     /// why the configuration audit reads it.
     var categoryDisplayValue: String? {
-        let names = ["category", "tvcategory", "moviecategory", "musiccategory"]
         return fields?
-            .first { names.contains($0.name?.lowercased() ?? "") && !($0.value?.displayString ?? "").isEmpty }?
+            .first { Self.categoryFieldNames.contains($0.name?.lowercased() ?? "") && !($0.value?.displayString ?? "").isEmpty }?
             .value?
             .displayString
     }
+
+    /// The name of the field a category is written to, whatever it currently holds.
+    ///
+    /// Distinct from `categoryDisplayValue`, which finds the field by way of its
+    /// value and therefore finds nothing at all on the client that most needs fixing:
+    /// an untagged one. A repair writing a guessed `category` to a Radarr client that
+    /// calls it `movieCategory` adds a field Radarr ignores and reports success.
+    var categoryFieldName: String? {
+        fields?
+            .first { Self.categoryFieldNames.contains($0.name?.lowercased() ?? "") }?
+            .name
+    }
+
+    /// Sonarr calls it `tvCategory`, Radarr `movieCategory`, and some clients simply
+    /// `category`. Lowercased, because Arr's own spelling is not consistent between
+    /// implementations.
+    private static let categoryFieldNames: Set<String> = [
+        "category", "tvcategory", "moviecategory", "musiccategory"
+    ]
 
     func updatingField(named fieldName: String, with value: ArrIndexerFieldValue) -> ArrDownloadClient {
         var updated = self

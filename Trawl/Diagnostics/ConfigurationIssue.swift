@@ -29,6 +29,7 @@ enum ConfigurationIssueKind: String, Hashable, Sendable, CaseIterable {
     case bazarrNoLanguageProfile
     case bazarrNoProvider
     case downloadClientCategoryShared
+    case downloadCategoryFolderShared
     case remotePathMappingMissing
     case serviceHealthError
     case serviceHealthWarning
@@ -102,6 +103,55 @@ enum ConfigurationFixDestination: Hashable, Sendable {
     case arrHealth
     case seerrLinkedApplications
     case cleanuparr
+    case sabnzbdCategories
+}
+
+/// A change Trawl can make itself, described as values.
+///
+/// The wizard's other two fixes hand the user a screen and step out of the way,
+/// which is right when the change is one edit in one place. This exists for the ones
+/// that are not: several edits, across two services, in an order that matters and is
+/// not written down anywhere the user would look. Describing the change rather than
+/// performing it keeps the audit a pure function - the plan is testable without a
+/// server, and the executor is the only thing that needs one.
+enum ConfigurationGuidedRepair: Hashable, Sendable {
+
+    /// Give each server that shares a download category one of its own.
+    ///
+    /// Ordered, because Arr validates the category against the download client when
+    /// the client is saved: sending Radarr a category SABnzbd has never heard of is
+    /// rejected outright. The category has to exist on the client first, which is
+    /// the step a person doing this by hand routinely does second.
+    case separateDownloadCategories([DownloadCategoryChange])
+
+    /// One server's half of that repair.
+    struct DownloadCategoryChange: Hashable, Sendable, Identifiable {
+        let instanceID: UUID
+        let serviceType: ArrServiceType
+        /// The server being repointed, as the user named it.
+        let serverName: String
+        /// Arr's own id for the download client row to rewrite.
+        let downloadClientID: Int
+        let downloadClientName: String
+        /// What it is tagged with now. Nil means untagged, which is a fault in its
+        /// own right rather than a starting point to preserve.
+        let currentCategory: String?
+        /// What Trawl proposes. A suggestion, not a decision - the repair screen
+        /// offers it for editing before anything is written.
+        let suggestedCategory: String
+        /// Host and port of the shared client, so the executor can find the matching
+        /// SABnzbd or qBittorrent connection Trawl already holds.
+        let endpoint: String
+
+        var id: UUID { instanceID }
+    }
+
+    /// The changes, in the order they must be applied.
+    var downloadCategoryChanges: [DownloadCategoryChange] {
+        switch self {
+        case .separateDownloadCategories(let changes): changes
+        }
+    }
 }
 
 /// What can be done about an issue.
@@ -110,18 +160,33 @@ enum ConfigurationIssueFix: Hashable, Sendable {
     case manual(guidance: String)
     /// A screen in Trawl resolves it. `actionTitle` labels the button that goes there.
     case open(ConfigurationFixDestination, actionTitle: String, guidance: String)
+    /// Trawl can make the change itself. `fallback` is where the user is sent when
+    /// it cannot - a repair needs connections the app may not currently hold, and a
+    /// finding whose only offer is a button that refuses to work is worse than one
+    /// that points at the screen where the change is made by hand.
+    case guided(
+        ConfigurationGuidedRepair,
+        actionTitle: String,
+        guidance: String,
+        fallback: ConfigurationFixDestination
+    )
 
     var guidance: String {
         switch self {
         case .manual(let guidance): guidance
         case .open(_, _, let guidance): guidance
+        case .guided(_, _, let guidance, _): guidance
         }
     }
 
+    /// Where this fix is made by hand. A guided repair still has one: it is the
+    /// screen the user reaches if they would rather do it themselves, and the one
+    /// they are given if the repair cannot run.
     var destination: ConfigurationFixDestination? {
         switch self {
         case .manual: nil
         case .open(let destination, _, _): destination
+        case .guided(_, _, _, let fallback): fallback
         }
     }
 
@@ -129,6 +194,14 @@ enum ConfigurationIssueFix: Hashable, Sendable {
         switch self {
         case .manual: nil
         case .open(_, let title, _): title
+        case .guided(_, let title, _, _): title
+        }
+    }
+
+    var guidedRepair: ConfigurationGuidedRepair? {
+        switch self {
+        case .manual, .open: nil
+        case .guided(let repair, _, _, _): repair
         }
     }
 }
@@ -196,7 +269,7 @@ struct ConfigurationIssue: Identifiable, Hashable, Sendable {
             "globe.badge.chevron.backward"
         case .bazarrNoProvider:
             "captions.bubble"
-        case .downloadClientCategoryShared:
+        case .downloadClientCategoryShared, .downloadCategoryFolderShared:
             "tray.2"
         case .remotePathMappingMissing:
             "arrow.triangle.branch"
@@ -223,7 +296,8 @@ extension ConfigurationIssueKind {
              .serviceHealthError, .serviceHealthWarning:
             .connection
         case .noDownloadClient, .downloadClientsAllDisabled, .downloadClientElsewhere,
-             .downloadClientUnused, .downloadClientCategoryShared, .remotePathMappingMissing:
+             .downloadClientUnused, .downloadClientCategoryShared,
+             .downloadCategoryFolderShared, .remotePathMappingMissing:
             .downloads
         case .noRootFolder, .rootFolderInaccessible, .rootFolderShared:
             .library

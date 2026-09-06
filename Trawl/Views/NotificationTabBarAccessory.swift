@@ -822,6 +822,7 @@ struct RecentNotificationsSheet: View {
             trawlClients: trawlClientHosts,
             seerrServiceManager: seerrServiceManager,
             cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager,
             inputRevision: auditInputRevision
         )
     }

@@ -48,6 +48,12 @@ struct ConfigurationWizardView: View {
     /// Optional so the wizard still presents anywhere these are not injected. A fix
     /// that needs one falls back to its guidance text rather than a blank screen.
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
+    /// Needed by the category repair, which creates a SABnzbd category before it
+    /// repoints an Arr at it. Passed down explicitly for the same reason every fix
+    /// destination re-injects `serviceManager`: a repair that silently degrades to
+    /// "not connected" because an environment value did not survive the push is
+    /// indistinguishable, from the outside, from a server that is actually down.
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
 
     let issues: [ConfigurationIssue]
     let onDismissIssue: (ConfigurationIssue) -> Void
@@ -127,20 +133,77 @@ struct ConfigurationWizardView: View {
 
     @ViewBuilder
     private var wizardContent: some View {
-        if let focusedIssue {
-            focusedContent(focusedIssue)
-        } else if steps.isEmpty {
-            if !unknowns.isEmpty {
-                incompleteContent
-            } else if ignoredThisRun {
-                finishedContent
+        // Identity is what makes this read as a sequence rather than a form whose
+        // labels keep changing. Without it SwiftUI sees one `Form` throughout and
+        // diffs the rows in place, so pressing Next silently swapped the text and
+        // left no sense of having moved - which is the whole of "it doesn't
+        // transition nicely". Keyed on the step's own id rather than the index so
+        // ignoring a step, which shrinks the list under a stationary index, still
+        // counts as a move.
+        Group {
+            if let focusedIssue {
+                focusedContent(focusedIssue)
+                    .id("focus-\(focusedIssue.id)")
+            } else if steps.isEmpty {
+                if !unknowns.isEmpty {
+                    incompleteContent.id("incomplete")
+                } else if ignoredThisRun {
+                    finishedContent.id("finished")
+                } else {
+                    allClearContent.id("all-clear")
+                }
+            } else if let currentStep {
+                stepContent(currentStep)
+                    .id("step-\(currentStep.id)")
             } else {
-                allClearContent
+                finishedContent.id("finished")
             }
-        } else if let currentStep {
-            stepContent(currentStep)
-        } else {
-            finishedContent
+        }
+        // Forward-only on purpose: every control here moves on - Next, Skip, Ignore -
+        // and there is no Back to justify the symmetric pair. A page arrives from the
+        // trailing edge and the one it replaces leaves past the leading edge.
+        .transition(.asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        ))
+        // Clipped, or the outgoing page is drawn over the navigation bar and past
+        // the window edge on the way out.
+        .clipped()
+        .safeAreaInset(edge: .bottom) { advanceBar }
+    }
+
+    /// The Next/Finish bar.
+    ///
+    /// Lifted out of the step itself so it stays put while the page behind it moves.
+    /// Inside the transition it slid off with its own page and a second one slid in
+    /// underneath, which reads as the whole screen lurching rather than as a step
+    /// advancing.
+    @ViewBuilder
+    private var advanceBar: some View {
+        if focusedIssue == nil, currentStep != nil {
+            Button {
+                advance()
+            } label: {
+                Text(stepIndex == steps.count - 1 ? "Finish" : "Next")
+                    #if os(iOS)
+                    // Full-width CTA in thumb reach. A Mac gets a normal button, sized
+                    // to its word and centred under the centred form, rather than a
+                    // 1500pt blue bar across the bottom of the window.
+                    .frame(maxWidth: .infinity)
+                    #endif
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            #if os(macOS)
+            .keyboardShortcut(.defaultAction)
+            #endif
+            .padding()
+            // The bar still spans the pane; on macOS only the button inside it stops
+            // doing so, which `.infinity` here keeps true once the button is narrow.
+            #if os(macOS)
+            .frame(maxWidth: .infinity)
+            #endif
+            .background(.bar)
         }
     }
 
@@ -168,56 +231,25 @@ struct ConfigurationWizardView: View {
                 Text("Problem \(stepIndex + 1) of \(steps.count)")
             }
 
-            Section {
-                if let destination = issue.fix.destination, let actionTitle = issue.fix.actionTitle {
-                    NavigationLink {
-                        fixDestination(destination)
-                    } label: {
-                        Label(actionTitle, systemImage: "wrench.and.screwdriver")
-                    }
-                    .accessibilityIdentifier("configuration-wizard-fix")
-                }
-            } footer: {
-                Text(issue.fix.guidance)
-            }
+            fixSection(issue)
 
             Section {
                 Button("Skip for Now") { advance() }
                 Button("Ignore This", role: .destructive) {
-                    ignoredThisRun = true
-                    onDismissIssue(issue)
-                    // The list shrinks under us, so the index stays put and now
-                    // points at the next problem on its own.
-                    clampStepIndex()
+                    // Animated for the same reason Next is: the page is being
+                    // replaced either way, and only one of the two moving would make
+                    // Ignore feel like a different kind of action than it is.
+                    withAnimation(.snappy) {
+                        ignoredThisRun = true
+                        onDismissIssue(issue)
+                        // The list shrinks under us, so the index stays put and now
+                        // points at the next problem on its own.
+                        clampStepIndex()
+                    }
                 }
             } footer: {
                 Text("Ignoring hides this until Trawl is restarted. It does not change anything on your servers.")
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                advance()
-            } label: {
-                Text(stepIndex == steps.count - 1 ? "Finish" : "Next")
-                    #if os(iOS)
-                    // Full-width CTA in thumb reach. A Mac gets a normal button, sized
-                    // to its word and centred under the centred form, rather than a
-                    // 1500pt blue bar across the bottom of the window.
-                    .frame(maxWidth: .infinity)
-                    #endif
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            #if os(macOS)
-            .keyboardShortcut(.defaultAction)
-            #endif
-            .padding()
-            // The bar still spans the pane; on macOS only the button inside it stops
-            // doing so, which `.infinity` here keeps true once the button is narrow.
-            #if os(macOS)
-            .frame(maxWidth: .infinity)
-            #endif
-            .background(.bar)
         }
     }
 
@@ -245,18 +277,7 @@ struct ConfigurationWizardView: View {
                 .padding(.vertical, 6)
             }
 
-            Section {
-                if let destination = issue.fix.destination, let actionTitle = issue.fix.actionTitle {
-                    NavigationLink {
-                        fixDestination(destination)
-                    } label: {
-                        Label(actionTitle, systemImage: "wrench.and.screwdriver")
-                    }
-                    .accessibilityIdentifier("configuration-wizard-fix")
-                }
-            } footer: {
-                Text(issue.fix.guidance)
-            }
+            fixSection(issue)
 
             Section {
                 Button("See the Full Check") {
@@ -410,8 +431,10 @@ struct ConfigurationWizardView: View {
                 Task {
                     isRechecking = true
                     await onRecheck()
-                    stepIndex = 0
-                    ignoredThisRun = false
+                    withAnimation(.snappy) {
+                        stepIndex = 0
+                        ignoredThisRun = false
+                    }
                     isRechecking = false
                 }
             } label: {
@@ -438,6 +461,48 @@ struct ConfigurationWizardView: View {
 
     private func clampStepIndex() {
         if stepIndex > steps.count { stepIndex = steps.count }
+    }
+
+    /// The one place a fix is offered, so a step and a focused finding cannot drift
+    /// into offering different things about the same issue.
+    ///
+    /// A guided repair gets both routes: the repair Trawl can run, and underneath it
+    /// the screen where the same change is made by hand. Offering only the automatic
+    /// one would make the wizard the only way to do it, which is the opposite of what
+    /// this wizard is for - every other step pushes the real management screen so the
+    /// fix sticks after the wizard closes.
+    @ViewBuilder
+    private func fixSection(_ issue: ConfigurationIssue) -> some View {
+        Section {
+            if let repair = issue.fix.guidedRepair, let actionTitle = issue.fix.actionTitle {
+                NavigationLink {
+                    ConfigurationCategoryRepairView(repair: repair, onApplied: onRecheck)
+                        .environment(serviceManager)
+                        .environment(sabnzbdServiceManager)
+                } label: {
+                    Label(actionTitle, systemImage: "wand.and.sparkles")
+                }
+                .accessibilityIdentifier("configuration-wizard-guided-fix")
+
+                if let destination = issue.fix.destination {
+                    NavigationLink {
+                        fixDestination(destination)
+                    } label: {
+                        Label("Change It Myself", systemImage: "wrench.and.screwdriver")
+                    }
+                    .accessibilityIdentifier("configuration-wizard-fix")
+                }
+            } else if let destination = issue.fix.destination, let actionTitle = issue.fix.actionTitle {
+                NavigationLink {
+                    fixDestination(destination)
+                } label: {
+                    Label(actionTitle, systemImage: "wrench.and.screwdriver")
+                }
+                .accessibilityIdentifier("configuration-wizard-fix")
+            }
+        } footer: {
+            Text(issue.fix.guidance)
+        }
     }
 
     /// The real management screen for a fix, pushed into the wizard's own stack.
@@ -488,6 +553,16 @@ struct ConfigurationWizardView: View {
             }
         case .cleanuparr:
             CleanuparrDashboardView()
+        case .sabnzbdCategories:
+            if let sabnzbdServiceManager {
+                SABnzbdCategoriesView()
+                    .environment(sabnzbdServiceManager)
+            } else {
+                unavailableFixDestination(
+                    "SABnzbd is not connected",
+                    detail: "Reconnect SABnzbd from Settings, then run the setup check again."
+                )
+            }
         }
     }
 

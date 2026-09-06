@@ -22,6 +22,7 @@ struct ProwlarrIndexerListView: View {
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     private let loadsDataOnAppear: Bool
@@ -1031,6 +1032,7 @@ struct ProwlarrIndexerListView: View {
             trawlClients: clients,
             seerrServiceManager: seerrServiceManager,
             cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager,
             inputRevision: ConfigurationAuditInput.revision(
                 arrServiceManager: serviceManager,
                 trawlClients: clients,

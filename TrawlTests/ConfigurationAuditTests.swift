@@ -38,7 +38,8 @@ struct ConfigurationAuditTests {
         health: [ConfigurationSnapshot.HealthCheck]? = [],
         mappings: [ConfigurationSnapshot.RemotePathMapping]? = [],
         host: String? = nil,
-        isConnected: Bool = true
+        isConnected: Bool = true,
+        tier: ArrQualityTier? = nil
     ) -> ConfigurationSnapshot.Server {
         ConfigurationSnapshot.Server(
             instanceID: id,
@@ -52,7 +53,8 @@ struct ConfigurationAuditTests {
             indexerBaseURLs: indexerBaseURLs,
             healthChecks: health,
             remotePathMappings: mappings,
-            host: host
+            host: host,
+            tier: tier
         )
     }
 
@@ -518,17 +520,19 @@ struct ConfigurationAuditTests {
         #expect(found.first?.severity == .problem)
     }
 
-    /// Separate categories are the whole point of the setting, and an empty category
-    /// is not evidence of anything either way.
-    @Test("Different categories, and blank ones, are left alone")
-    func distinctAndBlankCategoriesAreSilent() {
+    /// Separate categories are the whole point of the setting, so a pair that has
+    /// them is silent - and a pair that has none is not, because untagged grabs from
+    /// two servers land in one default location just as surely as two matching
+    /// category names do.
+    @Test("Different categories are left alone; two untagged servers are not")
+    func distinctCategoriesAreSilentAndBlankOnesAreNot() {
         func client(_ category: String?) -> ConfigurationSnapshot.DownloadClient {
             ConfigurationSnapshot.DownloadClient(
                 name: "qBittorrent", implementation: "QBittorrent",
                 host: "10.0.0.5", port: "8080", isEnabled: true, category: category
             )
         }
-        for pair in [(client("movies"), client("movies-4k")), (client(nil), client(nil)), (client(""), client(""))] {
+        func issues(_ pair: (ConfigurationSnapshot.DownloadClient, ConfigurationSnapshot.DownloadClient)) -> [ConfigurationIssue] {
             let snapshot = ConfigurationSnapshot(
                 servers: [
                     Self.server(id: Self.hdID, name: "Radarr HD", clients: [pair.0], folders: [ConfigurationSnapshot.RootFolder(path: "/data/hd")]),
@@ -536,8 +540,362 @@ struct ConfigurationAuditTests {
                 ],
                 trawlClients: [.qbittorrent: ["http://10.0.0.5:8080"]]
             )
-            #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+            return ConfigurationAudit.issues(in: snapshot).filter { $0.kind == .downloadClientCategoryShared }
         }
+
+        #expect(issues((client("movies"), client("movies-4k"))).isEmpty)
+
+        // Nil and empty string are the same absence and must land in one bucket, not
+        // two: reported separately, neither pair would ever reach a count of two.
+        // Both servers here are Radarrs, which is what makes this a real race - see
+        // `untaggedAcrossServiceKindsIsSilent` for the pair that is not.
+        for pair in [(client(nil), client(nil)), (client(""), client("")), (client(nil), client(""))] {
+            let found = issues(pair)
+            #expect(found.count == 1)
+            #expect(found.first?.severity == .problem)
+            // Worded as the absence it is, rather than as a shared name that is not
+            // on screen anywhere - a step reading `share the "" category` is how a
+            // real finding gets read as a bug in Trawl.
+            #expect(found.first?.title == "Radarr 4K and Radarr HD do not tag their downloads")
+        }
+    }
+
+    /// One tagged server and one untagged one are in different buckets, and neither
+    /// bucket has two servers in it. The check must not fall back to "they share a
+    /// client" - that is a different finding with a different fix.
+    @Test("A tagged server and an untagged one do not collide")
+    func oneTaggedOneUntaggedIsSilent() {
+        func client(_ category: String?) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                name: "qBittorrent", implementation: "QBittorrent",
+                host: "10.0.0.5", port: "8080", isEnabled: true, category: category
+            )
+        }
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr HD", clients: [client("movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/hd")]),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client(nil)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/4k")])
+            ],
+            trawlClients: [.qbittorrent: ["http://10.0.0.5:8080"]]
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+    }
+
+    /// Untagged servers on *different* clients are not sharing anything. The bucket
+    /// key is endpoint-and-category, and a regression that keyed on category alone
+    /// would report every multi-server setup that has never used categories.
+    @Test("Untagged servers on different clients are left alone")
+    func untaggedOnDifferentClientsIsSilent() {
+        func client(_ port: String) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                name: "qBittorrent", implementation: "QBittorrent",
+                host: "10.0.0.5", port: port, isEnabled: true, category: nil
+            )
+        }
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr HD", clients: [client("8080")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/hd")]),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client("8081")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/4k")])
+            ],
+            trawlClients: [.qbittorrent: ["http://10.0.0.5:8080"]]
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+    }
+
+    /// The untagged check is scoped to one kind of server on purpose. The race needs
+    /// both servers to hold the *same* download, and a Sonarr will never have a
+    /// movie's download id in its queue - while "a Radarr and a Sonarr on one
+    /// qBittorrent, neither using categories" is the ordinary setup of anyone who has
+    /// never touched the setting. Reporting it would fire on working installs.
+    @Test("An untagged Radarr and an untagged Sonarr are not a collision")
+    func untaggedAcrossServiceKindsIsSilent() {
+        func client(_ id: Int) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "qBittorrent", implementation: "QBittorrent",
+                host: "10.0.0.5", port: "8080", isEnabled: true, category: nil
+            )
+        }
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, type: .radarr, name: "Radarr", clients: [client(1)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/movies")]),
+                Self.server(id: Self.uhdID, type: .sonarr, name: "Sonarr", clients: [client(2)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/tv")])
+            ],
+            trawlClients: [.qbittorrent: ["http://10.0.0.5:8080"]]
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+    }
+
+    /// A category two different kinds of server were both deliberately given is still
+    /// reported. Nobody arrives at that by default, so it is worth asking about even
+    /// though the import race itself needs a matching pair.
+    @Test("A shared category across service kinds is still reported")
+    func sharedNamedCategoryAcrossKindsIsReported() {
+        func client(_ id: Int) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "qBittorrent", implementation: "QBittorrent",
+                host: "10.0.0.5", port: "8080", isEnabled: true, category: "media"
+            )
+        }
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, type: .radarr, name: "Radarr", clients: [client(1)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/movies")]),
+                Self.server(id: Self.uhdID, type: .sonarr, name: "Sonarr", clients: [client(2)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/tv")])
+            ],
+            trawlClients: [.qbittorrent: ["http://10.0.0.5:8080"]]
+        )
+        #expect(ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+    }
+
+    // MARK: Category folders
+
+    private static func sabClient(_ id: Int, _ category: String) -> ConfigurationSnapshot.DownloadClient {
+        ConfigurationSnapshot.DownloadClient(
+            id: id, name: "SABnzbd", implementation: "Sabnzbd",
+            host: "192.168.68.79", port: "8082", isEnabled: true, category: category
+        )
+    }
+
+    private static let sabEndpoint = DownloadClientLinkChecker.normalizedEndpoint(
+        host: "192.168.68.79", port: "8082"
+    )
+
+    /// The half-done fix: separate categories on the Arr side, but the new one was
+    /// never given a folder, so SABnzbd drops both into its completed root and the
+    /// import race is exactly as it was. Invisible to the shared-category check,
+    /// because from the Arrs' side this looks correctly separated.
+    @Test("Different categories writing into one folder is a problem")
+    func categoriesSharingAFolder() {
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [Self.sabClient(2, "movies-4k")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+            ],
+            sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                endpoint: Self.sabEndpoint,
+                categoryDirectories: ["movies": "", "movies-4k": ""]
+            )
+        )
+        let found = ConfigurationAudit.issues(in: snapshot).filter { $0.kind == .downloadCategoryFolderShared }
+        #expect(found.count == 1)
+        #expect(found.first?.severity == .problem)
+        // The shared-category check must stay quiet: the categories genuinely differ.
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadClientCategoryShared })
+    }
+
+    /// The fix actually deployed: each category gets a folder of its own.
+    @Test("Categories with their own folders are silent")
+    func categoriesWithDistinctFoldersAreSilent() {
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [Self.sabClient(2, "movies-4k")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+            ],
+            sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                endpoint: Self.sabEndpoint,
+                categoryDirectories: ["movies": "", "movies-4k": "/data/downloads/complete/movies-4k"]
+            )
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadCategoryFolderShared })
+    }
+
+    /// A trailing slash and a capital letter are not a second folder.
+    @Test("Folder comparison ignores case and trailing slashes")
+    func folderComparisonIsNormalized() {
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [Self.sabClient(2, "movies-4k")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+            ],
+            sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                endpoint: Self.sabEndpoint,
+                categoryDirectories: ["movies": "/data/Complete/Movies", "movies-4k": "/data/complete/movies/"]
+            )
+        )
+        #expect(ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadCategoryFolderShared })
+    }
+
+    /// The false positive this check must never produce. A brand-new SABnzbd category
+    /// has no folder, so "Radarr on movies, Sonarr on tv, both empty" is what a
+    /// default install looks like - and those two cannot race in any case.
+    @Test("A Radarr and a Sonarr with folderless categories are silent")
+    func folderlessCategoriesAcrossKindsAreSilent() {
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, type: .radarr, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")]),
+                Self.server(id: Self.uhdID, type: .sonarr, name: "Sonarr", clients: [Self.sabClient(2, "tv")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/TV")])
+            ],
+            sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                endpoint: Self.sabEndpoint,
+                categoryDirectories: ["movies": "", "tv": ""]
+            )
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadCategoryFolderShared })
+    }
+
+    /// A category the Arr names but SABnzbd does not have is a grab that will fail
+    /// outright, which Arr's own health check reports far better than a guess here.
+    @Test("A category SABnzbd does not have is not a folder collision")
+    func unknownCategoryIsNotAFolderCollision() {
+        let snapshot = ConfigurationSnapshot(
+            servers: [
+                Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+                Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [Self.sabClient(2, "nowhere")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+            ],
+            sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                endpoint: Self.sabEndpoint,
+                categoryDirectories: ["movies": ""]
+            )
+        )
+        #expect(!ConfigurationAudit.issues(in: snapshot).contains { $0.kind == .downloadCategoryFolderShared })
+    }
+
+    /// Unknown is not healthy - but only once the check has something to say. An
+    /// unreadable category list on a setup where no two servers of one kind share
+    /// that SABnzbd would be reporting the absence of an answer nobody needed.
+    @Test("An unreadable category list is unknown, and only when it matters")
+    func unreadableCategoriesAreUnknownOnlyWhenRelevant() {
+        func snapshot(_ servers: [ConfigurationSnapshot.Server]) -> ConfigurationSnapshot {
+            ConfigurationSnapshot(
+                servers: servers,
+                sabnzbd: ConfigurationSnapshot.SABnzbdSetup(
+                    endpoint: Self.sabEndpoint, categoryDirectories: nil
+                )
+            )
+        }
+        let contested = snapshot([
+            Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+            Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [Self.sabClient(2, "movies-4k")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+        ])
+        #expect(ConfigurationAudit.issues(in: contested).contains {
+            $0.kind == .configurationUnavailable && $0.severity == .unknown && $0.title.contains("SABnzbd")
+        })
+
+        let single = snapshot([
+            Self.server(id: Self.hdID, name: "Radarr", clients: [Self.sabClient(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd)
+        ])
+        #expect(!ConfigurationAudit.issues(in: single).contains {
+            $0.kind == .configurationUnavailable && $0.title.contains("SABnzbd")
+        })
+    }
+
+    // MARK: The guided repair
+
+    /// The plan for the incident this whole check exists for: an HD Radarr and a 4K
+    /// Radarr both tagged "movies" on one SABnzbd. Only the 4K server moves, and it
+    /// moves to the name its tier implies.
+    @Test("The repair moves the 4K server and leaves the HD one alone")
+    func repairMovesTheTierThatShouldMove() {
+        func client(_ id: Int) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "SABnzbd", implementation: "Sabnzbd",
+                host: "192.168.68.79", port: "8082", isEnabled: true, category: "movies"
+            )
+        }
+        let snapshot = ConfigurationSnapshot(servers: [
+            Self.server(id: Self.hdID, name: "Radarr", clients: [client(1)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+            Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client(2)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+        ])
+        let issue = ConfigurationAudit.issues(in: snapshot).first { $0.kind == .downloadClientCategoryShared }
+        let changes = try! #require(issue?.fix.guidedRepair).downloadCategoryChanges
+
+        #expect(changes.count == 1)
+        #expect(changes.first?.instanceID == Self.uhdID)
+        #expect(changes.first?.suggestedCategory == "movies-4k")
+        #expect(changes.first?.downloadClientID == 2)
+        #expect(changes.first?.currentCategory == "movies")
+        // The fallback survives alongside the repair: a guided fix that hid the
+        // screen where the change is made by hand would make the wizard the only
+        // way to do it.
+        #expect(issue?.fix.destination != nil)
+    }
+
+    /// Both untagged: nothing to preserve, so both move, and the pair comes back with
+    /// the two names that make an HD/4K setup readable.
+    @Test("Two untagged servers are both given a name")
+    func repairNamesBothUntaggedServers() {
+        func client(_ id: Int) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "SABnzbd", implementation: "Sabnzbd",
+                host: "192.168.68.79", port: "8082", isEnabled: true, category: nil
+            )
+        }
+        let snapshot = ConfigurationSnapshot(servers: [
+            Self.server(id: Self.hdID, name: "Radarr", clients: [client(1)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+            Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client(2)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+        ])
+        let issue = ConfigurationAudit.issues(in: snapshot).first { $0.kind == .downloadClientCategoryShared }
+        let changes = try! #require(issue?.fix.guidedRepair).downloadCategoryChanges
+
+        #expect(changes.count == 2)
+        #expect(Set(changes.map(\.suggestedCategory)) == ["movies", "movies-4k"])
+        #expect(changes.allSatisfy { $0.currentCategory == nil })
+    }
+
+    /// A suggestion must not be a name something else on that client already holds -
+    /// that would move the collision rather than end it. Here a third server is
+    /// already on "movies-4k", so the 4K Radarr has to be offered something else.
+    @Test("A suggestion never reuses a category already in play")
+    func repairAvoidsCategoriesAlreadyTaken() {
+        func client(_ id: Int, _ category: String) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "SABnzbd", implementation: "Sabnzbd",
+                host: "192.168.68.79", port: "8082", isEnabled: true, category: category
+            )
+        }
+        let third = UUID()
+        let snapshot = ConfigurationSnapshot(servers: [
+            Self.server(id: Self.hdID, name: "Radarr", clients: [client(1, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+            Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client(2, "movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd),
+            Self.server(id: third, name: "Radarr Anime", clients: [client(3, "movies-4k")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Anime")], tier: .uhd)
+        ])
+        let issue = ConfigurationAudit.issues(in: snapshot).first { $0.kind == .downloadClientCategoryShared }
+        let changes = try! #require(issue?.fix.guidedRepair).downloadCategoryChanges
+        let suggested = changes.map(\.suggestedCategory)
+
+        #expect(!suggested.contains("movies-4k"))
+        #expect(!suggested.contains("movies"))
+        #expect(Set(suggested).count == suggested.count)
+    }
+
+    /// A snapshot with no real client ids cannot name the row it would rewrite, so no
+    /// repair is offered and the finding falls back to the screen. The finding itself
+    /// is unaffected - a repair Trawl cannot run is not a reason to stop reporting.
+    @Test("No repair is offered without real download client ids")
+    func repairIsWithheldWithoutClientIDs() {
+        func client(_ category: String) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                name: "SABnzbd", implementation: "Sabnzbd",
+                host: "192.168.68.79", port: "8082", isEnabled: true, category: category
+            )
+        }
+        let snapshot = ConfigurationSnapshot(servers: [
+            Self.server(id: Self.hdID, name: "Radarr", clients: [client("movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies")], tier: .hd),
+            Self.server(id: Self.uhdID, name: "Radarr 4K", clients: [client("movies")], folders: [ConfigurationSnapshot.RootFolder(path: "/data/Movies-4K")], tier: .uhd)
+        ])
+        let issue = ConfigurationAudit.issues(in: snapshot).first { $0.kind == .downloadClientCategoryShared }
+        #expect(issue != nil)
+        #expect(issue?.fix.guidedRepair == nil)
+        #expect(issue?.fix.destination != nil)
+    }
+
+    /// Sonarr's names, not Radarr's. The repair writes these onto a filesystem, and a
+    /// TV server handed "movies-4k" is a folder the user has to go and undo.
+    @Test("Sonarr is offered tv categories")
+    func repairNamesSonarrCategories() {
+        func client(_ id: Int) -> ConfigurationSnapshot.DownloadClient {
+            ConfigurationSnapshot.DownloadClient(
+                id: id, name: "SABnzbd", implementation: "Sabnzbd",
+                host: "192.168.68.79", port: "8082", isEnabled: true, category: "tv"
+            )
+        }
+        let snapshot = ConfigurationSnapshot(servers: [
+            Self.server(id: Self.hdID, type: .sonarr, name: "Sonarr", clients: [client(1)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/TV")], tier: .hd),
+            Self.server(id: Self.uhdID, type: .sonarr, name: "Sonarr 4K", clients: [client(2)], folders: [ConfigurationSnapshot.RootFolder(path: "/data/TV-4K")], tier: .uhd)
+        ])
+        let issue = ConfigurationAudit.issues(in: snapshot).first { $0.kind == .downloadClientCategoryShared }
+        let changes = try! #require(issue?.fix.guidedRepair).downloadCategoryChanges
+        #expect(changes.count == 1)
+        #expect(changes.first?.suggestedCategory == "tv-4k")
     }
 
     // MARK: Remote path mappings

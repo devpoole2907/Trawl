@@ -54,6 +54,7 @@ private struct ConfigurationAuditTask: ViewModifier {
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
@@ -66,6 +67,7 @@ private struct ConfigurationAuditTask: ViewModifier {
                 trawlClients: trawlClientHosts,
                 seerrServiceManager: seerrServiceManager,
                 cleanuparrServiceManager: cleanuparrServiceManager,
+                sabnzbdServiceManager: sabnzbdServiceManager,
                 inputRevision: revision
             )
         }
@@ -242,6 +244,7 @@ private struct ConfigurationAttentionInset: ViewModifier {
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var showSetupCheck = false
@@ -289,6 +292,7 @@ private struct ConfigurationAttentionInset: ViewModifier {
             trawlClients: clients,
             seerrServiceManager: seerrServiceManager,
             cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager,
             inputRevision: ConfigurationAuditInput.revision(
                 arrServiceManager: arrServiceManager,
                 trawlClients: clients,

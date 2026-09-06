@@ -60,6 +60,7 @@ final class ConfigurationAuditStore {
         trawlClients: [DownloadClientLinkKind: [String]],
         seerrServiceManager: SeerrServiceManager? = nil,
         cleanuparrServiceManager: CleanuparrServiceManager? = nil,
+        sabnzbdServiceManager: SABnzbdServiceManager? = nil,
         inputRevision: String? = nil
     ) async {
         guard !isAuditing else { return }
@@ -70,7 +71,8 @@ final class ConfigurationAuditStore {
             serviceManager: serviceManager,
             trawlClients: trawlClients,
             seerrServiceManager: seerrServiceManager,
-            cleanuparrServiceManager: cleanuparrServiceManager
+            cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager
         )
         let found = ConfigurationAudit.issues(in: snapshot)
         issues = found.filter { !dismissedIDs.contains($0.id) }
@@ -87,6 +89,7 @@ final class ConfigurationAuditStore {
         trawlClients: [DownloadClientLinkKind: [String]],
         seerrServiceManager: SeerrServiceManager? = nil,
         cleanuparrServiceManager: CleanuparrServiceManager? = nil,
+        sabnzbdServiceManager: SABnzbdServiceManager? = nil,
         inputRevision: String,
         maxAge: TimeInterval = 300
     ) async {
@@ -97,6 +100,7 @@ final class ConfigurationAuditStore {
             trawlClients: trawlClients,
             seerrServiceManager: seerrServiceManager,
             cleanuparrServiceManager: cleanuparrServiceManager,
+            sabnzbdServiceManager: sabnzbdServiceManager,
             inputRevision: inputRevision
         )
     }
@@ -107,7 +111,8 @@ final class ConfigurationAuditStore {
         serviceManager: ArrServiceManager,
         trawlClients: [DownloadClientLinkKind: [String]],
         seerrServiceManager: SeerrServiceManager?,
-        cleanuparrServiceManager: CleanuparrServiceManager?
+        cleanuparrServiceManager: CleanuparrServiceManager?,
+        sabnzbdServiceManager: SABnzbdServiceManager? = nil
     ) async -> ConfigurationSnapshot {
         var snapshot = ConfigurationSnapshot(
             trawlClients: trawlClients,
@@ -118,7 +123,41 @@ final class ConfigurationAuditStore {
         snapshot.bazarrServers = await bazarrServers(serviceManager: serviceManager)
         snapshot.seerr = await seerrSetup(seerrServiceManager)
         snapshot.cleanuparr = cleanuparrStatus(cleanuparrServiceManager)
+        snapshot.sabnzbd = await sabnzbdSetup(sabnzbdServiceManager, trawlClients: trawlClients)
         return snapshot
+    }
+
+    /// What SABnzbd says its categories write into.
+    ///
+    /// Only when Trawl is configured with exactly one SABnzbd. The manager holds a
+    /// single active connection and does not say which profile's address that is, so
+    /// with two configured there is no way to tell which one the category list
+    /// belongs to - and attributing it to the wrong endpoint would compare one
+    /// server's categories against another server's folders. One is the ordinary
+    /// case; two means this check is skipped rather than guessed.
+    private func sabnzbdSetup(
+        _ manager: SABnzbdServiceManager?,
+        trawlClients: [DownloadClientLinkKind: [String]]
+    ) async -> ConfigurationSnapshot.SABnzbdSetup? {
+        let hosts = trawlClients[.sabnzbd] ?? []
+        guard hosts.count == 1, let host = hosts.first else { return nil }
+        let endpoint = DownloadClientLinkChecker.normalizedEndpoint(from: host)
+
+        guard let manager, manager.isConnected else {
+            return ConfigurationSnapshot.SABnzbdSetup(endpoint: endpoint, categoryDirectories: nil)
+        }
+        await manager.refreshCategoryConfigs()
+        // An error leaves the previously loaded list in place, so a failed read is
+        // told apart by its own error rather than by an empty list - which is also a
+        // legitimate answer from a SABnzbd with no categories configured.
+        guard manager.categoryConfigsError == nil else {
+            return ConfigurationSnapshot.SABnzbdSetup(endpoint: endpoint, categoryDirectories: nil)
+        }
+        let directories = Dictionary(
+            manager.categoryConfigs.map { ($0.name.lowercased(), $0.directory ?? "") },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return ConfigurationSnapshot.SABnzbdSetup(endpoint: endpoint, categoryDirectories: directories)
     }
 
     private func servers(serviceManager: ArrServiceManager) async -> [ConfigurationSnapshot.Server] {
@@ -155,6 +194,7 @@ final class ConfigurationAuditStore {
             let downloadClients = await clientsResult.map { fetched in
                 fetched.map {
                     ConfigurationSnapshot.DownloadClient(
+                        id: $0.id,
                         name: $0.name ?? "Download Client",
                         implementation: $0.implementation ?? "",
                         host: $0.hostDisplayValue ?? "",
@@ -213,7 +253,8 @@ final class ConfigurationAuditStore {
                 indexerBaseURLs: indexerBaseURLs,
                 healthChecks: healthChecks,
                 remotePathMappings: remotePathMappings,
-                host: profile.hostURL
+                host: profile.hostURL,
+                tier: profile.qualityTier
             ))
         }
         return servers
