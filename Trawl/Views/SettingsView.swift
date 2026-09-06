@@ -846,6 +846,7 @@ struct QBittorrentSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .tint(ServiceIdentity.qbittorrent.brandColor)
         .sheet(item: $serverToEdit) { server in
             OnboardingSheet(serverProfile: server) {}
         }

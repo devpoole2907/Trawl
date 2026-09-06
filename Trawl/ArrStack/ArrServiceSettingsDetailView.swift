@@ -430,6 +430,7 @@ struct ArrServiceSettingsView: View {
         // material stops. `readableFormWidth`'s own doc records this; it was tried here
         // again anyway, and it looked exactly as that comment describes.
         #endif
+        .tint(serviceType.serviceIdentity.brandColor)
         .sheet(item: $editorContext) { context in
             ArrSetupSheet(initialServiceType: context.initialServiceType, existingProfile: context.profile, onComplete: {
                 Task { await serviceManager.refreshConfiguration() }

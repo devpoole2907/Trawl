@@ -195,6 +195,9 @@ struct ContentView: View {
             .ignoresSafeArea()
         )
         #if os(macOS)
+        .background(WindowMinHeightFixer())
+        #endif
+        #if os(macOS)
         .overlay(alignment: .top) {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
@@ -1856,3 +1859,54 @@ private struct PendingDeepLink {
     /// Only meaningful for `.downloads`; steers the segment bar once the tab is up.
     var downloadsSection: DownloadSection?
 }
+
+// MARK: - Mac sidebar height clamp
+
+#if os(macOS)
+/// Prevents the sidebar's content from inflating the window's minimum height.
+///
+/// macOS derives a window's minimum size from `NSSplitViewController`'s
+/// autolayout constraints. A `List` with many rows and `safeAreaInset` chrome
+/// can push the minimum past ~1 000 pt. SwiftUI's layout protocol can't
+/// override this because the split view controller sets `contentMinSize`
+/// through AppKit directly, and it re-derives it on every layout pass.
+///
+/// This `NSView` installs a `CADisplayLink` observer that clamps the
+/// window's `contentMinSize.height` every frame, winning the race against
+/// AppKit's own recalculation.
+private struct WindowMinHeightFixer: NSViewRepresentable {
+    func makeNSView(context: Context) -> _WindowMinHeightFixerView {
+        _WindowMinHeightFixerView()
+    }
+
+    func updateNSView(_ nsView: _WindowMinHeightFixerView, context: Context) {}
+}
+
+final class _WindowMinHeightFixerView: NSView {
+    private static let maxAllowedMinHeight: CGFloat = 400
+    private var displayLink: CVDisplayLink?
+    private var observation: NSKeyValueObservation?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            // Immediately clamp.
+            clampMinHeight(of: window)
+            // Observe contentMinSize changes so we re-clamp whenever the
+            // split view controller recalculates its constraints.
+            observation = window.observe(\.contentMinSize, options: [.new]) { [weak self] win, _ in
+                self?.clampMinHeight(of: win)
+            }
+        } else {
+            observation?.invalidate()
+            observation = nil
+        }
+    }
+
+    private func clampMinHeight(of window: NSWindow) {
+        if window.contentMinSize.height > Self.maxAllowedMinHeight {
+            window.contentMinSize.height = Self.maxAllowedMinHeight
+        }
+    }
+}
+#endif

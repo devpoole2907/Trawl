@@ -339,6 +339,7 @@ struct ArrBackupsView: View {
                             }
                         }
                 }
+                .macSheetSizing()
             }
         }
         .onAppear {

@@ -78,6 +78,7 @@ struct ArrRootFoldersView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
         .sheet(isPresented: $showingAddSheet) {
             AddRootFolderSheet(initialInstanceID: initialInstanceID) { path, instance in

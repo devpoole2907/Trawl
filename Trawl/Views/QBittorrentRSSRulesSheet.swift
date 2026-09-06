@@ -109,6 +109,7 @@ struct QBittorrentRSSRulesSheet: View {
                 await loadRules()
             }
         }
+        .macSheetSizing()
     }
 
     @ViewBuilder

@@ -840,6 +840,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                             }
                         }
                 }
+                .macSheetSizing()
             }
             .sheet(isPresented: $showAddSheet) {
                 ArrSetupSheet(initialServiceType: serviceType, onComplete: {
@@ -853,6 +854,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         .environment(serviceManager)
                         .environment(syncService)
                 }
+                .macSheetSizing(minWidth: 640, idealWidth: 720, minHeight: 560)
                 #if os(iOS)
                 .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
                 #endif
@@ -862,6 +864,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                     ArrWantedView(initialScope: serviceType == .sonarr ? .series : .movies, showsCloseButton: true)
                         .environment(serviceManager)
                 }
+                .macSheetSizing()
             }
     }
 }

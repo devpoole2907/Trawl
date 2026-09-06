@@ -182,6 +182,7 @@ struct SABnzbdSettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .tint(ServiceIdentity.sabnzbd.brandColor)
         .task(id: syncKey) {
             await serviceManager.initialize(from: profiles)
         }

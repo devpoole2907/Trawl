@@ -792,6 +792,7 @@ struct BazarrInteractiveSearchSheet: View {
                 }
             }
         }
+        .macSheetSizing(minWidth: 620, idealWidth: 720, minHeight: 560)
         .presentationDetents([.large])
         .onAppear {
             if missingLanguages.count == 1 {

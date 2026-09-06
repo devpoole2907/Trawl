@@ -132,6 +132,7 @@ struct ArrOfflineServicesSheet: View {
             }
             .animation(.snappy, value: offlineServices.map(\.rawValue).joined(separator: "|"))
         }
+        .macSheetSizing()
         .sheet(item: $settingsService) { service in
             ArrServiceSettingsSheet(serviceType: service, isPresented: Binding(
                 get: { settingsService != nil },
@@ -180,5 +181,6 @@ struct ArrServiceSettingsSheet: View {
                     }
                 }
         }
+        .macSheetSizing()
     }
 }

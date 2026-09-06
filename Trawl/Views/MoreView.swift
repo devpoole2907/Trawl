@@ -1088,6 +1088,7 @@ struct MoreView: View {
                         }
                     }
             }
+            .macSheetSizing()
 
         case .sabnzbd:
             NavigationStack {
@@ -1099,6 +1100,7 @@ struct MoreView: View {
                         }
                     }
             }
+            .macSheetSizing()
 
         case .arr(let service):
             ArrServiceSettingsSheet(serviceType: service, isPresented: connectionEditorIsPresented)
@@ -1114,6 +1116,7 @@ struct MoreView: View {
                         }
                     }
             }
+            .macSheetSizing()
 
         case .jellyfin:
             NavigationStack {
@@ -1126,6 +1129,7 @@ struct MoreView: View {
                         }
                     }
             }
+            .macSheetSizing()
 
         case .cleanuparr:
             NavigationStack {
@@ -1137,6 +1141,7 @@ struct MoreView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
     }
 
@@ -2277,7 +2282,10 @@ private struct LinkedApplicationsManagementView: View {
     }
 
     private var integrationList: some View {
-        List(selection: selectionStore.binding) {
+        // Guarded for the reason spelled out on the Download Clients hub: at compact
+        // width these rows are `NavigationLink`s, and a List still holding a
+        // selection binding eats the tap as a selection so the push never happens.
+        List(selection: showsDetailPane ? selectionStore.binding : nil) {
             if !hasLinkableServices {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -2476,7 +2484,14 @@ private struct DownloadClientsManagementView: View {
     }
 
     private var serviceList: some View {
-        List(selection: selectionStore.binding) {
+        // Guarded, not bare. These rows push at compact width - `clientRow` and its
+        // siblings hand back a `NavigationLink` whenever there is no detail pane -
+        // but a List that still holds a selection binding treats the tap as a
+        // selection and consumes it, so the row highlighted and the screen never
+        // opened. On iPhone that left the Sonarr and Radarr download client lists
+        // unreachable through their own hub, which is the screen the setup check
+        // routes a server with no download client to.
+        List(selection: showsDetailPane ? selectionStore.binding : nil) {
             if !hasSonarrOrRadarr {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -3654,7 +3669,10 @@ private struct LogsAndEventsHubView: View {
     }
 
     private var logList: some View {
-        List(selection: selectionStore.binding) {
+        // Guarded for the reason spelled out on the Download Clients hub: at compact
+        // width these rows are `NavigationLink`s, and a List still holding a
+        // selection binding eats the tap as a selection so the push never happens.
+        List(selection: showsDetailPane ? selectionStore.binding : nil) {
             if hasAnyLogDestination {
                 Section {
                     if hasQBittorrentLog {
@@ -3817,7 +3835,10 @@ private struct TasksHubView: View {
     }
 
     private var taskList: some View {
-        List(selection: selectionStore.binding) {
+        // Guarded for the reason spelled out on the Download Clients hub: at compact
+        // width these rows are `NavigationLink`s, and a List still holding a
+        // selection binding eats the tap as a selection so the push never happens.
+        List(selection: showsDetailPane ? selectionStore.binding : nil) {
             if hasAnyTaskDestination {
                 Section {
                     if hasArrTasks {

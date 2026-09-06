@@ -269,6 +269,7 @@ struct SeerrSettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         #endif
+        .tint(ServiceIdentity.seerr.brandColor)
         .task(id: syncKey) {
             #if DEBUG
             if isPreview { return }

@@ -440,6 +440,7 @@ struct ArrBlocklistView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
     }
 

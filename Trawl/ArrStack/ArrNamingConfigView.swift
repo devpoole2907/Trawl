@@ -115,6 +115,7 @@ struct ArrNamingConfigView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
     }
 

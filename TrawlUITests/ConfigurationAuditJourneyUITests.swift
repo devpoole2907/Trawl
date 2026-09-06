@@ -35,19 +35,27 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         let app = launchApp(sonarr: sonarr)
 
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
-        XCTAssertTrue(openDestination(.setupCheck, in: app), "Setup Check should be reachable.")
-
         // The two chromes reach the wizard differently, and deliberately so. On the
         // sidebar chrome the Setup Check *is* the screen - every other row of the
         // System hub was promoted, so a hub there would be one button opening a
         // sheet. On compact the hub is still how you get there, and the row carries
         // the finding before the wizard is ever opened.
+        //
+        // Which is why compact stops at the *hub* rather than asking for
+        // `.setupCheck`: `openDestination` walks a hub-behind-More destination all
+        // the way to its screen, so naming the wizard here would arrive with the hub
+        // already gone - and the row's subtitle, asserted below, is half of what this
+        // test is for. The row would still be *found* afterwards, because a TabView
+        // keeps the tab it left mounted, but it is off screen and never becomes
+        // hittable, so the tap fails several assertions away from the cause.
         if TrawlChrome.isSidebar {
+            XCTAssertTrue(openDestination(.setupCheck, in: app), "Setup Check should be reachable.")
             XCTAssertTrue(
                 app.navigationBars["Setup Check"].waitForExistence(timeout: 10),
                 "The sidebar's Setup Check row should open the wizard as the screen itself."
             )
         } else {
+            XCTAssertTrue(openDestination(.system, in: app), "The System hub should be reachable.")
             let setupCheck = app.buttons["more-setup-check"]
             XCTAssertTrue(
                 setupCheck.waitForExistence(in: app, timeout: 10),
@@ -246,18 +254,13 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         let app = launchApp(sonarr: sonarr)
 
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        // Both chromes land on the screen itself. `openDestination` walks a
+        // hub-behind-More destination through its hub - More, Integrations &
+        // Automation, then Indexers - so by the time it returns there is no hub row
+        // left to tap. Reaching for one anyway searched a screen that had already
+        // moved on and failed with "the hub should offer Indexers", naming a hub that
+        // was not on screen because this had already opened what it leads to.
         XCTAssertTrue(openDestination(.indexers, in: app), "Indexers should be reachable.")
-
-        // Only the compact chrome has a hub in between. There, `.indexers` opens More
-        // and the screen is a row inside it; on the sidebar chrome `.indexers` *is* a
-        // destination, so the screen is already up and there is no row to look for -
-        // which is why this failed with "the hub should offer Indexers" on iPad while
-        // the hub it wanted did not exist.
-        if !TrawlChrome.isSidebar {
-            let indexersRow = firstButton(labelContaining: "Indexers", in: app)
-            XCTAssertTrue(indexersRow.waitForExistence(in: app, timeout: 15), "The hub should offer Indexers.")
-            XCTAssertTrue(tapWhenHittable(indexersRow, in: app, timeout: 10), "Indexers should open.")
-        }
         XCTAssertTrue(
             app.showsScreen(named: "Indexers", timeout: 15),
             "The Indexers screen should present."

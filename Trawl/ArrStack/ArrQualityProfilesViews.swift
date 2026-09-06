@@ -144,6 +144,7 @@ struct ArrQualityProfilesListView: View {
                     }
                 )
             }
+            .macSheetSizing()
         }
         .alert(
             "Delete Quality Profile?",

@@ -162,6 +162,7 @@ struct ArrScheduledTasksView: View {
                             }
                         }
                 }
+                .macSheetSizing()
             }
         }
         .onAppear {

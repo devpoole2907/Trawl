@@ -28,6 +28,7 @@ struct SeerrJellyfinImportSheet: View {
                 onImport(Array(selectedIDs))
                 dismiss()
             },
+            minContentHeight: 520,
             detents: [.medium, .large]
         ) {
             Group {

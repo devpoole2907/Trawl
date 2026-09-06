@@ -183,9 +183,17 @@ struct ArrHealthView: View {
         // Only without a pane. On a Mac this sheet has no dismiss affordance of its
         // own and no edge to swipe, so a tapped check used to trap the window.
         .sheet(item: $selectedItem) { item in
-            HealthDetailSheet(item: item)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+            NavigationStack {
+                HealthDetailSheet(item: item)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { selectedItem = nil }
+                        }
+                    }
+            }
+            .macSheetSizing(minWidth: 480, idealWidth: 520, minHeight: 280)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: filteredChecks.map(\.id)) { _, ids in
             // A warning the servers stopped reporting must not leave a row looking
@@ -204,6 +212,7 @@ struct ArrHealthView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
     }
 

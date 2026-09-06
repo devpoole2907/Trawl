@@ -149,6 +149,9 @@ struct TrawlApp: App {
                 .formStyle(.grouped)
                 #endif
         }
+        #if os(macOS)
+        .defaultSize(width: 1280, height: 800)
+        #endif
         .modelContainer(modelContainer)
         // Settings is a sidebar row or More destination, but a keyboard user looks in
         // the menu bar first - and ⌘, is the shortcut they will try without being told.

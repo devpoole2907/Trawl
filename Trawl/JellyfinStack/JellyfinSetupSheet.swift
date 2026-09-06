@@ -319,6 +319,7 @@ struct JellyfinSettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         #endif
+        .tint(ServiceIdentity.jellyfin.brandColor)
         .task(id: syncKey) {
             #if DEBUG
             if isPreview { return }

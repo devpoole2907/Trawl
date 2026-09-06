@@ -96,6 +96,7 @@ struct ArrUpdatesView: View {
                             }
                         }
                 }
+                .macSheetSizing()
             }
         }
         .confirmationDialog(

@@ -71,14 +71,13 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
             "The Integrations & Automation hub should be reachable."
         )
 
-        // Compact only. `openDestination` lands on the Integrations hub there and
-        // this is the row that opens the screen; on the sidebar chrome the screen
-        // *is* the destination and there is no hub in between, so looking for a row
-        // to tap fails against a screen that is already open.
-        if !TrawlChrome.isSidebar {
-            let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
-            XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")
-        }
+        // No hub row to tap on either chrome: `openDestination` walks a
+        // hub-behind-More destination through its hub and confirms arrival at the
+        // screen, so it returns with Download Clients already open. Tapping a row
+        // afterwards was worse than redundant - a CONTAINS match for "Download
+        // Clients" on the open screen hit the *"Sonarr Download Clients"* row, so the
+        // tap succeeded, navigated a level deeper than intended, and the failure
+        // surfaced later as the client list not rendering.
         XCTAssertTrue(
             app.showsScreen(named: "Download Clients"),
             "The Download Clients hub should render."

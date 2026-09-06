@@ -284,6 +284,7 @@ private struct AddTrackersSheet: View {
             }
             .errorAlert(item: $errorAlert)
         }
+        .macSheetSizing(minWidth: 500, idealWidth: 540, minHeight: 280)
     }
 
     private var parsedURLs: [String] {
@@ -367,6 +368,7 @@ private struct EditTrackerSheet: View {
             }
             .errorAlert(item: $errorAlert)
         }
+        .macSheetSizing(minWidth: 500, idealWidth: 540, minHeight: 280)
     }
 
     private var trimmedNewURL: String {

@@ -138,6 +138,7 @@ struct ArrQualityDefinitionsView: View {
                         }
                     }
             }
+            .macSheetSizing()
         }
         .sheet(item: $editingDefinition) { def in
             ArrQualityDefinitionSheet(definition: def) { updated in
@@ -498,6 +499,7 @@ private struct ArrQualityDefinitionSheet: View {
                 }
             }
         }
+        .macSheetSizing(minWidth: 460, idealWidth: 500, minHeight: 380)
     }
 
     // MARK: Chips

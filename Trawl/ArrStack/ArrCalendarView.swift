@@ -1394,6 +1394,7 @@ private struct ICalSubscribeSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
         }
+        .macSheetSizing(minWidth: 540, idealWidth: 580, minHeight: 520)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear {
