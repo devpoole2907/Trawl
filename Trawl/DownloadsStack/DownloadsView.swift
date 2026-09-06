@@ -172,11 +172,21 @@ struct DownloadsView: View {
             // does show, it is the same inline treatment the two library tips use,
             // and the tip's own words say which control to tap.
             .safeAreaInset(edge: .top, spacing: 0) {
-                if showsTitleMenu {
-                    TipView(queueSwitchTip)
-                        .tipBackground(.bar)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                VStack(spacing: 0) {
+                    // Above the tip, not below: a collision is happening right now and
+                    // about to cost the user a wrongly-filed film, where the tip is only
+                    // teaching a gesture.
+                    if let collision = queueDownloadCollisions.first {
+                        QueueDownloadCollisionBanner(collision: collision)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                    }
+                    if showsTitleMenu {
+                        TipView(queueSwitchTip)
+                            .tipBackground(.bar)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                    }
                 }
             }
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
@@ -577,6 +587,26 @@ struct DownloadsView: View {
             torrentsRevision: syncService.torrentsRevision
         )
         .sortedByDownloadOrder(sortOrder)
+    }
+
+    /// Download ids currently sitting in more than one Arr instance's queue.
+    ///
+    /// Recomputed from the same `queueItemsBySource` the list below already
+    /// renders - no extra polling, no cache of its own, and nothing left over
+    /// once the collision resolves itself on the next poll. See
+    /// `QueueDownloadCollisionDetector` for why this lives here rather than in
+    /// `ConfigurationAudit`.
+    private var queueDownloadCollisions: [QueueDownloadCollisionDetector.Collision] {
+        guard ConfigurationAttention.isContextuallyVisible else {
+            // Same UI-test gate the configuration banners use, and for the same
+            // reason: a fixture server's queue rows are handcrafted per journey
+            // and not written to avoid sharing a downloadId, so a collision
+            // banner would appear over screens the journey suites never expected
+            // to have one, and misattribute an unrelated failure to a UI element
+            // that isn't part of what's being tested.
+            return []
+        }
+        return QueueDownloadCollisionDetector.find(in: arrServiceManager.queueItemsBySource)
     }
 
     @ViewBuilder
