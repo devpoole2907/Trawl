@@ -186,12 +186,12 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Sonarr profile should bring the app to its root chrome.")
         XCTAssertTrue(
             openDestination(.remotePaths, in: app),
-            "Integrations & Automation should be reachable and render its real hub."
+            "Remote Path Mappings should be reachable from the root chrome."
         )
-
-        let remoteMappings = firstButton(containing: "Remote Path Mappings", in: app)
-        XCTAssertTrue(tapWhenHittable(remoteMappings, in: app, timeout: 10), "The Integrations & Automation hub should expose Remote Path Mappings.")
-        XCTAssertTrue(app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10), "Remote Path Mappings should push ArrRemotePathMappingListView.")
+        XCTAssertTrue(
+            app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10),
+            "Remote Path Mappings should render ArrRemotePathMappingListView."
+        )
     }
 
     @MainActor

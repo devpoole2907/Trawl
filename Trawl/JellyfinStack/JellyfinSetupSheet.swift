@@ -141,6 +141,7 @@ struct JellyfinSettingsView: View {
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var profiles: [JellyfinServiceProfile]
     @State private var showingConnectionSheet = false
+    @State private var showingTranscodingSheet = false
     @State private var settingsError: String?
     @State private var showRemoveConfirmation = false
     @State private var showRestartConfirmation = false
@@ -256,6 +257,21 @@ struct JellyfinSettingsView: View {
                     Text("Automation")
                 }
 
+                Section {
+                    Button {
+                        showingTranscodingSheet = true
+                    } label: {
+                        Label("Transcoding", systemImage: "cpu.fill")
+                    }
+                    .disabled(jellyfinServiceManager.activeClient == nil)
+                } header: {
+                    Text("Transcoding")
+                } footer: {
+                    if jellyfinServiceManager.activeClient == nil {
+                        Text("Connect to Jellyfin to configure transcoding and hardware acceleration.")
+                    }
+                }
+
                 Section("Server Control") {
                     Button("Reconnect", systemImage: "arrow.clockwise") {
                         Task {
@@ -340,6 +356,22 @@ struct JellyfinSettingsView: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $showingTranscodingSheet) {
+            if let client = jellyfinServiceManager.activeClient {
+                NavigationStack {
+                    JellyfinTranscodingSettingsView(apiClient: client)
+                        .environment(inAppNotificationCenter)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") {
+                                    showingTranscodingSheet = false
+                                }
+                            }
+                        }
+                }
+                .macSheetSizing()
+            }
         }
         .confirmationDialog(
             "Remove Jellyfin Server?",

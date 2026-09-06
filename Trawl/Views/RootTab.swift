@@ -32,7 +32,13 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
         case .requests:
             [.requests, .issues, .users]
         case .mediaServer:
-            [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
+            #if os(macOS)
+            [.jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins]
+            #else
+            UIDevice.current.userInterfaceIdiom == .pad
+                ? [.jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins]
+                : [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
+            #endif
         case .integrations:
             [.indexers, .downloadClients, .qbittorrent, .sabnzbd, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
@@ -241,7 +247,8 @@ enum RootTab: Hashable, CaseIterable {
         case .downloads, .series, .movies, .search, .indexers,
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
-             .libraryImport, .subtitles, .logs, .settings, .health: true
+             .libraryImport, .subtitles, .logs, .settings, .health,
+             .updates, .backups, .remotePaths: true
         default: false
         }
     }

@@ -4,10 +4,15 @@ import SwiftData
 struct ArrRemotePathMappingListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(\.hasDetailPane) private var hasDetailPane
+    @Environment(ArrRemotePathMappingBrowserState.self) private var sharedBrowser: ArrRemotePathMappingBrowserState?
+    @State private var localBrowser = ArrRemotePathMappingBrowserState()
 
-    @State private var mappings: [RemotePathMappingEntry] = []
-    @State private var isLoading = false
-    @State private var loadError: String?
+    private var browser: ArrRemotePathMappingBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
     @State private var mappingBeingEdited: RemotePathMappingEntry?
     @State private var mappingPendingDelete: RemotePathMappingEntry?
     @State private var showAddSheet = false
@@ -16,9 +21,11 @@ struct ArrRemotePathMappingListView: View {
 
     #if DEBUG
     fileprivate init(previewMappings: [RemotePathMappingEntry] = [], isLoading: Bool = false, loadError: String? = nil) {
-        _mappings = State(initialValue: previewMappings)
-        _isLoading = State(initialValue: isLoading)
-        _loadError = State(initialValue: loadError)
+        let browser = ArrRemotePathMappingBrowserState()
+        browser.mappings = previewMappings
+        browser.isLoading = isLoading
+        browser.loadError = loadError
+        _localBrowser = State(initialValue: browser)
     }
     #endif
 
@@ -30,81 +37,18 @@ struct ArrRemotePathMappingListView: View {
         ].compactMap(\.self)
     }
 
-    var body: some View {
-        List {
-            if isLoading && mappings.isEmpty {
-                Section {
-                    HStack {
-                        ProgressView()
-                            .padding(.trailing, 4)
-                        Text("Loading remote path mappings…")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } else if let loadError {
-                ServiceErrorView(title: "Remote Path Mappings Unavailable", message: loadError, onRetry: { await loadMappings() })
-            } else if mappings.isEmpty {
-                ContentUnavailableView(
-                    "No Remote Path Mappings",
-                    systemImage: "arrow.triangle.swap",
-                    description: Text("Add a mapping when Sonarr, Radarr, Bazarr, and your download client are on different machines or use different paths.")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(mappings) { entry in
-                        Button {
-                            mappingBeingEdited = entry
-                        } label: {
-                            mappingRow(entry)
-                                // Width first, then shape, and both inside the label.
-                                // A plain-styled button hit-tests the shape of what it
-                                // draws; the row's content hugs itself, so on an iPad -
-                                // where the row is hundreds of points wider than its
-                                // text - a tap anywhere to the right of the paths did
-                                // nothing. `.contentShape` on the Button, which is what
-                                // this was, shapes the button rather than the label,
-                                // and has no width to work with either way.
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                mappingPendingDelete = entry
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+    private var selectedMapping: RemotePathMappingEntry? {
+        browser.selectedMappingID.flatMap { id in browser.mappings.first { $0.id == id } }
+    }
 
-                            Button {
-                                mappingBeingEdited = entry
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.indigo)
-                        }
-                        .contextMenu {
-                            Button("Edit", systemImage: "pencil") {
-                                mappingBeingEdited = entry
-                            }
-                            Button("Delete", systemImage: "trash", role: .destructive) {
-                                mappingPendingDelete = entry
-                            }
-                        }
-                    }
-                } footer: {
-                    Text("Mappings translate paths reported by another service into paths the selected app can access. Use * as the host for Sonarr or Radarr to match any download client.")
-                }
-            }
+    var body: some View {
+        TrawlListDetailPanes(title: "Remote Path Mappings") {
+            mappingListContent
+        } detail: {
+            selectedMappingDetail
         }
-        .navigationTitle("Remote Path Mappings")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollContentBackground(.hidden)
-        #endif
-        .moreDestinationBackground(.remotePathMappings)
         .toolbar {
-            if !availableServices.isEmpty {
+            if sidebarColumn != .detail, !availableServices.isEmpty {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button {
                         showAddSheet = true
@@ -118,8 +62,12 @@ struct ArrRemotePathMappingListView: View {
             ArrRemotePathMappingEditorSheet(availableServices: availableServices) { serviceType, saved, instance in
                 // The instance has to come back with the mapping: without it the new
                 // row has no server to route to, and deleting it fails.
-                mappings.append(RemotePathMappingEntry(serviceType: serviceType, mapping: saved, instance: instance))
-                sortMappings()
+                let newEntry = RemotePathMappingEntry(serviceType: serviceType, mapping: saved, instance: instance)
+                browser.mappings.append(newEntry)
+                browser.sortMappings()
+                if hasDetailPane {
+                    browser.selectedMappingID = newEntry.id
+                }
                 inAppNotificationCenter.showSuccess(
                     title: "Added",
                     message: "Remote path mapping added to \(instance.map { serviceManager.scopeLabel(for: $0) } ?? serviceType.displayName)."
@@ -134,13 +82,17 @@ struct ArrRemotePathMappingListView: View {
                 initialInstanceID: entry.instance?.id,
                 existingMapping: entry.mapping
             ) { serviceType, saved, instance in
-                if let idx = mappings.firstIndex(where: { $0.id == entry.id }) {
-                    mappings[idx] = RemotePathMappingEntry(
+                if let idx = browser.mappings.firstIndex(where: { $0.id == entry.id }) {
+                    let updated = RemotePathMappingEntry(
                         serviceType: serviceType,
                         mapping: saved,
                         instance: instance ?? entry.instance
                     )
-                    sortMappings()
+                    browser.mappings[idx] = updated
+                    browser.sortMappings()
+                    if hasDetailPane {
+                        browser.selectedMappingID = updated.id
+                    }
                 }
                 inAppNotificationCenter.showSuccess(
                     title: "Updated",
@@ -148,13 +100,6 @@ struct ArrRemotePathMappingListView: View {
                 )
             }
             .environment(serviceManager)
-        }
-        .refreshable { await loadMappings() }
-        .task {
-            #if DEBUG
-            if ArrPreviewRuntime.isActive { return }
-            #endif
-            await loadMappings()
         }
         .confirmationDialog(
             "Delete Mapping?",
@@ -174,6 +119,118 @@ struct ArrRemotePathMappingListView: View {
             if let entry = mappingPendingDelete {
                 Text("Remove the \(entry.instance.map { serviceManager.scopeLabel(for: $0) } ?? entry.serviceType.displayName) mapping from '\(entry.mapping.remotePath)' to '\(entry.mapping.localPath)'?")
             }
+        }
+    }
+
+    private var mappingListContent: some View {
+        List {
+            if browser.isLoading && browser.mappings.isEmpty {
+                Section {
+                    HStack {
+                        ProgressView()
+                            .padding(.trailing, 4)
+                        Text("Loading remote path mappings…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if let loadError = browser.loadError {
+                ServiceErrorView(title: "Remote Path Mappings Unavailable", message: loadError, onRetry: { await loadMappings() })
+            } else if browser.mappings.isEmpty {
+                ContentUnavailableView(
+                    "No Remote Path Mappings",
+                    systemImage: "arrow.triangle.swap",
+                    description: Text("Add a mapping when Sonarr, Radarr, Bazarr, and your download client are on different machines or use different paths.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(browser.mappings) { entry in
+                        mappingRowButton(entry)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    mappingPendingDelete = entry
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+
+                                Button {
+                                    mappingBeingEdited = entry
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.indigo)
+                            }
+                            .contextMenu {
+                                Button("Edit", systemImage: "pencil") {
+                                    mappingBeingEdited = entry
+                                }
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    mappingPendingDelete = entry
+                                }
+                            }
+                    }
+                } footer: {
+                    Text("Mappings translate paths reported by another service into paths the selected app can access. Use * as the host for Sonarr or Radarr to match any download client.")
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .moreDestinationBackground(.remotePathMappings)
+        .refreshable { await loadMappings() }
+        .task {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
+            if browser.mappings.isEmpty {
+                await loadMappings()
+            }
+        }
+        .onChange(of: browser.mappings.map(\.id)) { _, _ in
+            reconcileSelection()
+        }
+    }
+
+    @ViewBuilder
+    private func mappingRowButton(_ entry: RemotePathMappingEntry) -> some View {
+        if hasDetailPane {
+            Button {
+                browser.selectedMappingID = entry.id
+            } label: {
+                mappingRow(entry)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(
+                browser.selectedMappingID == entry.id
+                    ? Color.accentColor.opacity(0.15)
+                    : Color.clear
+            )
+        } else {
+            Button {
+                mappingBeingEdited = entry
+            } label: {
+                mappingRow(entry)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedMappingDetail: some View {
+        if let entry = selectedMapping {
+            RemotePathMappingDetailPane(
+                entry: entry,
+                onEdit: { mappingBeingEdited = entry },
+                onDelete: { mappingPendingDelete = entry }
+            )
+            .id(entry.id)
+        } else {
+            listDetailPlaceholder("Select a Mapping", systemImage: "arrow.triangle.swap")
         }
     }
 
@@ -221,9 +278,9 @@ struct ArrRemotePathMappingListView: View {
     }
 
     private func loadMappings() async {
-        isLoading = true
-        loadError = nil
-        defer { isLoading = false }
+        browser.isLoading = true
+        browser.loadError = nil
+        defer { browser.isLoading = false }
 
         do {
             var loadedMappings: [RemotePathMappingEntry] = []
@@ -243,23 +300,18 @@ struct ArrRemotePathMappingListView: View {
                 }
             }
 
-            mappings = loadedMappings
-            sortMappings()
+            browser.mappings = loadedMappings
+            browser.sortMappings()
         } catch {
-            loadError = error.localizedDescription
+            browser.loadError = error.localizedDescription
         }
     }
 
-    private func sortMappings() {
-        mappings.sort {
-            if $0.serviceType != $1.serviceType {
-                return $0.serviceType.displayName < $1.serviceType.displayName
-            }
-            // HD before 4K within a service, so the pair reads in a stable order.
-            if $0.instance?.ordinal != $1.instance?.ordinal {
-                return ($0.instance?.ordinal ?? 0) < ($1.instance?.ordinal ?? 0)
-            }
-            return $0.mapping.host.localizedCaseInsensitiveCompare($1.mapping.host) == .orderedAscending
+    private func reconcileSelection() {
+        guard hasDetailPane else { return }
+        if let selectedID = browser.selectedMappingID,
+           !browser.mappings.contains(where: { $0.id == selectedID }) {
+            browser.selectedMappingID = nil
         }
     }
 
@@ -282,7 +334,10 @@ struct ArrRemotePathMappingListView: View {
             if entry.serviceType == .bazarr {
                 await loadMappings()
             } else {
-                mappings.removeAll { $0.id == entry.id }
+                browser.mappings.removeAll { $0.id == entry.id }
+            }
+            if browser.selectedMappingID == entry.id {
+                browser.selectedMappingID = nil
             }
             inAppNotificationCenter.showSuccess(
                 title: "Deleted",
@@ -294,16 +349,253 @@ struct ArrRemotePathMappingListView: View {
     }
 }
 
-private struct RemotePathMappingEntry: Identifiable {
-    let serviceType: ArrServiceType
-    let mapping: ArrRemotePathMapping
-    /// The server holding this mapping. Remote path mappings translate a download
-    /// client's paths into the *arr's own, and each server has its own view of the
-    /// filesystem - a pair sharing a client still needs a mapping each.
-    var instance: ArrInstanceRef?
+// MARK: - Detail Pane
 
-    // Both instances number their mappings from the same sequence.
-    var id: String { "\(instance?.id.uuidString ?? serviceType.rawValue)-\(mapping.id)" }
+private struct RemotePathMappingDetailPane: View {
+    let entry: RemotePathMappingEntry
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Query private var servers: [ServerProfile]
+
+    private var mapping: ArrRemotePathMapping { entry.mapping }
+
+    private var matchedProfile: ServerProfile? {
+        guard mapping.host != "*" else { return nil }
+        return servers.first { profile in
+            let host = URL(string: profile.hostURL)?.host ?? profile.hostURL
+            return host.localizedCaseInsensitiveCompare(mapping.host) == .orderedSame
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                headerCard
+                pathTranslationCard
+                hostCard
+                serverCard
+            }
+            .padding()
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .navigationTitle("Mapping Details")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Button(action: onEdit) {
+                    Label("Edit", systemImage: "pencil")
+                }
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private var headerCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                HStack(spacing: 12) {
+                    Image(systemName: entry.serviceType.serviceIdentity.systemImage)
+                        .font(.title)
+                        .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+                        .frame(width: 44, height: 44)
+                        .background(entry.serviceType.serviceIdentity.brandColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.serviceType.displayName)
+                            .font(.title2.weight(.bold))
+
+                        HStack(spacing: 6) {
+                            if let instance = entry.instance,
+                               serviceManager.showsInstanceProvenance(for: instance.serviceType) {
+                                ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                            }
+
+                            Text(mapping.host == "*" ? "Any Host (*)" : mapping.host)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Button(action: onEdit) {
+                    Label("Edit Mapping", systemImage: "pencil")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(entry.serviceType.serviceIdentity.brandColor)
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var pathTranslationCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Path Translation", systemImage: "arrow.triangle.swap")
+                .font(.headline)
+                .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(entry.serviceType == .bazarr ? "Reported Path (Sonarr / Radarr)" : "Remote Path (Download Client)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            copyToClipboard(mapping.remotePath, label: "Remote path")
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .font(.caption2)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    Text(mapping.remotePath)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+
+                HStack {
+                    Spacer()
+                    Image(systemName: "arrow.down")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Local Path (\(entry.serviceType.displayName) Access)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            copyToClipboard(mapping.localPath, label: "Local path")
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .font(.caption2)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    Text(mapping.localPath)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+
+            Text(pathExplanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var pathExplanation: String {
+        if entry.serviceType == .bazarr {
+            return "Bazarr uses this mapping to translate paths from Sonarr or Radarr into paths where Bazarr can access the subtitle and media files directly."
+        } else {
+            return "\(entry.serviceType.displayName) uses this mapping to translate paths reported by the download client into directory paths that \(entry.serviceType.displayName) can read and import from."
+        }
+    }
+
+    private var hostCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(entry.serviceType == .bazarr ? "Source Application" : "Host Configuration", systemImage: entry.serviceType == .bazarr ? "app.connected.to.app.below.fill" : "network")
+                .font(.headline)
+                .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+
+            VStack(alignment: .leading, spacing: 8) {
+                if entry.serviceType == .bazarr {
+                    LabeledContent("Source App") {
+                        Text(mapping.host)
+                            .fontWeight(.medium)
+                    }
+                } else if mapping.host == "*" {
+                    LabeledContent("Host") {
+                        Text("Any Host (*)")
+                            .fontWeight(.medium)
+                    }
+                    Text("The wildcard '*' matches downloads reported from any download client host or IP address.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    LabeledContent("Hostname") {
+                        Text(mapping.host)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    if let matched = matchedProfile {
+                        LabeledContent("Associated Client") {
+                            Text(matched.displayName)
+                                .foregroundStyle(ServiceIdentity.qbittorrent.brandColor)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var serverCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Server Information", systemImage: "server.rack")
+                .font(.headline)
+                .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Service") {
+                    Text(entry.serviceType.displayName)
+                }
+
+                if let instance = entry.instance {
+                    LabeledContent("Server") {
+                        Text(serviceManager.scopeLabel(for: instance))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func copyToClipboard(_ string: String, label: String = "Path") {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = string
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+        #endif
+        inAppNotificationCenter.showSuccess(title: "Copied", message: "\(label) copied.")
+    }
 }
 
 // MARK: - Editor Sheet

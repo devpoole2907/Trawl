@@ -1510,7 +1510,7 @@ nonisolated struct ArrDownloadClient: Codable, Identifiable, Sendable {
 
 // MARK: - Remote Path Mapping
 
-nonisolated struct ArrRemotePathMapping: Codable, Identifiable, Sendable {
+nonisolated struct ArrRemotePathMapping: Codable, Identifiable, Sendable, Hashable {
     var id: Int
     var host: String
     var remotePath: String

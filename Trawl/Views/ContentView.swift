@@ -109,6 +109,9 @@ struct ContentView: View {
     @State private var logSelection = TrawlColumnSelection<MoreDestination>()
     @State private var settingsSelection = TrawlColumnSelection<MoreDestination>()
     @State private var healthBrowser = ArrHealthBrowserState()
+    @State private var updatesBrowser = ArrUpdatesBrowserState()
+    @State private var backupsBrowser = ArrBackupsBrowserState()
+    @State private var remotePathMappingBrowser = ArrRemotePathMappingBrowserState()
     @State private var calendarSelection = TrawlColumnSelection<ArrMediaDestination>()
     @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
     @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
@@ -195,7 +198,7 @@ struct ContentView: View {
             .ignoresSafeArea()
         )
         #if os(macOS)
-        .background(WindowMinHeightFixer())
+        .modifier(WindowMinHeightFixer())
         #endif
         #if os(macOS)
         .overlay(alignment: .top) {
@@ -1017,7 +1020,7 @@ struct ContentView: View {
             .environment(indexerBrowser)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
-             .subtitles, .logs, .settings, .health:
+             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
@@ -1147,7 +1150,7 @@ struct ContentView: View {
                 .environment(arrServiceManager)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .libraryImport,
-             .subtitles, .logs, .settings, .health:
+             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             listDetailPlaceholder("Search Trawl", systemImage: "magnifyingglass")
@@ -1182,6 +1185,9 @@ struct ContentView: View {
         .environment(qualityProfileBrowser)
         .environment(importLocationBrowser)
         .environment(healthBrowser)
+        .environment(updatesBrowser)
+        .environment(backupsBrowser)
+        .environment(remotePathMappingBrowser)
         .environment(requestBrowser)
         .environment(issueBrowser)
         .environment(userBrowser)
@@ -1860,52 +1866,60 @@ private struct PendingDeepLink {
     var downloadsSection: DownloadSection?
 }
 
-// MARK: - Mac sidebar height clamp
+// MARK: - Mac window minimum height clamp
 
 #if os(macOS)
 /// Prevents the sidebar's content from inflating the window's minimum height.
 ///
 /// macOS derives a window's minimum size from `NSSplitViewController`'s
 /// autolayout constraints. A `List` with many rows and `safeAreaInset` chrome
-/// can push the minimum past ~1 000 pt. SwiftUI's layout protocol can't
-/// override this because the split view controller sets `contentMinSize`
-/// through AppKit directly, and it re-derives it on every layout pass.
+/// can push the minimum past ~1 000 pt. Neither SwiftUI's `.frame` modifier
+/// nor compression-resistance tweaks override this because the split view
+/// controller operates on AppKit's constraint system directly.
 ///
-/// This `NSView` installs a `CADisplayLink` observer that clamps the
-/// window's `contentMinSize.height` every frame, winning the race against
-/// AppKit's own recalculation.
-private struct WindowMinHeightFixer: NSViewRepresentable {
-    func makeNSView(context: Context) -> _WindowMinHeightFixerView {
-        _WindowMinHeightFixerView()
+/// This modifier applies `.onAppear` to repeatedly clamp every visible
+/// window's `contentMinSize.height`, and also installs a KVO observer on each
+/// window so newly-derived minimums are caught immediately.
+private struct WindowMinHeightFixer: ViewModifier {
+    private static let maxMinHeight: CGFloat = 400
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                NSLog("[WindowMinHeightFixer] onAppear – clamping all windows")
+                clampAllWindows()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)
+            ) { notification in
+                if let window = notification.object as? NSWindow {
+                    clampWindow(window)
+                }
+            }
     }
 
-    func updateNSView(_ nsView: _WindowMinHeightFixerView, context: Context) {}
-}
-
-final class _WindowMinHeightFixerView: NSView {
-    private static let maxAllowedMinHeight: CGFloat = 400
-    private var displayLink: CVDisplayLink?
-    private var observation: NSKeyValueObservation?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let window {
-            // Immediately clamp.
-            clampMinHeight(of: window)
-            // Observe contentMinSize changes so we re-clamp whenever the
-            // split view controller recalculates its constraints.
-            observation = window.observe(\.contentMinSize, options: [.new]) { [weak self] win, _ in
-                self?.clampMinHeight(of: win)
+    private func clampAllWindows() {
+        for window in NSApp.windows {
+            print("[WindowMinHeightFixer] Window: contentMinSize=\(window.contentMinSize), minSize=\(window.minSize), frame=\(window.frame)")
+            clampWindow(window)
+            // Also dump the content view's fittingSize
+            if let cv = window.contentView {
+                print("[WindowMinHeightFixer]   contentView.fittingSize=\(cv.fittingSize)")
+                print("[WindowMinHeightFixer]   contentView.intrinsicContentSize=\(cv.intrinsicContentSize)")
+                // Find constraints with high/required priority on the content view
+                for constraint in cv.constraints where constraint.priority.rawValue >= 900 && constraint.firstAttribute == .height {
+                    print("[WindowMinHeightFixer]   HIGH constraint: \(constraint)")
+                }
             }
-        } else {
-            observation?.invalidate()
-            observation = nil
         }
     }
 
-    private func clampMinHeight(of window: NSWindow) {
-        if window.contentMinSize.height > Self.maxAllowedMinHeight {
-            window.contentMinSize.height = Self.maxAllowedMinHeight
+    private func clampWindow(_ window: NSWindow) {
+        if window.contentMinSize.height > Self.maxMinHeight {
+            window.contentMinSize.height = Self.maxMinHeight
+        }
+        if window.minSize.height > Self.maxMinHeight + 28 {
+            window.minSize.height = Self.maxMinHeight + 28
         }
     }
 }

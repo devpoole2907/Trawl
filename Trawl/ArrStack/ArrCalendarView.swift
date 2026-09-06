@@ -822,6 +822,7 @@ struct ArrCalendarView: View {
         TrawlPaneNavigationLink(selection: selectionStore.binding, value: destination) {
             EventRow(event: event, instance: instance)
         }
+        .contentShape(Rectangle())
     }
 
     /// The server tracking an airing, shown only when a second instance of that
@@ -1035,6 +1036,7 @@ private struct EventRow: View {
             }
         }
         .padding(.vertical, 10)
+        .contentShape(Rectangle())
     }
 }
 

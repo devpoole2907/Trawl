@@ -4,17 +4,38 @@ import SwiftUI
 
 struct ArrUpdatesView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
-    @State private var viewModel = ArrUpdatesViewModel()
-    @State private var selectedInstanceID: UUID?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(\.hasDetailPane) private var hasDetailPane
+    @Environment(ArrUpdatesBrowserState.self) private var sharedBrowser: ArrUpdatesBrowserState?
+    @State private var localBrowser = ArrUpdatesBrowserState()
+
+    private var browser: ArrUpdatesBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
+    private var viewModel: ArrUpdatesViewModel {
+        browser.viewModel
+    }
+
+    private var selectedInstanceID: UUID? {
+        get { browser.selectedInstanceID }
+        nonmutating set { browser.selectedInstanceID = newValue }
+    }
+
+    private var selectedVersion: String? {
+        get { browser.selectedVersion }
+        nonmutating set { browser.selectedVersion = newValue }
+    }
+
     @State private var confirmingInstall: ArrInstanceRef?
     @State private var showSettings = false
 
     #if DEBUG
     init(previewUpdates: [UUID: ArrUpdatesViewModel.ServiceUpdatesData] = [:], selectedInstanceID: UUID? = nil) {
-        let previewVM = ArrUpdatesViewModel()
-        previewVM.setPreviewUpdates(previewUpdates)
-        _viewModel = State(initialValue: previewVM)
-        _selectedInstanceID = State(initialValue: selectedInstanceID)
+        let browser = ArrUpdatesBrowserState()
+        browser.selectedInstanceID = selectedInstanceID
+        browser.viewModel.setPreviewUpdates(previewUpdates)
+        _localBrowser = State(initialValue: browser)
     }
     #endif
 
@@ -48,11 +69,35 @@ struct ArrUpdatesView: View {
         availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
     }
 
+    private var navigationSubtitleText: String {
+        selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? ""
+    }
+
+    private var instanceBinding: Binding<UUID?> {
+        Binding(
+            get: { selectedInstanceID },
+            set: {
+                selectedInstanceID = $0
+                selectedVersion = nil
+            }
+        )
+    }
+
     var body: some View {
+        TrawlListDetailPanes(title: "Updates", subtitle: navigationSubtitleText) {
+            updatesListContent
+        } detail: {
+            selectedUpdateDetail
+        }
+    }
+
+    // MARK: - List Content
+
+    private var updatesListContent: some View {
         Group {
             if availableServices.isEmpty {
                 ServiceSetupView(title: "No Services Configured", message: "Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.", systemImage: "arrow.down.app")
-                .scrollableUnavailableState()
+                    .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
                     services: availableServices,
@@ -67,13 +112,29 @@ struct ArrUpdatesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Updates")
-        .navigationSubtitle(selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? "")
         .moreDestinationBackground(.updates)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+            if !availableInstances.isEmpty {
+                ArrInstanceScopeBar(instances: availableInstances, selection: instanceBinding)
+            }
+        }
+        .toolbar {
+            if sidebarColumn != .detail, let instance = selectedInstance {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    if viewModel.loadingServices.contains(instance.id) {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await viewModel.load(instance: instance, serviceManager: serviceManager) }
+                        } label: {
+                            Label("Check for Updates", systemImage: "arrow.clockwise")
+                        }
+                    }
+                }
+            }
         }
         .onAppear {
+            guard sidebarColumn != .detail else { return }
             if selectedInstanceID == nil || !availableInstances.contains(where: { $0.id == selectedInstanceID }) {
                 selectedInstanceID = availableInstances.first?.id
             }
@@ -132,7 +193,11 @@ struct ArrUpdatesView: View {
         let isLoading = viewModel.loadingServices.contains(instance.id)
 
         if let data, data.error == nil {
-            changelogList(data: data, instance: instance)
+            if hasDetailPane {
+                selectableChangelogList(data: data, instance: instance)
+            } else {
+                inlineChangelogList(data: data, instance: instance)
+            }
         } else if isLoading || data == nil {
             ProgressView()
                 .controlSize(.large)
@@ -147,7 +212,90 @@ struct ArrUpdatesView: View {
         }
     }
 
-    private func changelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, instance: ArrInstanceRef) -> some View {
+    /// Selectable release list for the content column in 3-column split view.
+    private func selectableChangelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, instance: ArrInstanceRef) -> some View {
+        let service = instance.serviceType
+        return List {
+            if data.allVersions.isEmpty {
+                ContentUnavailableView(
+                    "No Update History",
+                    systemImage: "arrow.down.app",
+                    description: Text("No version history available for \(service.displayName).")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(data.allVersions) { update in
+                    Button {
+                        selectedVersion = update.version
+                    } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text("v\(update.version ?? "Unknown")")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+
+                                    if update.installed == true {
+                                        badge("Current", color: service.serviceIdentity.brandColor)
+                                    } else if update.installable == true {
+                                        badge("Available", color: .green)
+                                    }
+                                }
+
+                                let newCount = update.changes?.new?.count ?? 0
+                                let fixedCount = update.changes?.fixed?.count ?? 0
+                                if newCount > 0 || fixedCount > 0 {
+                                    HStack(spacing: 6) {
+                                        if newCount > 0 {
+                                            Text("\(newCount) new")
+                                                .font(.caption2)
+                                                .foregroundStyle(.blue)
+                                        }
+                                        if fixedCount > 0 {
+                                            Text("\(fixedCount) fixed")
+                                                .font(.caption2)
+                                                .foregroundStyle(.orange)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(minLength: 8)
+
+                            if let date = formattedDate(update.releaseDate) {
+                                Text(date)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(
+                        selectedVersion == update.version
+                            ? Color.accentColor.opacity(0.15)
+                            : Color.clear
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .refreshable { await viewModel.load(instance: instance, serviceManager: serviceManager) }
+        .onChange(of: data.allVersions.map(\.version)) { _, versions in
+            if let version = selectedVersion, !versions.compactMap({ $0 }).contains(version) {
+                selectedVersion = nil
+            }
+        }
+    }
+
+    /// Inline changelog list with expandable sections for compact iPhone.
+    private func inlineChangelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, instance: ArrInstanceRef) -> some View {
         let service = instance.serviceType
         return List {
             if data.allVersions.isEmpty {
@@ -180,6 +328,213 @@ struct ArrUpdatesView: View {
         .scrollContentBackground(.hidden)
         .refreshable { await viewModel.load(instance: instance, serviceManager: serviceManager) }
         .animation(.default, value: data.allVersions.map(\.id))
+    }
+
+    // MARK: - Detail Content
+
+    @ViewBuilder
+    private var selectedUpdateDetail: some View {
+        if let instance = selectedInstance,
+           let data = viewModel.allUpdates[instance.id],
+           let update = data.allVersions.first(where: { $0.version == selectedVersion }) {
+            UpdateDetailPane(
+                update: update,
+                instance: instance,
+                service: instance.serviceType,
+                isInstalling: viewModel.installingServices.contains(instance.id),
+                onInstall: { confirmingInstall = instance }
+            )
+            .id("\(instance.id.uuidString)-\(update.version ?? "")")
+        } else {
+            listDetailPlaceholder("Select a Release", systemImage: "arrow.down.app")
+        }
+    }
+
+    private func badge(_ label: String, color: Color) -> some View {
+        Text(label.uppercased())
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color, in: .capsule)
+    }
+
+    private func formattedDate(_ raw: String?) -> String? {
+        guard let raw, raw.count >= 10 else { return raw }
+        let s = String(raw.prefix(10))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: s) else { return s }
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
+    }
+}
+
+// MARK: - Detail Pane
+
+private struct UpdateDetailPane: View {
+    let update: ArrUpdateInfo
+    let instance: ArrInstanceRef
+    let service: ArrServiceType
+    let isInstalling: Bool
+    let onInstall: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header Card
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("v\(update.version ?? "Unknown")")
+                                .font(.title2.weight(.bold))
+
+                            if let date = formattedDate(update.releaseDate) {
+                                Text("Released \(date)")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        if update.installed == true {
+                            badge("Current Version", color: service.serviceIdentity.brandColor)
+                        } else if update.installable == true {
+                            badge("Update Available", color: .green)
+                        }
+                    }
+
+                    if update.installable == true && update.installed != true {
+                        Divider().padding(.vertical, 4)
+
+                        Button(action: onInstall) {
+                            HStack {
+                                if isInstalling {
+                                    ProgressView().controlSize(.small).tint(.white)
+                                }
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                    Text(isInstalling ? "Installing Update…" : "Install Update Now")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isInstalling)
+                    }
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                // Changelog Card
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Release Notes")
+                        .font(.headline)
+
+                    let newItems = update.changes?.new ?? []
+                    let fixedItems = update.changes?.fixed ?? []
+
+                    if newItems.isEmpty && fixedItems.isEmpty {
+                        Text("No change notes provided for this release.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        if !newItems.isEmpty {
+                            changeSection(title: "New Features", icon: "sparkles", color: .blue, items: newItems)
+                        }
+
+                        if !fixedItems.isEmpty {
+                            changeSection(title: "Bug Fixes", icon: "wrench.and.screwdriver.fill", color: .orange, items: fixedItems)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(20)
+        }
+        .moreDestinationBackground(.updates)
+        .navigationTitle("v\(update.version ?? "Unknown")")
+        .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer keeps these actions at the trailing edge,
+            // clear of the list column's toolbar group.
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            if update.installable == true && update.installed != true {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button(action: onInstall) {
+                        if isInstalling {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Install Update", systemImage: "arrow.down.circle.fill")
+                        }
+                    }
+                    .disabled(isInstalling)
+                }
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Color.clear.frame(width: 0, height: 0)
+                }
+            }
+            #else
+            if update.installable == true && update.installed != true {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button(action: onInstall) {
+                        if isInstalling {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Install Update", systemImage: "arrow.down.circle.fill")
+                        }
+                    }
+                    .disabled(isInstalling)
+                }
+            }
+            #endif
+        }
+    }
+
+    private func badge(_ label: String, color: Color) -> some View {
+        Text(label.uppercased())
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color, in: .capsule)
+    }
+
+    private func changeSection(title: String, icon: String, color: Color, items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(color)
+
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(item)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func formattedDate(_ raw: String?) -> String? {
+        guard let raw, raw.count >= 10 else { return raw }
+        let s = String(raw.prefix(10))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: s) else { return s }
+        return date.formatted(.dateTime.month(.abbreviated).day().year())
     }
 }
 
@@ -373,46 +728,59 @@ final class ArrUpdatesViewModel {
                 guard let client = serviceManager.prowlarrClient else { return }
                 _ = try await client.postCommand(name: "ApplicationUpdate")
             case .bazarr:
-                return
+                break
             }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Update Started",
-                message: "\(instance.displayName) update command sent."
+                message: "Update is being installed for \(serviceManager.scopeLabel(for: instance)).",
+                source: .inApp
             )
         } catch {
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            InAppNotificationCenter.shared.showError(
+                title: "Update Failed",
+                message: error.localizedDescription,
+                source: .inApp
+            )
         }
     }
 }
 
 #if DEBUG
 extension ArrUpdatesViewModel {
-    func setPreviewUpdates(_ data: [UUID: ServiceUpdatesData]) {
-        allUpdates = data
-        loadingServices = []
-        installingServices = []
+    func setPreviewUpdates(_ updates: [UUID: ServiceUpdatesData]) {
+        self.allUpdates = updates
     }
 }
 
-#Preview("Updates - Loaded") {
-    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+#Preview("Updates - Available") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
         NavigationStack {
-            ArrUpdatesView(previewUpdates: [
-                ArrInstanceRef.preview(.sonarr).id: .init(currentVersion: "4.0.12.2823", allVersions: ArrUpdateInfo.previewList, isDocker: true, error: nil),
-                ArrInstanceRef.preview(.radarr).id: .init(currentVersion: "5.4.6.8723", allVersions: ArrUpdateInfo.previewList, isDocker: false, error: nil),
-            ])
+            ArrUpdatesView(
+                previewUpdates: [
+                    ArrInstanceRef.preview(.sonarr).id: ArrUpdatesViewModel.ServiceUpdatesData(
+                        currentVersion: "4.0.0.100",
+                        allVersions: ArrUpdateInfo.previewList,
+                        isDocker: false,
+                        error: nil
+                    )
+                ]
+            )
         }
     }
 }
 
-#Preview("Updates - Error") {
-    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+#Preview("Updates - Up to date") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
         NavigationStack {
             ArrUpdatesView(
                 previewUpdates: [
-                    ArrInstanceRef.preview(.sonarr).id: .init(currentVersion: nil, allVersions: [], isDocker: false, error: "Update feed unavailable.")
-                ],
-                selectedInstanceID: ArrInstanceRef.preview(.sonarr).id
+                    ArrInstanceRef.preview(.sonarr).id: ArrUpdatesViewModel.ServiceUpdatesData(
+                        currentVersion: "4.0.0.900",
+                        allVersions: [ArrUpdateInfo.preview],
+                        isDocker: false,
+                        error: nil
+                    )
+                ]
             )
         }
     }

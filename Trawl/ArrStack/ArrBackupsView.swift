@@ -53,13 +53,51 @@ struct ArrBackupsView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
 
-    /// Nil until the first appear picks the first configured server; there is no
-    /// sensible default before the manager knows what exists.
-    @State private var selectedSource: BackupSource?
-    @State private var states: [UUID: BackupViewState] = [:]
-    @State private var unavailable: Set<UUID> = []
-    @State private var jellyfinState = JellyfinBackupState()
-    @State private var sortOrder: BackupSortOrder = .newestFirst
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(\.hasDetailPane) private var hasDetailPane
+    @Environment(ArrBackupsBrowserState.self) private var sharedBrowser: ArrBackupsBrowserState?
+    @State private var localBrowser = ArrBackupsBrowserState()
+
+    private var browser: ArrBackupsBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
+    private var selectedBackupID: String? {
+        get { browser.selectedBackupID }
+        nonmutating set { browser.selectedBackupID = newValue }
+    }
+
+    private var selectedSource: BackupSource? {
+        get {
+            guard let id = browser.selectedSourceID else { return availableSources.first }
+            return availableSources.first { $0.id == id } ?? availableSources.first
+        }
+        nonmutating set {
+            browser.selectedSourceID = newValue?.id
+            browser.selectedBackupID = nil
+        }
+    }
+
+    private var states: [UUID: ArrBackupViewState] {
+        get { browser.states }
+        nonmutating set { browser.states = newValue }
+    }
+
+    private var unavailable: Set<UUID> {
+        get { browser.unavailable }
+        nonmutating set { browser.unavailable = newValue }
+    }
+
+    private var jellyfinState: ArrJellyfinBackupState {
+        get { browser.jellyfinState }
+        nonmutating set { browser.jellyfinState = newValue }
+    }
+
+    private var sortOrder: ArrBackupSortOrder {
+        get { browser.sortOrder }
+        nonmutating set { browser.sortOrder = newValue }
+    }
+
     @State private var showSettings = false
     @State private var sourcePendingBackupCreation: BackupSource?
     @State private var backupPendingDelete: PendingBackupDelete?
@@ -77,37 +115,26 @@ struct ArrBackupsView: View {
         selectJellyfin: Bool = false,
         error: String? = nil
     ) {
-        _selectedSource = State(
-            initialValue: selectJellyfin ? .jellyfin : .arr(.preview(selectedService))
-        )
-        _states = State(initialValue: Dictionary(
+        let browser = ArrBackupsBrowserState()
+        browser.selectedSourceID = selectJellyfin ? "jellyfin" : "arr.\(ArrInstanceRef.preview(selectedService).id.uuidString)"
+        browser.states = Dictionary(
             uniqueKeysWithValues: previewStates.map { service, backups in
                 (
                     ArrInstanceRef.preview(service).id,
-                    BackupViewState(backups: backups, isLoading: false, isCreating: false, isUploading: false, error: error)
+                    ArrBackupViewState(backups: backups, isLoading: false, isCreating: false, isUploading: false, error: error)
                 )
             }
-        ))
+        )
         if let jellyfinPreview {
-            _jellyfinState = State(initialValue: JellyfinBackupState(backups: jellyfinPreview, isLoading: false, isCreating: false, error: error))
+            browser.jellyfinState = ArrJellyfinBackupState(backups: jellyfinPreview, isLoading: false, isCreating: false, error: error)
         }
+        _localBrowser = State(initialValue: browser)
     }
     #endif
 
-    private struct BackupViewState {
-        var backups: [ArrBackup] = []
-        var isLoading = false
-        var isCreating = false
-        var isUploading = false
-        var error: String?
-    }
-
-    private struct JellyfinBackupState {
-        var backups: [JellyfinBackupManifest] = []
-        var isLoading = false
-        var isCreating = false
-        var error: String?
-    }
+    typealias BackupViewState = ArrBackupViewState
+    typealias JellyfinBackupState = ArrJellyfinBackupState
+    typealias BackupSortOrder = ArrBackupSortOrder
 
     /// Backup create/restore run synchronously on the server and can take minutes
     /// (metadata, trickplay, etc.), so they need a far longer budget than the
@@ -119,28 +146,6 @@ struct ArrBackupsView: View {
         let instance: ArrInstanceRef
 
         var id: String { "\(instance.id.uuidString)-\(backup.id)" }
-    }
-
-    private enum BackupSortOrder: String, CaseIterable, Identifiable {
-        case newestFirst = "Newest First"
-        case oldestFirst = "Oldest First"
-        case nameAscending = "Name A-Z"
-        case nameDescending = "Name Z-A"
-        case largestFirst = "Largest First"
-        case smallestFirst = "Smallest First"
-
-        var id: Self { self }
-
-        var systemImage: String {
-            switch self {
-            case .newestFirst: "clock.arrow.circlepath"
-            case .oldestFirst: "clock"
-            case .nameAscending: "textformat.abc"
-            case .nameDescending: "textformat.abc.dottedunderline"
-            case .largestFirst: "arrow.down.to.line.compact"
-            case .smallestFirst: "arrow.up.to.line.compact"
-            }
-        }
     }
 
     private var availableSources: [BackupSource] {
@@ -186,18 +191,62 @@ struct ArrBackupsView: View {
     }
 
     var body: some View {
+        TrawlListDetailPanes(title: "Backups", subtitle: navigationSubtitleText) {
+            backupsListContent
+        } detail: {
+            selectedBackupDetail
+        }
+    }
+
+    private var backupsListContent: some View {
         Group {
             if availableSources.isEmpty {
                 ServiceSetupView(title: "No Services Configured", message: "Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.", systemImage: "externaldrive.fill")
-                .scrollableUnavailableState()
+                    .scrollableUnavailableState()
             } else {
                 selectedContent
             }
         }
-        .navigationTitle("Backups")
-        .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.backups)
-        .toolbar { backupsToolbar }
+        .safeAreaInset(edge: .top) {
+            if !availableSources.isEmpty {
+                TrawlSegmentBar(
+                    "Source",
+                    selection: Binding(
+                        get: { selectedSource },
+                        set: { newSource in withAnimation { selectedSource = newSource } }
+                    ),
+                    // Labelled per server, so an HD/4K pair reads as two entries
+                    // rather than one ambiguous "Sonarr".
+                    items: availableSources.map {
+                        TrawlSegmentBarItem(sourceLabel($0), value: Optional($0))
+                    },
+                    alignment: .leading
+                )
+            }
+        }
+        .toolbar {
+            if sidebarColumn != .detail {
+                backupsToolbar
+            }
+        }
+        .onAppear {
+            guard sidebarColumn != .detail else { return }
+            if selectedSource == nil || !availableSources.contains(selectedSource!) {
+                selectedSource = availableSources.first
+            }
+        }
+        .loadServicesPeriodically(
+            id: availableSources.map { source -> String in
+                switch source {
+                case .arr(let instance): instance.id.uuidString
+                case .jellyfin: "jellyfin:\(jellyfinServiceManager.isConnected)"
+                }
+            }.joined(),
+            keys: availableSources
+        ) { source in
+            await load(source)
+        }
         .alertsAndSheets(self)
     }
 
@@ -300,34 +349,6 @@ struct ArrBackupsView: View {
                 )
             }
         }
-        .safeAreaInset(edge: .top) {
-            if !availableSources.isEmpty {
-                TrawlSegmentBar(
-                    "Source",
-                    selection: Binding(
-                        get: { selectedSource },
-                        set: { newSource in withAnimation { selectedSource = newSource } }
-                    ),
-                    // Labelled per server, so an HD/4K pair reads as two entries
-                    // rather than one ambiguous "Sonarr".
-                    items: availableSources.map {
-                        TrawlSegmentBarItem(sourceLabel($0), value: Optional($0))
-                    },
-                    alignment: .leading
-                )
-            }
-        }
-        .loadServicesPeriodically(
-            id: availableSources.map { source -> String in
-                switch source {
-                case .arr(let instance): instance.id.uuidString
-                case .jellyfin: "jellyfin:\(jellyfinServiceManager.isConnected)"
-                }
-            }.joined(),
-            keys: availableSources
-        ) { source in
-            await load(source)
-        }
         .sheet(isPresented: $showSettings) {
             if let instance = selectedSource?.arrInstance {
                 NavigationStack {
@@ -340,11 +361,6 @@ struct ArrBackupsView: View {
                         }
                 }
                 .macSheetSizing()
-            }
-        }
-        .onAppear {
-            if selectedSource == nil || !availableSources.contains(selectedSource!) {
-                selectedSource = availableSources.first
             }
         }
     }
@@ -461,7 +477,25 @@ struct ArrBackupsView: View {
             } else {
                 Section {
                     ForEach(sortedBackups(state.backups), id: \.id) { backup in
-                        if let client = client(for: instance) {
+                        let id = "\(instance.id.uuidString)-\(backup.id)"
+                        if hasDetailPane {
+                            Button {
+                                selectedBackupID = id
+                            } label: {
+                                ArrBackupRow(
+                                    backup: backup,
+                                    instance: instance,
+                                    isPreparingShare: preparingShareID == sharePreparationID(for: backup, instance: instance)
+                                )
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(
+                                selectedBackupID == id
+                                    ? Color.accentColor.opacity(0.15)
+                                    : Color.clear
+                            )
+                        } else if let client = client(for: instance) {
                             let shareID = sharePreparationID(for: backup, instance: instance)
                             let shareItem = ArrBackupShareItem(backup: backup, instance: instance, client: client) { isPreparing in
                                 setSharePreparation(isPreparing, for: shareID)
@@ -578,7 +612,22 @@ struct ArrBackupsView: View {
             } else {
                 Section {
                     ForEach(sortedJellyfinBackups(jellyfinState.backups)) { backup in
-                        JellyfinBackupRow(backup: backup)
+                        let id = "jellyfin-\(backup.id)"
+                        if hasDetailPane {
+                            Button {
+                                selectedBackupID = id
+                            } label: {
+                                JellyfinBackupRow(backup: backup)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(
+                                selectedBackupID == id
+                                    ? Color.accentColor.opacity(0.15)
+                                    : Color.clear
+                            )
+                        } else {
+                            JellyfinBackupRow(backup: backup)
                             .contentShape(Rectangle())
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button {
@@ -593,6 +642,7 @@ struct ArrBackupsView: View {
                                     jellyfinPendingRestore = backup
                                 }
                             }
+                        }
                     }
                 }
             }
@@ -920,6 +970,281 @@ struct ArrBackupsView: View {
                 preparingShareID = nil
             }
         }
+    }
+
+    // MARK: - Detail Content
+
+    @ViewBuilder
+    private var selectedBackupDetail: some View {
+        Group {
+            if let id = selectedBackupID {
+                if id.hasPrefix("jellyfin-") {
+                    let jfID = String(id.dropFirst("jellyfin-".count))
+                    if let backup = jellyfinState.backups.first(where: { $0.id == jfID }) {
+                        JellyfinBackupDetailPane(
+                            backup: backup,
+                            onRestore: { jellyfinPendingRestore = backup }
+                        )
+                        .id(id)
+                    } else {
+                        listDetailPlaceholder("Select a Backup", systemImage: "arrow.clockwise.circle")
+                    }
+                } else {
+                    if let match = findArrBackup(by: id) {
+                        let shareID = sharePreparationID(for: match.backup, instance: match.instance)
+                        ArrBackupDetailPane(
+                            backup: match.backup,
+                            instance: match.instance,
+                            client: client(for: match.instance),
+                            isPreparingShare: preparingShareID == shareID,
+                            onRestore: { backupPendingRestore = PendingBackupDelete(backup: match.backup, instance: match.instance) },
+                            onDelete: { backupPendingDelete = PendingBackupDelete(backup: match.backup, instance: match.instance) },
+                            setPreparingShare: { isPreparing in
+                                setSharePreparation(isPreparing, for: shareID)
+                            }
+                        )
+                        .id(id)
+                    } else {
+                        listDetailPlaceholder("Select a Backup", systemImage: "arrow.clockwise.circle")
+                    }
+                }
+            } else {
+                listDetailPlaceholder("Select a Backup", systemImage: "arrow.clockwise.circle")
+            }
+        }
+        .alertsAndSheets(self)
+    }
+
+    private func findArrBackup(by id: String) -> (backup: ArrBackup, instance: ArrInstanceRef)? {
+        for source in availableSources {
+            guard let instance = source.arrInstance, let state = states[instance.id] else { continue }
+            for backup in state.backups {
+                if "\(instance.id.uuidString)-\(backup.id)" == id {
+                    return (backup, instance)
+                }
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - Detail Panes
+
+private struct ArrBackupDetailPane: View {
+    let backup: ArrBackup
+    let instance: ArrInstanceRef
+    let client: (any SharedArrClient)?
+    let isPreparingShare: Bool
+    let onRestore: () -> Void
+    let onDelete: () -> Void
+    let setPreparingShare: (Bool) -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header Card
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(backup.name)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(.primary)
+
+                            Text(serviceManager.scopeLabel(for: instance))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        badge(typeLabel, color: typeColor)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let date = formattedDate {
+                            LabeledContent("Created", value: date)
+                        }
+                        if let size = backup.size {
+                            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                        }
+                        LabeledContent("Type", value: typeLabel)
+                    }
+                    .font(.subheadline)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                // Actions Card
+                VStack(spacing: 12) {
+                    Button(action: onRestore) {
+                        Label("Restore Backup…", systemImage: "arrow.counterclockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+
+                    if let client {
+                        let shareItem = ArrBackupShareItem(backup: backup, instance: instance, client: client) { isPreparing in
+                            setPreparingShare(isPreparing)
+                        }
+                        ShareLink(
+                            item: shareItem,
+                            preview: SharePreview(backup.name, icon: Image(systemName: "externaldrive"))
+                        ) {
+                            HStack {
+                                if isPreparingShare {
+                                    ProgressView().controlSize(.small).padding(.trailing, 4)
+                                }
+                                Label("Export / Save Archive…", systemImage: "square.and.arrow.up")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .simultaneousGesture(TapGesture().onEnded {
+                            setPreparingShare(true)
+                        })
+                    }
+
+                    Button(role: .destructive, action: onDelete) {
+                        Label("Delete Backup", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(20)
+        }
+        .moreDestinationBackground(.backups)
+        .navigationTitle(backup.name)
+        .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer keeps detail actions at the trailing edge,
+            // clear of the list column's toolbar group.
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            ToolbarItem(placement: .primaryAction) {
+                Color.clear.frame(width: 0, height: 0)
+            }
+            #endif
+        }
+    }
+
+    private var typeLabel: String {
+        switch backup.type.lowercased() {
+        case "manual": "Manual"
+        case "scheduled": "Scheduled"
+        case "update": "Pre-Update"
+        default: backup.type.capitalized
+        }
+    }
+
+    private var typeColor: Color {
+        switch backup.type.lowercased() {
+        case "manual": instance.serviceType.serviceIdentity.brandColor
+        case "scheduled": .teal
+        case "update": .green
+        default: .secondary
+        }
+    }
+
+    private var formattedDate: String? {
+        guard let date = ArrBackupsView.parseDate(backup.time) else { return backup.time }
+        return date.formatted(date: .long, time: .shortened)
+    }
+
+    private func badge(_ label: String, color: Color) -> some View {
+        Text(label.uppercased())
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color, in: .capsule)
+    }
+}
+
+private struct JellyfinBackupDetailPane: View {
+    let backup: JellyfinBackupManifest
+    let onRestore: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header Card
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(backup.archiveFileName)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.primary)
+
+                        Text("Jellyfin Server Backup")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let date = formattedDate {
+                            LabeledContent("Created", value: date)
+                        }
+                        if let version = backup.serverVersion {
+                            LabeledContent("Server Version", value: "Jellyfin \(version)")
+                        }
+                        LabeledContent("Included", value: components)
+                    }
+                    .font(.subheadline)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                // Actions Card
+                VStack(spacing: 12) {
+                    Button(action: onRestore) {
+                        Label("Restore Jellyfin Backup…", systemImage: "arrow.counterclockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(20)
+        }
+        .moreDestinationBackground(.backups)
+        .navigationTitle(backup.archiveFileName)
+        .toolbar {
+            #if os(macOS)
+            // macOS shares one toolbar between the split view's list and detail
+            // columns. The spacer keeps detail actions at the trailing edge,
+            // clear of the list column's toolbar group.
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            ToolbarItem(placement: .primaryAction) {
+                Color.clear.frame(width: 0, height: 0)
+            }
+            #endif
+        }
+    }
+
+    private var components: String {
+        guard let options = backup.options else { return "Database" }
+        var parts: [String] = []
+        if options.database { parts.append("Database") }
+        if options.metadata { parts.append("Metadata") }
+        if options.subtitles { parts.append("Subtitles") }
+        if options.trickplay { parts.append("Trickplay") }
+        return parts.isEmpty ? "Database" : parts.joined(separator: " · ")
+    }
+
+    private var formattedDate: String? {
+        guard let date = ArrBackupsView.parseDate(backup.dateCreated) else { return backup.dateCreated }
+        return date.formatted(date: .long, time: .shortened)
     }
 }
 

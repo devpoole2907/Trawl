@@ -27,5 +27,6 @@ struct TrawlPaneNavigationLink<Value: Hashable, Label: View>: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
