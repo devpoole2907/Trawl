@@ -45,15 +45,8 @@ final class JellyfinJourneyUITests: XCTestCase {
         // tested is the hub, not the route to it.
         XCTAssertTrue(
             openDestination(.jellyfinSessions, in: app),
-            "The Media Server hub should be reachable for a configured Jellyfin profile."
+            "The Sessions destination should be reachable for a configured Jellyfin profile."
         )
-
-        let sessions = firstButton(labelContaining: "Sessions", in: app)
-        XCTAssertTrue(
-            sessions.waitForExistence(in: app, timeout: 10),
-            "The configured Media Server hub should expose its Sessions administration path."
-        )
-        XCTAssertTrue(tapWhenHittable(sessions, in: app), "Tapping Sessions should push the real Jellyfin session list.")
 
         // These are independently decoded fields from the live session response, not
         // labels present on the Media Server hub. Together they prove the session row

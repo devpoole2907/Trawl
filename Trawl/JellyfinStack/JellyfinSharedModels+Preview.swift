@@ -226,19 +226,55 @@ extension JellyfinSession {
         userName: "Alice",
         deviceName: "Apple TV",
         client: "Infuse",
-        nowPlayingItem: JellyfinNowPlayingItem.makePreview(),
+        remoteEndPoint: "192.168.1.120:54321",
+        nowPlayingItem: JellyfinNowPlayingItem.makePreview(
+            overview: "A banker convicted of uxoricide forms a friendship with an inmate in Shawshank State Penitentiary.",
+            productionYear: 1994,
+            officialRating: "R"
+        ),
         playState: .preview
+    )
+    static let previewTranscoding = JellyfinSession.makePreview(
+        id: "session-5",
+        userName: "Charlie",
+        deviceName: "Chrome on macOS",
+        client: "Jellyfin Web",
+        remoteEndPoint: "192.168.1.145:51234",
+        nowPlayingItem: JellyfinNowPlayingItem.makePreview(
+            name: "Dune: Part Two",
+            type: "Movie",
+            runTimeTicks: 9_960_000_000,
+            overview: "Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.",
+            productionYear: 2024,
+            officialRating: "PG-13"
+        ),
+        playState: .preview,
+        transcodingInfo: [
+            "AudioCodec": "aac",
+            "VideoCodec": "h264",
+            "Container": "mp4",
+            "IsVideoDirect": false,
+            "IsAudioDirect": true,
+            "Bitrate": 12_500_000,
+            "Framerate": 23.976,
+            "Width": 1920,
+            "Height": 1080,
+            "AudioChannels": 6,
+            "TranscodeReasons": ["VideoCodecNotSupported", "ContainerNotSupported"]
+        ]
     )
     static let previewPaused = JellyfinSession.makePreview(
         id: "session-4",
         userName: "Preview User",
         deviceName: "iPad",
         client: "Jellyfin",
-        nowPlayingItem: JellyfinNowPlayingItem.makePreview(name: "Severance", type: "Episode"),
+        remoteEndPoint: "192.168.1.135:49152",
+        nowPlayingItem: JellyfinNowPlayingItem.makePreview(name: "Severance", type: "Episode", productionYear: 2022, officialRating: "TV-MA"),
         playState: .previewPaused
     )
     static let previewList: [JellyfinSession] = [
         previewActive,
+        previewTranscoding,
         previewPaused,
         preview,
         .makePreview(id: "session-3", userName: "Bob", deviceName: "iPhone", client: "Jellyfin"),
@@ -249,8 +285,10 @@ extension JellyfinSession {
         userName: String = "Preview User",
         deviceName: String = "MacBook Pro",
         client: String = "Jellyfin Web",
+        remoteEndPoint: String? = nil,
         nowPlayingItem: JellyfinNowPlayingItem? = nil,
-        playState: JellyfinPlayState? = nil
+        playState: JellyfinPlayState? = nil,
+        transcodingInfo: [String: Any]? = nil
     ) -> JellyfinSession {
         var json: [String: Any] = [
             "Id": id,
@@ -262,8 +300,14 @@ extension JellyfinSession {
             "LastActivityDate": "2026-05-23T19:45:00.0000000Z",
             "SupportsRemoteControl": true
         ]
+        if let endpoint = remoteEndPoint {
+            json["RemoteEndPoint"] = endpoint
+        }
+        if let transcode = transcodingInfo {
+            json["TranscodingInfo"] = transcode
+        }
         if let item = nowPlayingItem {
-            json["NowPlayingItem"] = [
+            var itemJSON: [String: Any] = [
                 "Id": item.id ?? "item-1",
                 "Name": item.name ?? "Unknown",
                 "Type": item.type ?? "Movie",
@@ -272,11 +316,21 @@ extension JellyfinSession {
                 "SeasonName": item.seasonName ?? "Season 1",
                 "IndexNumber": item.indexNumber ?? 1
             ]
+            if let overview = item.overview {
+                itemJSON["Overview"] = overview
+            }
+            if let year = item.productionYear {
+                itemJSON["ProductionYear"] = year
+            }
+            if let rating = item.officialRating {
+                itemJSON["OfficialRating"] = rating
+            }
+            json["NowPlayingItem"] = itemJSON
             json["PlayState"] = [
                 "PositionTicks": playState?.positionTicks ?? 1_800_000_000,
                 "IsPaused": playState?.isPaused ?? false,
                 "CanSeek": playState?.canSeek ?? true,
-                "PlayMethod": playState?.playMethod ?? "DirectPlay",
+                "PlayMethod": playState?.playMethod ?? (transcodingInfo != nil ? "Transcode" : "DirectPlay"),
                 "VolumeLevel": playState?.volumeLevel ?? 80
             ]
         }
@@ -292,7 +346,10 @@ extension JellyfinNowPlayingItem {
         id: String = "item-uuid",
         name: String = "The Shawshank Redemption",
         type: String = "Movie",
-        runTimeTicks: Int64 = 8_280_000_000
+        runTimeTicks: Int64 = 8_280_000_000,
+        overview: String? = nil,
+        productionYear: Int? = nil,
+        officialRating: String? = nil
     ) -> JellyfinNowPlayingItem {
         var json: [String: Any] = [
             "Id": id, "Name": name, "Type": type,
@@ -302,6 +359,15 @@ extension JellyfinNowPlayingItem {
             json["SeriesName"] = "Preview Series"
             json["SeasonName"] = "Season 1"
             json["IndexNumber"] = 1
+        }
+        if let overview {
+            json["Overview"] = overview
+        }
+        if let productionYear {
+            json["ProductionYear"] = productionYear
+        }
+        if let officialRating {
+            json["OfficialRating"] = officialRating
         }
         let data = try! JSONSerialization.data(withJSONObject: json, options: [])
         return try! JSONDecoder().decode(JellyfinNowPlayingItem.self, from: data)

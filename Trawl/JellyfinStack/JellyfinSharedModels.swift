@@ -689,6 +689,8 @@ nonisolated struct JellyfinSession: Decodable, Identifiable, Sendable {
     let supportsRemoteControl: Bool?
     let nowPlayingItem: JellyfinNowPlayingItem?
     let playState: JellyfinPlayState?
+    let remoteEndPoint: String?
+    let transcodingInfo: JellyfinTranscodingInfo?
 
     var isActive: Bool { nowPlayingItem != nil }
 
@@ -711,6 +713,69 @@ nonisolated struct JellyfinSession: Decodable, Identifiable, Sendable {
         case supportsRemoteControl = "SupportsRemoteControl"
         case nowPlayingItem = "NowPlayingItem"
         case playState = "PlayState"
+        case remoteEndPoint = "RemoteEndPoint"
+        case transcodingInfo = "TranscodingInfo"
+    }
+}
+
+nonisolated struct JellyfinTranscodingInfo: Decodable, Sendable {
+    let audioCodec: String?
+    let videoCodec: String?
+    let container: String?
+    let isVideoDirect: Bool?
+    let isAudioDirect: Bool?
+    let bitrate: Int?
+    let framerate: Float?
+    let completionPercentage: Double?
+    let width: Int?
+    let height: Int?
+    let audioChannels: Int?
+    let transcodeReasons: [String]?
+
+    var isDirectPlay: Bool {
+        (isVideoDirect == true || videoCodec == nil) &&
+        (isAudioDirect == true || audioCodec == nil) &&
+        (transcodeReasons == nil || transcodeReasons?.isEmpty == true)
+    }
+
+    var formattedBitrate: String? {
+        guard let bitrate, bitrate > 0 else { return nil }
+        if bitrate >= 1_000_000 {
+            return String(format: "%.1f Mbps", Double(bitrate) / 1_000_000.0)
+        } else {
+            return "\(bitrate / 1_000) kbps"
+        }
+    }
+
+    var resolution: String? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return "\(width)×\(height)"
+    }
+
+    var audioChannelsDescription: String? {
+        guard let audioChannels else { return nil }
+        switch audioChannels {
+        case 1: return "Mono (1.0)"
+        case 2: return "Stereo (2.0)"
+        case 6: return "5.1 Surround"
+        case 8: return "7.1 Surround"
+        default: return "\(audioChannels) ch"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case audioCodec = "AudioCodec"
+        case videoCodec = "VideoCodec"
+        case container = "Container"
+        case isVideoDirect = "IsVideoDirect"
+        case isAudioDirect = "IsAudioDirect"
+        case bitrate = "Bitrate"
+        case framerate = "Framerate"
+        case completionPercentage = "CompletionPercentage"
+        case width = "Width"
+        case height = "Height"
+        case audioChannels = "AudioChannels"
+        case transcodeReasons = "TranscodeReasons"
     }
 }
 
@@ -722,6 +787,9 @@ nonisolated struct JellyfinNowPlayingItem: Decodable, Sendable {
     let seriesName: String?
     let seasonName: String?
     let indexNumber: Int?
+    let overview: String?
+    let productionYear: Int?
+    let officialRating: String?
 
     var mediaType: String { type ?? "Unknown" }
 
@@ -752,6 +820,9 @@ nonisolated struct JellyfinNowPlayingItem: Decodable, Sendable {
         case seriesName = "SeriesName"
         case seasonName = "SeasonName"
         case indexNumber = "IndexNumber"
+        case overview = "Overview"
+        case productionYear = "ProductionYear"
+        case officialRating = "OfficialRating"
     }
 }
 
@@ -763,6 +834,18 @@ nonisolated struct JellyfinPlayState: Decodable, Sendable {
     let playMethod: String?
     let repeatMode: String?
     let volumeLevel: Int?
+
+    var formattedPosition: String {
+        guard let ticks = positionTicks, ticks > 0 else { return "0:00" }
+        let totalSeconds = ticks / 10_000_000
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 
     enum CodingKeys: String, CodingKey {
         case positionTicks = "PositionTicks"
