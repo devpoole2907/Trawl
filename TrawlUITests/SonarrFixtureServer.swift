@@ -44,6 +44,11 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private let downloadClientsJSON: String
     private let indexersJSON: String
     private let logJSON: String
+    private let rootFoldersJSON: String
+    private let diskSpaceJSON: String
+    private let backupsJSON: String
+    private let updatesJSON: String
+    private let remotePathMappingsJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -78,11 +83,21 @@ final class SonarrFixtureServer: @unchecked Sendable {
         indexersJSON: String = "[]",
         /// Defaults to an empty page, which is a real answer: a server with nothing
         /// logged is a state the Events screen has to render.
-        logJSON: String = #"{"page":1,"pageSize":50,"totalRecords":0,"records":[]}"#
+        logJSON: String = #"{"page":1,"pageSize":50,"totalRecords":0,"records":[]}"#,
+        rootFoldersJSON: String = #"[{"id":1,"path":"/media/tv","accessible":true,"freeSpace":1649267441664,"totalSpace":4000000000000},{"id":2,"path":"/media/anime","accessible":true,"freeSpace":1649267441664,"totalSpace":4000000000000}]"#,
+        diskSpaceJSON: String = #"[{"path":"/media/tv","label":"Media NVMe","freeSpace":1649267441664,"totalSpace":4000000000000},{"path":"/downloads","label":"Scratch Disk","freeSpace":128849018880,"totalSpace":1000000000000}]"#,
+        backupsJSON: String = #"[{"id":1,"name":"sonarr_backup_2026.09.01.zip","type":"scheduled","time":"2026-09-01T02:00:00Z","size":14500000,"path":"/backups/sonarr_backup_2026.09.01.zip"}]"#,
+        updatesJSON: String = #"[{"id":"4.0.12.2823","version":"4.0.12.2823","releaseDate":"2026-08-15T10:00:00Z","fileName":"Sonarr.main.4.0.12.2823.linux-x64.tar.gz","url":"https://sonarr.tv","installed":true,"installable":false,"latest":true,"changes":{"new":["Support for modern split views","Performance improvements"],"fixed":["Memory optimization during library refresh"]}}]"#,
+        remotePathMappingsJSON: String = #"[{"id":1,"host":"192.168.1.50","remotePath":"/remote/downloads/tv","localPath":"/media/tv"}]"#
     ) async throws {
         self.downloadClientsJSON = downloadClientsJSON
         self.indexersJSON = indexersJSON
         self.logJSON = logJSON
+        self.rootFoldersJSON = rootFoldersJSON
+        self.diskSpaceJSON = diskSpaceJSON
+        self.backupsJSON = backupsJSON
+        self.updatesJSON = updatesJSON
+        self.remotePathMappingsJSON = remotePathMappingsJSON
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.seriesResponseBody = seriesJSON
@@ -197,7 +212,15 @@ final class SonarrFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v3/indexer"):
             return indexersJSON
         case ("GET", "/api/v3/rootfolder"):
-            return "[]"
+            return rootFoldersJSON
+        case ("GET", "/api/v3/diskspace"):
+            return diskSpaceJSON
+        case ("GET", "/api/v3/system/backup"):
+            return backupsJSON
+        case ("GET", "/api/v3/update"):
+            return updatesJSON
+        case ("GET", "/api/v3/remotepathmapping"):
+            return remotePathMappingsJSON
         case ("GET", "/api/v3/tag"):
             return "[]"
         case ("GET", "/api/v3/series"):

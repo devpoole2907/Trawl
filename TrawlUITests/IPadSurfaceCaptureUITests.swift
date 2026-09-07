@@ -46,6 +46,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     private var seerr: SeerrUIFixtureServer?
     private var jellyfin: JellyfinUIFixtureServer?
     private var prowlarr: ProwlarrUIFixtureServer?
+    private var cleanuparr: CleanuparrUIFixtureServer?
 
     override func setUpWithError() throws {
         // A capture run is worth more partially complete than aborted: if one surface
@@ -61,6 +62,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         seerr?.stop(); seerr = nil
         jellyfin?.stop(); jellyfin = nil
         prowlarr?.stop(); prowlarr = nil
+        cleanuparr?.stop(); cleanuparr = nil
         XCUIDevice.shared.orientation = .portrait
     }
 
@@ -268,6 +270,131 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
         capture(app, "31-welcome-portrait")
+    }
+
+    // MARK: - New 3-Column Split View Screens (macOS & iPadOS polish)
+
+    @MainActor
+    func testCaptureNewScreensSplitViewsLandscape() async throws {
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
+
+        guard reachedTabUI(app) else {
+            capture(app, "00-UNREACHED-tab-ui-landscape")
+            dumpHierarchy(app, label: "landscape, tab UI unreachable")
+            return
+        }
+        ensureSidebarExpanded(app)
+
+        // 1. Disk Space
+        if let row = sidebarRow(app, "diskSpace", displayName: "Disk Space") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Disk Space"].waitForExistence(timeout: 10)
+            capture(app, "01-disk-space-unselected")
+
+            let diskRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Media")).firstMatch
+            if diskRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(diskRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Breakdown")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "02-disk-space-inspector-selected")
+            }
+        }
+
+        // 2. Root Folders
+        if let row = sidebarRow(app, "rootFolders", displayName: "Root Folders") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Root Folders"].waitForExistence(timeout: 10)
+            capture(app, "03-root-folders-unselected")
+
+            let serverRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Fixture Sonarr")).firstMatch
+            if serverRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(serverRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "/media/tv")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "04-root-folders-inspector-selected")
+            }
+        }
+
+        // 3. Jellyfin Plugins
+        if let row = sidebarRow(app, "jellyfinPlugins", displayName: "Plugins") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Plugins"].waitForExistence(timeout: 10)
+            capture(app, "05-jellyfin-plugins-unselected")
+
+            let pluginRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "TMDb Box Sets")).firstMatch
+            if pluginRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(pluginRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Organizes movies")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "06-jellyfin-plugins-inspector-selected")
+            }
+        }
+
+        // 4. Jellyfin Sessions
+        if let row = sidebarRow(app, "jellyfinSessions", displayName: "Sessions") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Sessions"].waitForExistence(timeout: 10)
+            capture(app, "07-jellyfin-sessions-unselected")
+
+            let sessionRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Apple TV")).firstMatch
+            if sessionRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(sessionRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "DirectPlay")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "08-jellyfin-sessions-detail-selected")
+            }
+        }
+
+        // 5. Cleanuparr
+        if let row = sidebarRow(app, "cleanuparr", displayName: "Cleanuparr") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Cleanuparr"].waitForExistence(timeout: 10)
+            capture(app, "09-cleanuparr-dashboard")
+        }
+
+        // 6. Backups
+        if let row = sidebarRow(app, "backups", displayName: "Backups") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Backups"].waitForExistence(timeout: 10)
+            capture(app, "10-backups-unselected")
+
+            let backupRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "sonarr_backup")).firstMatch
+            if backupRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(backupRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Archive Details")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "11-backups-detail-selected")
+            }
+        }
+
+        // 7. Updates
+        if let row = sidebarRow(app, "updates", displayName: "Updates") {
+            tapEvenIfNotHittable(row)
+            _ = app.navigationBars["Updates"].waitForExistence(timeout: 10)
+            capture(app, "12-updates-unselected")
+
+            let updateRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "4.0.12")).firstMatch
+            if updateRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(updateRow)
+                _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Release Notes")).firstMatch.waitForExistence(timeout: 8)
+                capture(app, "13-updates-detail-selected")
+            }
+        }
+
+        // 8. Remote Path Mappings
+        let sidebar = app.collectionViews["Sidebar"]
+        if sidebar.exists {
+            sidebar.swipeDown()
+            sidebar.swipeDown()
+        }
+        if let row = sidebarRow(app, "remotePaths", displayName: "Remote Path Mappings") {
+            tapEvenIfNotHittable(row)
+            if app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10) {
+                capture(app, "14-remote-paths-unselected")
+
+                let mappingRow = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "192.168.1.50")).firstMatch
+                if mappingRow.waitForExistence(timeout: 8) {
+                    tapEvenIfNotHittable(mappingRow)
+                    _ = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Path Translation")).firstMatch.waitForExistence(timeout: 8)
+                    capture(app, "15-remote-paths-detail-selected")
+                }
+            }
+        }
     }
 
     // MARK: - Detail-pane titles
@@ -566,27 +693,38 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// well below the fold, and a `List` does not put off-screen rows in the tree at
     /// all, so a plain wait reports them missing.
     @MainActor
-    private func sidebarRow(_ app: XCUIApplication, _ sidebarCase: String) -> XCUIElement? {
-        let row = app.cells
-            .containing(NSPredicate(format: "identifier == %@", "nav.\(sidebarCase)"))
-            .firstMatch
-        if row.waitForExistence(timeout: 3) { return row }
+    private func sidebarRow(_ app: XCUIApplication, _ sidebarCase: String, displayName: String? = nil) -> XCUIElement? {
+        func checkRow() -> XCUIElement? {
+            let row = app.cells
+                .containing(NSPredicate(format: "identifier == %@", "nav.\(sidebarCase)"))
+                .firstMatch
+            if row.exists { return row }
+            if let displayName {
+                let byLabel = app.cells
+                    .containing(NSPredicate(format: "label == %@ OR label CONTAINS[c] %@", displayName, displayName))
+                    .firstMatch
+                if byLabel.exists { return byLabel }
+            }
+            return nil
+        }
 
         let sidebar = app.collectionViews["Sidebar"]
-        guard sidebar.exists else { return nil }
-        // Both directions. These screens are not all below each other - Requests sits
-        // near the top and Quality Profiles near the bottom - so a run that only ever
-        // swiped up would find the first few and then report the rest missing purely
-        // because of the order they were asked for.
-        for _ in 0..<8 {
+        if let row = checkRow(), row.isHittable { return row }
+
+        guard sidebar.exists else { return checkRow() }
+        for _ in 0..<6 {
+            sidebar.swipeDown()
+            if let row = checkRow(), row.isHittable { return row }
+        }
+        for _ in 0..<10 {
             sidebar.swipeUp()
-            if row.waitForExistence(timeout: 1) { return row }
+            if let row = checkRow(), row.isHittable { return row }
         }
         for _ in 0..<10 {
             sidebar.swipeDown()
-            if row.waitForExistence(timeout: 1) { return row }
+            if let row = checkRow(), row.isHittable { return row }
         }
-        return nil
+        return checkRow()
     }
 
     /// Opens one pane screen, photographs it unselected, selects a named row, and
@@ -1055,12 +1193,17 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     @MainActor
     private func capture(_ app: XCUIApplication, _ name: String) {
         let stamped = "\(name)--\(orientationTag)"
+        let screenshot = XCUIScreen.main.screenshot()
         XCTContext.runActivity(named: "Capture \(stamped)") { activity in
-            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            let attachment = XCTAttachment(screenshot: screenshot)
             attachment.name = stamped
             attachment.lifetime = .keepAlways
             activity.add(attachment)
         }
+        let exportDir = ProcessInfo.processInfo.environment["TRAWL_SCREENSHOT_EXPORT_DIR"] ?? "/tmp/trawl_screenshots"
+        try? FileManager.default.createDirectory(atPath: exportDir, withIntermediateDirectories: true)
+        let filePath = "\(exportDir)/\(stamped).png"
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: filePath))
     }
 
     @MainActor
@@ -1109,6 +1252,9 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         let prowlarrServer = try await ProwlarrUIFixtureServer()
         prowlarr = prowlarrServer
 
+        let cleanuparrServer = try await CleanuparrUIFixtureServer()
+        cleanuparr = cleanuparrServer
+
         XCUIDevice.shared.orientation = orientation
 
         let app = XCUIApplication()
@@ -1120,6 +1266,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = seerrServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = jellyfinServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_PROWLARR_BASE_URL"] = prowlarrServer.baseURL
+        app.launchEnvironment["TRAWL_UITEST_CLEANUPARR_BASE_URL"] = cleanuparrServer.baseURL
         if multipleInstances {
             app.launchEnvironment["TRAWL_UITEST_SONARR_B_BASE_URL"] = sonarrServer.baseURL
             app.launchEnvironment["TRAWL_UITEST_RADARR_B_BASE_URL"] = radarrServer.baseURL

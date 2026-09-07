@@ -107,6 +107,10 @@ final class RadarrFixtureServer: @unchecked Sendable {
     private let lookupResponseJSON: String
     private let addedMovieJSON: String?
     private let extraLibraryMoviesJSON: String
+    private let diskSpaceJSON: String
+    private let backupsJSON: String
+    private let updatesJSON: String
+    private let remotePathMappingsJSON: String
     /// Queue body is explicit because the detail-card journey needs a live Arr
     /// queue row linked to a qBittorrent torrent. `{}` remains the historical,
     /// decodable empty-page default for every existing fixture consumer.
@@ -152,7 +156,11 @@ final class RadarrFixtureServer: @unchecked Sendable {
         lookupResponseJSON: String = "[]",
         addedMovieJSON: String? = nil,
         extraLibraryMoviesJSON: String = "[]",
-        queueResponseJSON: String = "{}"
+        queueResponseJSON: String = "{}",
+        diskSpaceJSON: String = #"[{"path":"/movies","label":"Movies Archive","freeSpace":2400000000000,"totalSpace":8000000000000}]"#,
+        backupsJSON: String = #"[{"id":10,"name":"radarr_backup_2026.09.05.zip","type":"manual","time":"2026-09-05T14:30:00Z","size":22000000,"path":"/backups/radarr_backup_2026.09.05.zip"}]"#,
+        updatesJSON: String = #"[{"id":"5.18.4.9674","version":"5.18.4.9674","releaseDate":"2026-08-20T12:00:00Z","fileName":"Radarr.master.5.18.4.9674.linux-core-x64.tar.gz","url":"https://radarr.video","installed":true,"installable":false,"latest":true,"changes":{"new":["Enhanced disk detection"],"fixed":["Fix movie naming bug"]}}]"#,
+        remotePathMappingsJSON: String = #"[{"id":10,"host":"192.168.1.50","remotePath":"/remote/downloads/movies","localPath":"/movies"}]"#
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -165,6 +173,10 @@ final class RadarrFixtureServer: @unchecked Sendable {
         self.addedMovieJSON = addedMovieJSON
         self.extraLibraryMoviesJSON = extraLibraryMoviesJSON
         self.queueResponseJSON = queueResponseJSON
+        self.diskSpaceJSON = diskSpaceJSON
+        self.backupsJSON = backupsJSON
+        self.updatesJSON = updatesJSON
+        self.remotePathMappingsJSON = remotePathMappingsJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -319,6 +331,18 @@ final class RadarrFixtureServer: @unchecked Sendable {
         }
         if request.method == "GET" && request.path == "/api/v3/rootfolder" {
             return rootFoldersJSON
+        }
+        if request.method == "GET" && request.path == "/api/v3/diskspace" {
+            return diskSpaceJSON
+        }
+        if request.method == "GET" && request.path == "/api/v3/system/backup" {
+            return backupsJSON
+        }
+        if request.method == "GET" && request.path == "/api/v3/update" {
+            return updatesJSON
+        }
+        if request.method == "GET" && request.path == "/api/v3/remotepathmapping" {
+            return remotePathMappingsJSON
         }
         if request.method == "GET" && request.path == "/api/v3/tag" {
             return "[]"
