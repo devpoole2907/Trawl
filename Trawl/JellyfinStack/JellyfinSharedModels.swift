@@ -981,6 +981,9 @@ nonisolated struct JellyfinPlugin: Decodable, Identifiable, Sendable {
     let description: String?
     let configurationFileName: String?
     let status: String?
+    let canUninstall: Bool?
+    let hasImage: Bool?
+    let overview: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -989,5 +992,8 @@ nonisolated struct JellyfinPlugin: Decodable, Identifiable, Sendable {
         case description = "Description"
         case configurationFileName = "ConfigurationFileName"
         case status = "Status"
+        case canUninstall = "CanUninstall"
+        case hasImage = "HasImage"
+        case overview = "Overview"
     }
 }

@@ -152,6 +152,12 @@ final class JellyfinUIFixtureServer: @unchecked Sendable {
             return hasActivePlayback ? .json(activeSessionJSON) : .json("[]")
         case ("POST", "/Sessions/\(Self.sessionID)/Playing/Stop"):
             return .noContent
+        case ("GET", "/Plugins"):
+            return .json(
+                #"[{"Id":"fixture-plugin-1","Name":"TMDb Box Sets","Version":"1.0.0.0","Description":"Organizes movies into collections based on TMDb box sets.","ConfigurationFileName":"tmdbboxsets.xml","Status":"Active","CanUninstall":true,"HasImage":true,"Overview":"Automatically creates Movie Box Sets (Collections) using The Movie Database collection data."}]"#
+            )
+        case ("DELETE", let path) where path.hasPrefix("/Plugins/"):
+            return .noContent
         default:
             return .json(#"{"Message":"Fixture route not implemented"}"#, status: 404)
         }

@@ -247,7 +247,7 @@ enum RootTab: Hashable, CaseIterable {
         case .downloads, .series, .movies, .search, .indexers,
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
-             .jellyfinSessions, .libraryImport, .subtitles, .logs, .settings, .health,
+             .jellyfinSessions, .jellyfinPlugins, .libraryImport, .subtitles, .logs, .settings, .health,
              .updates, .backups, .remotePaths, .cleanuparr: true
         default: false
         }

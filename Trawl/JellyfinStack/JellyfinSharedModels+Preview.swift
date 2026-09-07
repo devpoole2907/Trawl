@@ -463,20 +463,59 @@ extension JellyfinPlugin {
     static let preview = JellyfinPlugin.makePreview()
     static let previewList: [JellyfinPlugin] = [
         preview,
-        .makePreview(id: "plugin2", name: "Trakt", version: "3.0.2"),
-        .makePreview(id: "plugin3", name: "Skin Manager", version: "2.0.0.1"),
+        .makePreview(
+            id: "plugin2",
+            name: "Trakt",
+            version: "3.0.2",
+            description: "Record your TV show and movie watch history automatically to Trakt.tv.",
+            configurationFileName: "trakt.xml",
+            status: "Restart",
+            canUninstall: true
+        ),
+        .makePreview(
+            id: "plugin3",
+            name: "Skin Manager",
+            version: "2.0.0.1",
+            description: "Custom UI theme provider for Jellyfin web and mobile clients.",
+            configurationFileName: "skinmanager.xml",
+            status: "Active",
+            canUninstall: true
+        ),
+        .makePreview(
+            id: "plugin4",
+            name: "Open Subtitles",
+            version: "1.0.0.0",
+            description: "Built-in subtitle fetcher integration from OpenSubtitles.org.",
+            configurationFileName: "subtitles.xml",
+            status: "Active",
+            canUninstall: false
+        ),
     ]
 
     fileprivate static func makePreview(
         id: String = "plugin1",
         name: String = "TMDb Box Sets",
-        version: String = "1.0.0.0"
+        version: String = "1.0.0.0",
+        description: String = "Organizes movies into collections based on TMDb box sets.",
+        configurationFileName: String = "tmdbboxsets.xml",
+        status: String = "Active",
+        canUninstall: Bool = true,
+        hasImage: Bool = true,
+        overview: String? = "Automatically creates Movie Box Sets (Collections) using The Movie Database collection data."
     ) -> JellyfinPlugin {
-        let json: [String: Any] = [
-            "Id": id, "Name": name, "Version": version,
-            "Description": "Organizes movies into collections based on TMDb box sets.",
-            "Status": "Active"
+        var json: [String: Any] = [
+            "Id": id,
+            "Name": name,
+            "Version": version,
+            "Description": description,
+            "ConfigurationFileName": configurationFileName,
+            "Status": status,
+            "CanUninstall": canUninstall,
+            "HasImage": hasImage,
         ]
+        if let overview {
+            json["Overview"] = overview
+        }
         let data = try! JSONSerialization.data(withJSONObject: json, options: [])
         return try! JSONDecoder().decode(JellyfinPlugin.self, from: data)
     }

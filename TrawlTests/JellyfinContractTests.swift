@@ -685,6 +685,122 @@ struct JellyfinContractTests {
         #expect(server.requests[2].queryValue("SearchTerm") == "Prophecy")
     }
 
+    // MARK: - Plugins
+
+    @Test("getPlugins issues GET /Plugins and decodes plugin metadata and capabilities")
+    func getPluginsDecodesMetadataAndCapabilities() async throws {
+        let server = try await JellyfinContractServer(label: "plugins-list") { _ in
+            JellyfinCannedResponse.json(
+                #"""
+                [
+                    {
+                        "Id": "plugin-101",
+                        "Name": "TMDb Box Sets",
+                        "Version": "1.0.0.0",
+                        "Description": "Organizes movies into collections.",
+                        "ConfigurationFileName": "tmdbboxsets.xml",
+                        "Status": "Active",
+                        "CanUninstall": true,
+                        "HasImage": true,
+                        "Overview": "Automatic box set creation."
+                    }
+                ]
+                """#
+            )
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "test-token")
+
+        let plugins = try await client.getPlugins()
+
+        #expect(plugins.count == 1)
+        let plugin = try #require(plugins.first)
+        #expect(plugin.id == "plugin-101")
+        #expect(plugin.name == "TMDb Box Sets")
+        #expect(plugin.version == "1.0.0.0")
+        #expect(plugin.description == "Organizes movies into collections.")
+        #expect(plugin.configurationFileName == "tmdbboxsets.xml")
+        #expect(plugin.status == "Active")
+        #expect(plugin.canUninstall == true)
+        #expect(plugin.hasImage == true)
+        #expect(plugin.overview == "Automatic box set creation.")
+        #expect(plugin.statusLabel == "Active")
+
+        #expect(server.requests.count == 1)
+        let req = try #require(server.requests.first)
+        #expect(req.method == "GET")
+        #expect(req.path == "/Plugins")
+    }
+
+    @Test("deletePlugin targets /Plugins/{id} or /Plugins/{id}/{version} with DELETE")
+    func deletePluginTargetsPathWithVersion() async throws {
+        let server = try await JellyfinContractServer(label: "plugin-delete") { _ in
+            JellyfinCannedResponse(status: 204, body: Data(), contentType: "application/json")
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "test-token")
+
+        try await client.deletePlugin(id: "plugin-101", version: "1.0.0.0")
+
+        #expect(server.requests.count == 1)
+        let req = try #require(server.requests.first)
+        #expect(req.method == "DELETE")
+        #expect(req.path == "/Plugins/plugin-101/1.0.0.0")
+
+        try await client.deletePlugin(id: "plugin-101", version: nil)
+
+        #expect(server.requests.count == 2)
+        let req2 = try #require(server.requests.last)
+        #expect(req2.method == "DELETE")
+        #expect(req2.path == "/Plugins/plugin-101")
+    }
+
+    @Test("JellyfinPluginBrowserState manages plugin loading, selection, and deletion")
+    func pluginBrowserStateLifecycle() async throws {
+        let server = try await JellyfinContractServer(label: "plugin-browser") { req in
+            if req.method == "GET" && req.path == "/Plugins" {
+                return JellyfinCannedResponse.json(
+                    #"""
+                    [
+                        {
+                            "Id": "plugin-1",
+                            "Name": "Plugin 1",
+                            "Version": "1.0",
+                            "Status": "Active",
+                            "CanUninstall": true
+                        },
+                        {
+                            "Id": "plugin-2",
+                            "Name": "Plugin 2",
+                            "Version": "2.0",
+                            "Status": "Restart",
+                            "CanUninstall": false
+                        }
+                    ]
+                    """#
+                )
+            } else if req.method == "DELETE" {
+                return JellyfinCannedResponse(status: 204, body: Data(), contentType: "application/json")
+            }
+            return nil
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "test-token")
+        let browser = JellyfinPluginBrowserState()
+
+        await browser.loadPlugins(apiClient: client)
+        #expect(browser.plugins.count == 2)
+        #expect(browser.errorMessage == nil)
+
+        browser.selectedPluginID = "plugin-1"
+        let pluginToDelete = try #require(browser.plugins.first)
+        await browser.deletePlugin(pluginToDelete, apiClient: client)
+
+        #expect(browser.plugins.count == 1)
+        #expect(browser.selectedPluginID == nil)
+        #expect(browser.plugins.first?.id == "plugin-2")
+    }
+
     // MARK: - Helpers
 
     /// Reads the resolver's settled state. `ensureLoaded` fires a detached Task
