@@ -124,6 +124,7 @@ struct ContentView: View {
     @State private var jellyfinSessionBrowser = JellyfinSessionBrowserState()
     @State private var jellyfinPluginBrowser = JellyfinPluginBrowserState()
     @State private var rootFolderBrowser = ArrRootFolderBrowserState()
+    @State private var diskSpaceBrowser = ArrDiskSpaceBrowserState()
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -1024,7 +1025,7 @@ struct ContentView: View {
             .environment(indexerBrowser)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
-             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
+             .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
@@ -1154,7 +1155,7 @@ struct ContentView: View {
                 .environment(arrServiceManager)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
-             .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
+             .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             listDetailPlaceholder("Search Trawl", systemImage: "magnifyingglass")
@@ -1200,6 +1201,7 @@ struct ContentView: View {
         .environment(jellyfinSessionBrowser)
         .environment(jellyfinPluginBrowser)
         .environment(rootFolderBrowser)
+        .environment(diskSpaceBrowser)
         .id(destination)
     }
 

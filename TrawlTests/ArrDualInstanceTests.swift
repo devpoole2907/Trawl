@@ -1021,6 +1021,26 @@ struct ArrDualInstanceRoutingTests {
         #expect(browser.selectedInstanceID == sampleID)
     }
 
+    @Test("Disk space browser state tracks selection and reconciles")
+    func diskSpaceBrowserStateTracksSelectionAndReconciles() {
+        let browser = ArrDiskSpaceBrowserState()
+        #expect(browser.selectedDiskID == nil)
+        let sample = ArrDiskSpaceSnapshot(
+            serviceType: .sonarr,
+            path: "/media",
+            label: "Media",
+            freeSpace: 500_000,
+            totalSpace: 1_000_000
+        )
+        browser.snapshots = [sample]
+        browser.reconcileSelection()
+        #expect(browser.selectedDiskID == sample.id)
+
+        browser.selectedDiskID = "missing-id"
+        browser.reconcileSelection()
+        #expect(browser.selectedDiskID == sample.id)
+    }
+
     @Test("Badges appear only once a second server exists")
     func provenanceIsSuppressedForASingleServer() async throws {
         let hd = try await DualInstanceRadarrServer(label: "hd-badge", movies: "[]")

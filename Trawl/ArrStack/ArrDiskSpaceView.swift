@@ -2,49 +2,80 @@ import SwiftUI
 
 struct ArrDiskSpaceView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrDiskSpaceBrowserState.self) private var sharedBrowser: ArrDiskSpaceBrowserState?
+    @State private var localBrowser = ArrDiskSpaceBrowserState()
 
-    @State private var snapshots: [ArrDiskSpaceSnapshot] = []
-    @State private var isLoading = false
+    private var browser: ArrDiskSpaceBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     #if DEBUG
     init(previewSnapshots: [ArrDiskSpaceSnapshot] = [], isLoading: Bool = false) {
-        _snapshots = State(initialValue: previewSnapshots)
-        _isLoading = State(initialValue: isLoading)
+        let browser = ArrDiskSpaceBrowserState()
+        browser.snapshots = previewSnapshots
+        browser.isLoading = isLoading
+        _localBrowser = State(initialValue: browser)
     }
+    #else
+    init() {}
     #endif
 
     var body: some View {
         Group {
+            if showsDetailPane {
+                TrawlListDetailPanes(title: "Disk Space", subtitle: "Storage") {
+                    diskList
+                } detail: {
+                    selectedDiskDetail
+                }
+                .task(id: reloadKey) {
+                    #if DEBUG
+                    if ArrPreviewRuntime.isActive { return }
+                    #endif
+                    guard sidebarColumn != .detail else { return }
+                    await browser.loadDiskSpace(serviceManager: serviceManager)
+                }
+            } else {
+                compactContent
+            }
+        }
+    }
+
+    // MARK: - Split View List Column
+    @ViewBuilder
+    private var diskList: some View {
+        @Bindable var browser = self.browser
+        Group {
             if !hasConfiguredService {
                 ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to inspect storage usage.", systemImage: "server.rack")
-                .scrollableUnavailableState()
+                    .scrollableUnavailableState()
             } else if !hasConnectedService {
                 ArrServicesConnectionStatusView(
                     services: diskSpaceServices,
                     title: "Services Unreachable",
                     message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
-            } else if isLoading && snapshots.isEmpty {
+            } else if browser.isLoading && browser.snapshots.isEmpty {
                 ProgressView("Loading disk space...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if snapshots.isEmpty {
+            } else if browser.snapshots.isEmpty {
                 ContentUnavailableView(
                     "No Disk Data",
                     systemImage: "externaldrive.badge.questionmark",
                     description: Text("No disk space information is currently available from your services.")
                 )
-                // Without this the branch is only as big as its own text, so
-                // `.background(backgroundGradient)` below painted a hard-edged
-                // rectangle of gradient floating in the middle of the pane instead of
-                // washing the whole of it.
                 .scrollableUnavailableState()
             } else {
-                // One section per server. Two Radarr instances on the same host
-                // report the same volumes, and the point of reading this screen
-                // with a pair is seeing which server is filling which disk.
-                List {
+                List(selection: $browser.selectedDiskID) {
                     ForEach(groupedSnapshots, id: \.title) { group in
-                        serviceSection(title: group.title, snapshots: group.snapshots)
+                        Section(group.title) {
+                            ForEach(group.snapshots) { snapshot in
+                                diskRow(snapshot)
+                                    .tag(snapshot.id)
+                            }
+                        }
                     }
                 }
                 #if os(iOS)
@@ -53,6 +84,77 @@ struct ArrDiskSpaceView: View {
                 .listStyle(.inset)
                 #endif
                 .scrollContentBackground(.hidden)
+                .refreshable {
+                    await browser.loadDiskSpace(serviceManager: serviceManager)
+                }
+            }
+        }
+        .background(backgroundGradient)
+        .onChange(of: browser.snapshots.map(\.id), initial: true) { _, _ in
+            browser.reconcileSelection()
+        }
+    }
+
+    // MARK: - Split View Detail Column
+    @ViewBuilder
+    private var selectedDiskDetail: some View {
+        if let selectedID = browser.selectedDiskID,
+           let snapshot = browser.snapshots.first(where: { $0.id == selectedID }) {
+            ArrDiskDetailView(snapshot: snapshot)
+                .id(snapshot.id)
+        } else if browser.snapshots.isEmpty {
+            listDetailPlaceholder("No Drives", systemImage: "internaldrive")
+        } else {
+            listDetailPlaceholder("Select a Drive", systemImage: "internaldrive")
+        }
+    }
+
+    // MARK: - Compact Content (iPhone)
+    @ViewBuilder
+    private var compactContent: some View {
+        Group {
+            if !hasConfiguredService {
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to inspect storage usage.", systemImage: "server.rack")
+                    .scrollableUnavailableState()
+            } else if !hasConnectedService {
+                ArrServicesConnectionStatusView(
+                    services: diskSpaceServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
+                )
+            } else if browser.isLoading && browser.snapshots.isEmpty {
+                ProgressView("Loading disk space...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if browser.snapshots.isEmpty {
+                ContentUnavailableView(
+                    "No Disk Data",
+                    systemImage: "externaldrive.badge.questionmark",
+                    description: Text("No disk space information is currently available from your services.")
+                )
+                .scrollableUnavailableState()
+            } else {
+                List {
+                    ForEach(groupedSnapshots, id: \.title) { group in
+                        Section(group.title) {
+                            ForEach(group.snapshots) { snapshot in
+                                NavigationLink {
+                                    ArrDiskDetailView(snapshot: snapshot)
+                                } label: {
+                                    diskRow(snapshot)
+                                }
+                            }
+                        }
+                    }
+                }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
+                .refreshable {
+                    await browser.loadDiskSpace(serviceManager: serviceManager)
+                }
             }
         }
         .background(backgroundGradient)
@@ -61,10 +163,7 @@ struct ArrDiskSpaceView: View {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif
-            await loadDiskSpace()
-        }
-        .refreshable {
-            await loadDiskSpace()
+            await browser.loadDiskSpace(serviceManager: serviceManager)
         }
     }
 
@@ -93,14 +192,14 @@ struct ArrDiskSpaceView: View {
     private var groupedSnapshots: [(title: String, snapshots: [ArrDiskSpaceSnapshot])] {
         var groups: [(title: String, snapshots: [ArrDiskSpaceSnapshot])] = []
         for ref in serviceManager.visibleArrInstances.map(\.ref) {
-            let matching = snapshots.filter { $0.instance?.id == ref.id }
+            let matching = browser.snapshots.filter { $0.instance?.id == ref.id }
             guard !matching.isEmpty else { continue }
             groups.append((title: sectionTitle(for: ref), snapshots: matching))
         }
         // Preview and fixture snapshots carry no server; keep them visible under
         // their service name rather than dropping them off the screen.
         for serviceType in [ArrServiceType.sonarr, .radarr] {
-            let orphans = snapshots.filter { $0.instance == nil && $0.serviceType == serviceType }
+            let orphans = browser.snapshots.filter { $0.instance == nil && $0.serviceType == serviceType }
             if !orphans.isEmpty {
                 groups.append((title: serviceType.displayName, snapshots: orphans))
             }
@@ -113,38 +212,6 @@ struct ArrDiskSpaceView: View {
             return ref.serviceType.displayName
         }
         return "\(ref.serviceType.displayName) - \(ref.shortLabel)"
-    }
-
-    private func loadDiskSpace() async {
-        isLoading = true
-        var all: [ArrDiskSpaceSnapshot] = []
-        for (ref, client) in serviceManager.visibleArrInstances {
-            all += await loadDiskSpace(from: client, instance: ref)
-        }
-        snapshots = all
-        isLoading = false
-    }
-
-    private func loadDiskSpace(
-        from client: (any SharedArrClient)?,
-        instance: ArrInstanceRef
-    ) async -> [ArrDiskSpaceSnapshot] {
-        guard let client else { return [] }
-
-        do {
-            return try await client.getDiskSpace().map {
-                ArrDiskSpaceSnapshot(
-                    serviceType: instance.serviceType,
-                    path: $0.path ?? "Unknown",
-                    label: $0.label,
-                    freeSpace: $0.freeSpace,
-                    totalSpace: $0.totalSpace,
-                    instance: instance
-                )
-            }
-        } catch {
-            return []
-        }
     }
 
     private var backgroundGradient: some View {
@@ -170,68 +237,339 @@ struct ArrDiskSpaceView: View {
         .ignoresSafeArea()
     }
 
-    private func serviceSection(title: String, snapshots: [ArrDiskSpaceSnapshot]) -> some View {
-        Section(title) {
-            ForEach(snapshots) { snapshot in
-                DiskSpaceRow(snapshot: snapshot)
-            }
-        }
-    }
-}
+    private func diskRow(_ snapshot: ArrDiskSpaceSnapshot) -> some View {
+        let total = snapshot.totalSpace ?? 0
+        let free = snapshot.freeSpace ?? 0
+        let used = max(0, total - free)
+        let percent = total > 0 ? Int((Double(used) / Double(total)) * 100) : 0
+        let isLowSpace = total > 0 && free < total / 10
+        let isModerateSpace = total > 0 && free < total / 5
 
-private struct DiskSpaceRow: View {
-    let snapshot: ArrDiskSpaceSnapshot
+        let statusColor: Color = isLowSpace ? .red : (isModerateSpace ? .orange : .teal)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(snapshot.label ?? "Storage")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: isLowSpace ? "internaldrive.badge.exclamationmark" : "internaldrive.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(statusColor)
+
+                Text(snapshot.label ?? (snapshot.path.isEmpty ? "Storage" : snapshot.path))
                     .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 8)
 
                 if let freeSpace = snapshot.freeSpace {
                     Text("\(ByteFormatter.format(bytes: freeSpace)) free")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isLowSpace ? .red : .secondary)
                 }
             }
 
             Text(snapshot.path)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+                .lineLimit(1)
 
-            if let totalSpace = snapshot.totalSpace, totalSpace > 0, let freeSpace = snapshot.freeSpace {
-                let usedSpace = totalSpace - freeSpace
-                ProgressView(value: Double(usedSpace), total: Double(totalSpace))
-                    .tint(freeSpace > totalSpace / 5 ? .teal : .orange)
+            if total > 0 {
+                ProgressView(value: Double(used), total: Double(total))
+                    .tint(statusColor)
 
                 HStack {
-                    Text("Used \(ByteFormatter.format(bytes: usedSpace))")
+                    Text("\(percent)% full")
                     Spacer()
-                    Text("Total \(ByteFormatter.format(bytes: totalSpace))")
+                    Text("Total \(ByteFormatter.format(bytes: total))")
                 }
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
     }
 }
 
-private protocol ArrDiskSpaceViewProviding: Sendable {
-    func getDiskSpace() async throws -> [ArrDiskSpace]
-}
+struct ArrDiskDetailView: View {
+    let snapshot: ArrDiskSpaceSnapshot
+    @Environment(ArrServiceManager.self) private var serviceManager
 
-extension SonarrAPIClient: ArrDiskSpaceViewProviding {}
-extension RadarrAPIClient: ArrDiskSpaceViewProviding {}
+    private var total: Int64 { snapshot.totalSpace ?? 0 }
+    private var free: Int64 { snapshot.freeSpace ?? 0 }
+    private var used: Int64 { max(0, total - free) }
+    private var usedFraction: Double {
+        total > 0 ? min(1.0, max(0.0, Double(used) / Double(total))) : 0
+    }
+    private var usedPercent: Int {
+        Int(usedFraction * 100)
+    }
+
+    private var isLowSpace: Bool {
+        total > 0 && free < total / 10
+    }
+    private var isModerateSpace: Bool {
+        total > 0 && free < total / 5
+    }
+
+    private var statusColor: Color {
+        if isLowSpace { return .red }
+        if isModerateSpace { return .orange }
+        return .teal
+    }
+
+    private var statusText: String {
+        if isLowSpace { return "Critically Low" }
+        if isModerateSpace { return "Low Space" }
+        return "Healthy"
+    }
+
+    private var statusIcon: String {
+        if isLowSpace { return "exclamationmark.triangle.fill" }
+        if isModerateSpace { return "exclamationmark.circle.fill" }
+        return "checkmark.circle.fill"
+    }
+
+    private var driveTitle: String {
+        snapshot.label ?? (snapshot.path.isEmpty ? "Storage" : snapshot.path)
+    }
+
+    private var serverName: String {
+        if let instance = snapshot.instance {
+            if serviceManager.showsInstanceProvenance(for: instance.serviceType) {
+                return "\(instance.serviceType.displayName) - \(instance.shortLabel)"
+            }
+            return instance.serviceType.displayName
+        }
+        return snapshot.serviceType.displayName
+    }
+
+    private var matchingRootFolders: [ArrRootFolder] {
+        guard let instance = snapshot.instance else { return [] }
+        let allRoots = serviceManager.rootFolders(for: instance.id)
+        let mount = snapshot.path
+        if mount == "/" {
+            return allRoots
+        }
+        return allRoots.filter { folder in
+            folder.path.hasPrefix(mount)
+        }
+    }
+
+    private var headerBadges: [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = []
+        if total > 0 {
+            badges.append(ArrDetailBadge(
+                icon: "chart.pie.fill",
+                label: "\(usedPercent)% Full",
+                color: statusColor
+            ))
+        }
+        if free > 0 {
+            badges.append(ArrDetailBadge(
+                icon: "arrow.down.circle.fill",
+                label: "\(ByteFormatter.format(bytes: free)) Free",
+                color: isLowSpace ? .red : .secondary
+            ))
+        }
+        if total > 0 {
+            badges.append(ArrDetailBadge(
+                icon: "internaldrive.fill",
+                label: "\(ByteFormatter.format(bytes: total)) Total",
+                color: .secondary
+            ))
+        }
+        badges.append(ArrDetailBadge(
+            icon: statusIcon,
+            label: statusText,
+            color: statusColor
+        ))
+        return badges
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: driveTitle,
+                    subtitle: "\(snapshot.path) on \(serverName)",
+                    systemImage: isLowSpace ? "internaldrive.badge.exclamationmark" : "internaldrive.fill",
+                    tint: statusColor,
+                    shape: .rounded,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
+
+            if total > 0 {
+                Section("Storage Capacity") {
+                    storageRingCard
+                }
+            }
+
+            if !matchingRootFolders.isEmpty {
+                Section("Root Folders on this Volume") {
+                    ForEach(matchingRootFolders) { folder in
+                        rootFolderRow(folder)
+                    }
+                }
+            }
+
+            Section("Drive Information") {
+                LabeledContent("Mount Path") {
+                    Text(snapshot.path)
+                        .textSelection(.enabled)
+                }
+                if let label = snapshot.label, !label.isEmpty {
+                    LabeledContent("Volume Label", value: label)
+                }
+                LabeledContent("Server") {
+                    HStack(spacing: 6) {
+                        Image(systemName: snapshot.serviceType.systemImage)
+                            .foregroundStyle(snapshot.serviceType.serviceIdentity.brandColor)
+                        Text(serverName)
+                    }
+                }
+                if let tier = snapshot.instance?.tier {
+                    LabeledContent("Quality Tier", value: tier.label)
+                }
+                LabeledContent("Status") {
+                    HStack(spacing: 4) {
+                        Image(systemName: statusIcon)
+                            .foregroundStyle(statusColor)
+                        Text(statusText)
+                            .foregroundStyle(statusColor)
+                    }
+                }
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+        .paneAwareNavigationTitle(
+            driveTitle,
+            subtitle: "Disk Space",
+            whenPane: driveTitle
+        )
+    }
+
+    private var storageRingCard: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 14)
+
+                Circle()
+                    .trim(from: 0, to: CGFloat(usedFraction))
+                    .stroke(
+                        AngularGradient(
+                            gradient: Gradient(colors: isLowSpace ? [.red, .orange] : [.teal, statusColor]),
+                            center: .center,
+                            startAngle: .degrees(-90),
+                            endAngle: .degrees(270)
+                        ),
+                        style: StrokeStyle(lineWidth: 14, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeInOut(duration: 0.5), value: usedFraction)
+
+                VStack(spacing: 2) {
+                    Text("\(usedPercent)%")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                    Text("Used")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 130, height: 130)
+            .padding(.top, 8)
+
+            HStack(spacing: 0) {
+                storageMetricBox(
+                    title: "Used",
+                    value: ByteFormatter.format(bytes: used),
+                    color: statusColor
+                )
+                Divider()
+                    .frame(height: 36)
+                storageMetricBox(
+                    title: "Free",
+                    value: ByteFormatter.format(bytes: free),
+                    color: isLowSpace ? .red : .primary
+                )
+                Divider()
+                    .frame(height: 36)
+                storageMetricBox(
+                    title: "Capacity",
+                    value: ByteFormatter.format(bytes: total),
+                    color: .secondary
+                )
+            }
+            .padding(.bottom, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
+
+    private func storageMetricBox(title: String, value: String, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func rootFolderRow(_ folder: ArrRootFolder) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: folder.accessible == false ? "folder.badge.minus" : "folder.fill")
+                .font(.title3)
+                .foregroundStyle(folder.accessible == false ? .red : .teal)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.path)
+                    .font(.subheadline.weight(.medium))
+                    .textSelection(.enabled)
+
+                if folder.accessible == false {
+                    Text("Inaccessible")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Spacer()
+
+            if folder.accessible == false {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
 
 #if DEBUG
 #Preview("Disk Space - Loaded") {
     PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
         NavigationStack {
             ArrDiskSpaceView(previewSnapshots: ArrDiskSpaceSnapshot.previewList)
+        }
+    }
+}
+
+#Preview("Disk Space - Detail") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            if let snapshot = ArrDiskSpaceSnapshot.previewList.first {
+                ArrDiskDetailView(snapshot: snapshot)
+            }
         }
     }
 }
