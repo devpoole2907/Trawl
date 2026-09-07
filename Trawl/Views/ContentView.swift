@@ -123,6 +123,7 @@ struct ContentView: View {
     @State private var jellyfinLibraryBrowser = JellyfinLibraryBrowserState()
     @State private var jellyfinSessionBrowser = JellyfinSessionBrowserState()
     @State private var jellyfinPluginBrowser = JellyfinPluginBrowserState()
+    @State private var rootFolderBrowser = ArrRootFolderBrowserState()
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -1022,7 +1023,7 @@ struct ContentView: View {
             )
             .environment(indexerBrowser)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .libraryImport,
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
@@ -1152,7 +1153,7 @@ struct ContentView: View {
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
         case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .libraryImport,
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .updates, .backups, .remotePaths, .cleanuparr:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
@@ -1198,6 +1199,7 @@ struct ContentView: View {
         .environment(jellyfinLibraryBrowser)
         .environment(jellyfinSessionBrowser)
         .environment(jellyfinPluginBrowser)
+        .environment(rootFolderBrowser)
         .id(destination)
     }
 

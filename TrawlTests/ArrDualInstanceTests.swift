@@ -1012,6 +1012,15 @@ struct ArrDualInstanceRoutingTests {
         }
     }
 
+    @Test("Root folder browser state tracks selected instance")
+    func rootFolderBrowserStateTracksSelection() {
+        let browser = ArrRootFolderBrowserState()
+        #expect(browser.selectedInstanceID == nil)
+        let sampleID = UUID()
+        browser.selectedInstanceID = sampleID
+        #expect(browser.selectedInstanceID == sampleID)
+    }
+
     @Test("Badges appear only once a second server exists")
     func provenanceIsSuppressedForASingleServer() async throws {
         let hd = try await DualInstanceRadarrServer(label: "hd-badge", movies: "[]")

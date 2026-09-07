@@ -4,6 +4,14 @@ struct ArrRootFoldersView: View {
     private let initialInstanceID: UUID?
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrRootFolderBrowserState.self) private var sharedBrowser: ArrRootFolderBrowserState?
+    @State private var localBrowser = ArrRootFolderBrowserState()
+
+    private var browser: ArrRootFolderBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     @State private var showingAddSheet = false
     @State private var pendingDelete: (folder: ArrRootFolder, instance: ArrInstanceRef)?
@@ -15,6 +23,128 @@ struct ArrRootFoldersView: View {
     }
 
     var body: some View {
+        if showsDetailPane {
+            TrawlListDetailPanes(title: "Root Folders", subtitle: "Library Management") {
+                instanceList
+            } detail: {
+                selectedInstanceDetail
+            }
+            .task {
+                #if DEBUG
+                if ArrPreviewRuntime.isActive { return }
+                #endif
+                guard sidebarColumn != .detail else { return }
+                await refreshRootFolders()
+            }
+        } else {
+            compactContent
+        }
+    }
+
+    // MARK: - Split View List Column
+    @ViewBuilder
+    private var instanceList: some View {
+        @Bindable var browser = self.browser
+        Group {
+            if !hasAnyService {
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to view root folders.", systemImage: "folder.badge.questionmark")
+                    .scrollableUnavailableState()
+            } else if !hasAnyConnectedService {
+                ArrServicesConnectionStatusView(
+                    services: rootFolderServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
+                )
+            } else {
+                List(selection: $browser.selectedInstanceID) {
+                    Section {
+                        ForEach(foldersByInstance, id: \.ref.id) { group in
+                            instanceRow(group)
+                                .tag(group.ref.id)
+                        }
+                    }
+                }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
+                .refreshable {
+                    await refreshRootFolders()
+                }
+            }
+        }
+        .moreDestinationBackground(.rootFolders)
+        .onChange(of: foldersByInstance.map(\.ref.id), initial: true) { _, instanceIDs in
+            if let selected = browser.selectedInstanceID, !instanceIDs.contains(selected) {
+                browser.selectedInstanceID = instanceIDs.first
+            } else if browser.selectedInstanceID == nil {
+                browser.selectedInstanceID = initialInstanceID ?? instanceIDs.first
+            }
+        }
+    }
+
+    private func instanceRow(_ group: (ref: ArrInstanceRef, values: [ArrRootFolder])) -> some View {
+        let hasInaccessible = group.values.contains { $0.accessible == false }
+        let count = group.values.count
+        let countText = count == 1 ? "1 root folder" : "\(count) root folders"
+
+        return HStack(spacing: 12) {
+            Image(systemName: group.ref.serviceType.systemImage)
+                .font(.system(size: 20))
+                .foregroundStyle(group.ref.serviceType.serviceIdentity.brandColor)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(sectionTitle(for: group.ref))
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text(countText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if hasInaccessible {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: - Split View Detail Column
+    @ViewBuilder
+    private var selectedInstanceDetail: some View {
+        if let selectedID = browser.selectedInstanceID,
+           let group = foldersByInstance.first(where: { $0.ref.id == selectedID }) {
+            ArrInstanceRootFoldersDetailView(
+                instance: group.ref,
+                folders: group.values,
+                onAdd: { path, instance in
+                    await addFolder(path: path, instance: instance)
+                },
+                onDelete: { folder, instance in
+                    await deleteFolder(folder, on: instance)
+                }
+            )
+            .id(group.ref.id)
+        } else if foldersByInstance.isEmpty {
+            listDetailPlaceholder("No Servers Configured", systemImage: "folder")
+        } else {
+            listDetailPlaceholder("Select a Server", systemImage: "folder")
+        }
+    }
+
+    // MARK: - Compact Content (Existing iPhone Layout)
+    @ViewBuilder
+    private var compactContent: some View {
         Group {
             if !hasAnyService {
                 ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to view root folders.", systemImage: "folder.badge.questionmark")
@@ -248,6 +378,221 @@ struct ArrRootFoldersView: View {
     }
 }
 
+struct ArrInstanceRootFoldersDetailView: View {
+    let instance: ArrInstanceRef
+    let folders: [ArrRootFolder]
+    let onAdd: @Sendable (String, ArrInstanceRef) async -> Bool
+    let onDelete: @Sendable (ArrRootFolder, ArrInstanceRef) async -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @State private var showingAddSheet = false
+    @State private var folderPendingDelete: ArrRootFolder?
+    @State private var isDeleting = false
+
+    private var title: String {
+        guard serviceManager.showsInstanceProvenance(for: instance.serviceType) else {
+            return instance.serviceType.displayName
+        }
+        return "\(instance.serviceType.displayName) - \(instance.shortLabel)"
+    }
+
+    private var subtitle: String {
+        instance.displayName != instance.serviceType.displayName
+            ? instance.displayName
+            : "\(instance.serviceType.displayName) Server"
+    }
+
+    private var headerBadges: [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = []
+        badges.append(ArrDetailBadge(
+            icon: "folder.fill",
+            label: folders.count == 1 ? "1 Folder" : "\(folders.count) Folders",
+            color: instance.serviceType.serviceIdentity.brandColor
+        ))
+        if folders.contains(where: { $0.accessible == false }) {
+            badges.append(ArrDetailBadge(
+                icon: "exclamationmark.triangle.fill",
+                label: "Inaccessible Folder",
+                color: .red
+            ))
+        } else if !folders.isEmpty {
+            badges.append(ArrDetailBadge(
+                icon: "checkmark.circle.fill",
+                label: "Accessible",
+                color: .green
+            ))
+        }
+        let totalFree = folders.compactMap(\.freeSpace).reduce(0, +)
+        if totalFree > 0 {
+            badges.append(ArrDetailBadge(
+                icon: "internaldrive.fill",
+                label: "\(ByteFormatter.format(bytes: totalFree)) Free",
+                color: .secondary
+            ))
+        }
+        return badges
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: title,
+                    subtitle: subtitle,
+                    systemImage: instance.serviceType.systemImage,
+                    tint: instance.serviceType.serviceIdentity.brandColor,
+                    shape: .rounded,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
+
+            if folders.isEmpty {
+                Section {
+                    ContentUnavailableView {
+                        Label("No Root Folders", systemImage: "folder.badge.plus")
+                    } description: {
+                        Text("No root folders are configured on \(instance.displayName).")
+                    } actions: {
+                        Button {
+                            showingAddSheet = true
+                        } label: {
+                            Label("Add Root Folder", systemImage: "plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.vertical, 16)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(folders) { folder in
+                    Section {
+                        rootFolderDetailRow(folder)
+                    }
+                }
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+        .paneAwareNavigationTitle(
+            title,
+            subtitle: "Root Folders",
+            whenPane: title
+        )
+        .toolbar {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                Button {
+                    showingAddSheet = true
+                } label: {
+                    Label("Add Root Folder", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddSheet) {
+            AddRootFolderSheet(initialInstanceID: instance.id) { path, targetInstance in
+                await onAdd(path, targetInstance)
+            }
+            .environment(serviceManager)
+            #if os(iOS)
+            .presentationDetents([.medium])
+            #endif
+        }
+        .alert(
+            "Remove Root Folder?",
+            isPresented: Binding(
+                get: { folderPendingDelete != nil },
+                set: { if !$0 { folderPendingDelete = nil } }
+            )
+        ) {
+            if let pending = folderPendingDelete {
+                Button("Remove", role: .destructive) {
+                    let capture = pending
+                    folderPendingDelete = nil
+                    Task {
+                        isDeleting = true
+                        await onDelete(capture, instance)
+                        isDeleting = false
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    folderPendingDelete = nil
+                }
+            }
+        } message: {
+            if let pending = folderPendingDelete {
+                Text("Remove \"\(pending.path)\" from \(instance.displayName)? Files will not be deleted.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rootFolderDetailRow(_ folder: ArrRootFolder) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: folder.accessible == false ? "folder.badge.minus" : "folder.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(folder.accessible == false ? .red : instance.serviceType.serviceIdentity.brandColor)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(folder.path)
+                        .font(.headline)
+                        .textSelection(.enabled)
+
+                    if folder.accessible == false {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text("Not accessible by \(instance.displayName)")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button(role: .destructive) {
+                    folderPendingDelete = folder
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isDeleting)
+                .accessibilityLabel("Remove \(folder.path)")
+            }
+
+            if let totalSpace = folder.totalSpace, totalSpace > 0, let freeSpace = folder.freeSpace {
+                let usedSpace = max(0, totalSpace - freeSpace)
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: Double(usedSpace), total: Double(totalSpace))
+                        .tint(freeSpace > totalSpace / 5 ? instance.serviceType.serviceIdentity.brandColor : .orange)
+
+                    HStack {
+                        Text("Used: \(ByteFormatter.format(bytes: usedSpace))")
+                        Spacer()
+                        Text("Free: \(ByteFormatter.format(bytes: freeSpace)) of \(ByteFormatter.format(bytes: totalSpace))")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+            } else if let freeSpace = folder.freeSpace {
+                HStack {
+                    Text("Free Space:")
+                        .foregroundStyle(.secondary)
+                    Text(ByteFormatter.format(bytes: freeSpace))
+                        .fontWeight(.medium)
+                }
+                .font(.caption)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 #if DEBUG
 #Preview("Root Folders - Loaded") {
     PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
@@ -274,7 +619,7 @@ struct ArrRootFoldersView: View {
 }
 #endif
 
-private struct AddRootFolderSheet: View {
+fileprivate struct AddRootFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
 
