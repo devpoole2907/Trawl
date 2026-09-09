@@ -46,7 +46,7 @@ struct TrawlInlineCallout: View {
                 Text(message)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
 
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)

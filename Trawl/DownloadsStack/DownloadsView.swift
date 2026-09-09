@@ -164,18 +164,17 @@ struct DownloadsView: View {
         // titles, two subtitles, and a polling task that stopped itself when the list
         // it was attached to went away. Those were symptoms of the same mistake.
         downloadsContent
-            // Directly under the title, not anchored to it. A `.popoverTip` on the
-            // `.principal` toolbar item never presented: that placement replaces the
-            // navigation title and its popovers do not appear, whether the tip is
-            // attached to the menu or to a hairline sibling beside it - both were
-            // tried. An inset immediately below the bar is the nearest thing that
-            // does show, it is the same inline treatment the two library tips use,
-            // and the tip's own words say which control to tap.
+            .trawlTitleMenuShrinksOnScroll($isTitleCompact)
+            .toolbar { titleMenuToolbarItem }
+            .toolbar { sharedToolbarContent }
+            // Keep all header chrome in one inset, matching Series and Movies.
+            // Separate nested insets are not equivalent on macOS: each one becomes
+            // another AppKit safe-area layout boundary, and the outer collision
+            // banner used to be measured above the toolbar at smaller heights.
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    // Above the tip, not below: a collision is happening right now and
-                    // about to cost the user a wrongly-filed film, where the tip is only
-                    // teaching a gesture.
+                    // A collision is happening now, so it stays above the teaching
+                    // tip and the ordinary filtering controls.
                     if let collision = queueDownloadCollisions.first {
                         QueueDownloadCollisionBanner(collision: collision)
                             .padding(.horizontal, 16)
@@ -187,11 +186,23 @@ struct DownloadsView: View {
                             .padding(.horizontal, 16)
                             .padding(.bottom, 8)
                     }
+                    TrawlSegmentBar(
+                        "Downloads",
+                        selection: Binding(
+                            get: { selectedSection },
+                            set: { newSection in
+                                withAnimation { selectedSection = newSection }
+                            }
+                        ),
+                        items: visibleSections.map(\.segmentBarItem),
+                        searchText: $viewModel.searchText,
+                        searchHint: "Search downloads",
+                        isSearchExpanded: $isSearchExpanded,
+                        searchPlacement: .leading,
+                        alignment: .leading
+                    )
                 }
             }
-            .trawlTitleMenuShrinksOnScroll($isTitleCompact)
-            .toolbar { titleMenuToolbarItem }
-            .toolbar { sharedToolbarContent }
     }
 
     /// The title menu replaces the navigation title rather than joining it, so
@@ -440,28 +451,7 @@ struct DownloadsView: View {
             // client" is the cause, and this is the screen the user is looking at
             // when they notice.
             //
-            // Before the segment bar's inset, so it ends up *below* it. A later
-            // `safeAreaInset` is the outer one and sits nearer the top edge, so
-            // applying this last - which is where it started - drove a wedge between
-            // the title and the filter controls that belong to it.
             .configurationAttention(.downloads)
-            .safeAreaInset(edge: .top) {
-                TrawlSegmentBar(
-                    "Downloads",
-                    selection: Binding(
-                        get: { selectedSection },
-                        set: { newSection in
-                            withAnimation { selectedSection = newSection }
-                        }
-                    ),
-                    items: visibleSections.map(\.segmentBarItem),
-                    searchText: $viewModel.searchText,
-                    searchHint: "Search downloads",
-                    isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
-                )
-            }
             .onChange(of: visibleSections) { _, sections in
                 // The selected segment keeps itself visible while it's selected, so
                 // this only fires when the segment goes away for a reason the user

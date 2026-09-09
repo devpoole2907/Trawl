@@ -194,6 +194,9 @@ struct ContentView: View {
         .environment((appServices ?? disconnectedServices).syncService)
         .environment((appServices ?? disconnectedServices).torrentService)
         .preferredColorScheme(themeOverride.colorScheme)
+        #if os(macOS)
+        .frame(minHeight: 400)
+        #endif
         .background(
             GeometryReader { geometry in
                 Color.clear
@@ -202,9 +205,6 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         )
-        #if os(macOS)
-        .modifier(WindowMinHeightFixer())
-        #endif
         #if os(macOS)
         .overlay(alignment: .top) {
             if let banner = inAppNotificationCenter.currentBanner {
@@ -726,14 +726,25 @@ struct ContentView: View {
 
     /// The sidebar column, with the notification bar pinned beneath it.
     ///
-    /// The inset belongs to *this column*, not to the split view around it. Attached
-    /// outside, it laid the bar across the whole window: the sidebar's own scroll
-    /// view never learned about it, so the last rows of the last section - System's
-    /// Settings among them - sat under a bar that swallowed their taps. Attached
-    /// here, UIKit insets the list's content by the bar's height, so those rows
-    /// scroll clear of it, and the columns beside it keep their full height instead
-    /// of being shortened by chrome that does not belong to them.
+    /// UIKit needs safe-area insets so the list scrolls clear of the floating chrome.
+    /// AppKit does not: wrapping a macOS `List` in those insets makes its hosting view
+    /// advertise the height of every sidebar row as the window's minimum. A vertical
+    /// stack gives the native list the flexible middle slot it expects, so it scrolls
+    /// at short window heights instead of stretching or clipping the whole split view.
+    @ViewBuilder
     private func sidebarColumn(services: AppServices, downloadBadge: Int) -> some View {
+        #if os(macOS)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                sidebarAttentionBanner
+                sidebarList(downloadBadge: downloadBadge)
+                sidebarNotificationBar(services: services)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .refreshesConfigurationAudit(forContextualBanner: true)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
+        #else
         sidebarList(downloadBadge: downloadBadge)
             .safeAreaInset(edge: .top) {
                 sidebarAttentionBanner
@@ -743,6 +754,7 @@ struct ContentView: View {
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
+        #endif
     }
 
     /// The setup-attention banner, at the top of the sidebar rather than on each
@@ -1875,62 +1887,3 @@ private struct PendingDeepLink {
     /// Only meaningful for `.downloads`; steers the segment bar once the tab is up.
     var downloadsSection: DownloadSection?
 }
-
-// MARK: - Mac window minimum height clamp
-
-#if os(macOS)
-/// Prevents the sidebar's content from inflating the window's minimum height.
-///
-/// macOS derives a window's minimum size from `NSSplitViewController`'s
-/// autolayout constraints. A `List` with many rows and `safeAreaInset` chrome
-/// can push the minimum past ~1 000 pt. Neither SwiftUI's `.frame` modifier
-/// nor compression-resistance tweaks override this because the split view
-/// controller operates on AppKit's constraint system directly.
-///
-/// This modifier applies `.onAppear` to repeatedly clamp every visible
-/// window's `contentMinSize.height`, and also installs a KVO observer on each
-/// window so newly-derived minimums are caught immediately.
-private struct WindowMinHeightFixer: ViewModifier {
-    private static let maxMinHeight: CGFloat = 400
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                NSLog("[WindowMinHeightFixer] onAppear – clamping all windows")
-                clampAllWindows()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)
-            ) { notification in
-                if let window = notification.object as? NSWindow {
-                    clampWindow(window)
-                }
-            }
-    }
-
-    private func clampAllWindows() {
-        for window in NSApp.windows {
-            print("[WindowMinHeightFixer] Window: contentMinSize=\(window.contentMinSize), minSize=\(window.minSize), frame=\(window.frame)")
-            clampWindow(window)
-            // Also dump the content view's fittingSize
-            if let cv = window.contentView {
-                print("[WindowMinHeightFixer]   contentView.fittingSize=\(cv.fittingSize)")
-                print("[WindowMinHeightFixer]   contentView.intrinsicContentSize=\(cv.intrinsicContentSize)")
-                // Find constraints with high/required priority on the content view
-                for constraint in cv.constraints where constraint.priority.rawValue >= 900 && constraint.firstAttribute == .height {
-                    print("[WindowMinHeightFixer]   HIGH constraint: \(constraint)")
-                }
-            }
-        }
-    }
-
-    private func clampWindow(_ window: NSWindow) {
-        if window.contentMinSize.height > Self.maxMinHeight {
-            window.contentMinSize.height = Self.maxMinHeight
-        }
-        if window.minSize.height > Self.maxMinHeight + 28 {
-            window.minSize.height = Self.maxMinHeight + 28
-        }
-    }
-}
-#endif

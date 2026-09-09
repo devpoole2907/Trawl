@@ -262,24 +262,31 @@ private struct ConfigurationAttentionInset: ViewModifier {
     /// on drawing beside the sidebar's copy and the screen said the same thing twice.
     private var showsContextualBanner: Bool { !sidebarCarriesTheBanner }
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if showsContextualBanner {
+        if showsContextualBanner {
+            content
+                .safeAreaInset(edge: .top, spacing: 0) {
                     ConfigurationAttentionBanner(topic: topic) { showSetupCheck = true }
                 }
-            }
-            .refreshesConfigurationAudit(forContextualBanner: true)
-            .sheet(isPresented: $showSetupCheck) {
-                if let auditStore {
-                    ConfigurationWizardView(
-                        issues: auditStore.issues,
-                        onDismissIssue: { auditStore.dismiss($0) },
-                        onRecheck: { await recheck(auditStore) }
-                    )
-                    .environment(arrServiceManager)
+                .refreshesConfigurationAudit(forContextualBanner: true)
+                .sheet(isPresented: $showSetupCheck) {
+                    if let auditStore {
+                        ConfigurationWizardView(
+                            issues: auditStore.issues,
+                            onDismissIssue: { auditStore.dismiss($0) },
+                            onRecheck: { await recheck(auditStore) }
+                        )
+                        .environment(arrServiceManager)
+                    }
                 }
-            }
+        } else {
+            // An inset whose content conditionally renders `EmptyView` is still an
+            // inset in AppKit's split-view layout. Do not create the layout boundary
+            // at all when the sidebar already owns the banner.
+            content
+                .refreshesConfigurationAudit(forContextualBanner: true)
+        }
     }
 
     private func recheck(_ auditStore: ConfigurationAuditStore) async {

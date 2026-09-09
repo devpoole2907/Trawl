@@ -218,8 +218,12 @@ hit-testing or scrolling area remained. Guard the modifier, not only its content
 `IPadSidebarJourneyUITests.testSelectingAPromotedDestinationOpensIt` protects the
 shared iPad selection/scrolling path. Native Mac hit-testing remains a manual
 runtime check (the Mac scheme has no test target): click Series, scroll to Settings,
-open it, then return to Downloads across the two-/three-column layout change.
-This journey reproduced the failure before the fix and passed after rebuilding.
+open it, then return to Downloads across the two-/three-column layout change. Window
+sizing is checked in the same run: with a live queue-collision banner, resize to 500pt
+high and cycle Series → Movies → Downloads; the titlebar and Downloads header must
+remain visible, the sidebar must stay independently scrollable, and AppKit must retain
+the declarative 452pt frame minimum. This journey reproduced both failures before the
+fix and passed after rebuilding.
 
 ## Feature-discovery tips (TipKit)
 
