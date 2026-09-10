@@ -45,13 +45,27 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
 
         navigateToQBittorrentServerEditor(in: app)
 
-        let editTitle = app.navigationBars["Edit Server"]
+        // "Edit qBittorrent" rather than "Edit Server": the setup sheets were
+        // standardized to name the service they are editing.
+        let editTitle = app.navigationBars["Edit qBittorrent"]
         XCTAssertTrue(editTitle.waitForExistence(timeout: 10), "Selecting the active qBittorrent server should present the real OnboardingSheet in edit mode.")
 
-        let host = app.textFields["Server address"]
+        // `ServerURLField`'s default title is "Server address", but this sheet overrides
+        // it with a service-specific one carrying an example address
+        // ("qBittorrent URL (e.g. http://192.168.1.100:8080)"). Matched on the stable
+        // prefix so the example host and port can change without breaking this - the
+        // same reason `ArrSetupEditJourneyUITests` matches its host field by prefix.
+        let host = app.textFields["qBittorrent URL (e.g. http://192.168.1.100:8080)"]
         let username = app.textFields["Username"]
         let password = app.secureTextFields["Password"]
-        XCTAssertTrue(host.waitForExistence(timeout: 10), "The edit sheet should expose its Server address field.")
+        if !host.waitForExistence(timeout: 10) {
+            XCTFail("The edit sheet should expose its URL field. On screen: \(app.debugDescription)")
+        }
+        // The sheet has to still be there a moment later. Two `.sheet` modifiers on one
+        // view is a SwiftUI trap rather than two presentations, and the symptom is this
+        // exact shape: the editor appears and dismisses itself a beat afterwards, so a
+        // test that only checks it opened passes while the feature is unusable.
+        XCTAssertTrue(editTitle.exists, "The edit sheet should stay open rather than dismissing itself.")
         waitForValue(host, expected: original.baseURL, timeout: 10)
         replace(replacement.baseURL, in: host, deleting: original.baseURL.count, in: app)
 
@@ -62,8 +76,18 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertTrue(password.waitForExistence(in: app, timeout: 10), "The edit sheet should expose its Password field.")
         replace("not-the-password", in: password, deleting: "uitest-password".count, in: app)
 
-        let connect = app.buttons["Connect"]
-        XCTAssertTrue(tap(connect, in: app, timeout: 5), "The populated qBittorrent edit form should enable Connect.")
+        // What is about to be saved, before it is saved. Without this a failed login
+        // assertion below cannot tell "the edit never took" from "the edit took and the
+        // app validated against the wrong host".
+        XCTAssertEqual(
+            host.value as? String,
+            replacement.baseURL,
+            "The host field should hold server B's URL exactly before the save."
+        )
+
+        // An edit commits with "Save Connection"; "Connect" is the add path's label.
+        let connect = app.buttons["Save Connection"]
+        XCTAssertTrue(tap(connect, in: app, timeout: 5), "The populated qBittorrent edit form should enable Save Connection.")
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 10) {
                 replacement.hasReceivedQBittorrentLogin(username: replacementUsername, password: "not-the-password")
@@ -187,12 +211,20 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertTrue(openDestination(.settings, in: app), "Settings should be open before selecting qBittorrent.")
         XCTAssertTrue(tap(firstButton(containing: "Fixture qBittorrent", in: app), in: app, timeout: 10), "Settings should show the seeded qBittorrent service row.")
         XCTAssertTrue(app.navigationBars["qBittorrent"].waitForExistence(timeout: 10), "The qBittorrent service row should route to qBittorrent Settings.")
+        // qBittorrent Settings used to hold a "Servers" row that pushed `ServerListView`,
+        // and the editor was two screens down. The configured server is now on the
+        // settings screen itself, as a row and an "Edit Server" action beside it that
+        // both open the same sheet - one screen instead of three for the one server
+        // this section can hold.
+        //
+        // The named action is the target rather than the row: the row is a
+        // `.buttonStyle(.plain)` HStack spanning the width of the form, and a tap at
+        // its centre lands between its two labels and does nothing. "Edit Server" is
+        // also what the SABnzbd half of this suite uses, so the two stay the same shape.
         XCTAssertTrue(
-            tap(app.staticTexts["Servers"], in: app, timeout: 10),
-            "qBittorrent Settings should expose the real Servers destination."
+            tap(app.buttons["Edit Server"], in: app, timeout: 10),
+            "qBittorrent Settings should offer Edit Server for the configured server."
         )
-        XCTAssertTrue(app.navigationBars["qBittorrent Server"].waitForExistence(timeout: 10), "Servers should push ServerListView.")
-        XCTAssertTrue(tap(firstButton(containing: "Fixture qBittorrent", in: app), in: app, timeout: 10), "Tapping the active server should open its actual edit form.")
     }
 
     @MainActor

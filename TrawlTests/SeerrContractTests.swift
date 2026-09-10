@@ -16,6 +16,33 @@ struct SeerrContractTests {
 
     // MARK: - Request shape, auth, and query encoding
 
+    /// The segment bar's own label is `rawValue`; what reaches Seerr is `apiValue`.
+    /// Nothing connects the two but this switch, so a filter added with the label
+    /// filled in and the API value forgotten - or copied from its neighbour - shows a
+    /// segment that quietly returns somebody else's list. The list is right either
+    /// way, which is what makes it hard to see.
+    @Test("Every request filter carries its own distinct API value")
+    func everyRequestFilterHasItsOwnAPIValue() {
+        let filters = SeerrRequestFilter.allCases
+        let apiValues = filters.map(\.apiValue)
+
+        #expect(Set(apiValues).count == apiValues.count, "Two filters sharing an API value would return the same list.")
+        #expect(Set(filters.map(\.rawValue)).count == filters.count)
+
+        for filter in filters {
+            #expect(!filter.apiValue.isEmpty, "\(filter.rawValue) has no API value.")
+            #expect(
+                filter.apiValue == filter.apiValue.lowercased(),
+                "Seerr's filter values are lowercase; \(filter.rawValue) sends \(filter.apiValue)."
+            )
+            #expect(
+                filter.apiValue == filter.rawValue.lowercased(),
+                "\(filter.rawValue)'s API value should be its own label, not a neighbour's."
+            )
+            #expect(filter.id == filter.rawValue)
+        }
+    }
+
     @Test("Request list and request count send the documented method, path, query, and session cookie")
     func requestListSendsDocumentedRequest() async throws {
         SeerrContractURLProtocol.stub(sequence: [

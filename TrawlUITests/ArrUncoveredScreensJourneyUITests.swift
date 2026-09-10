@@ -48,10 +48,8 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         let app = launchApp(sonarrBaseURL: sonarr.baseURL, bazarrBaseURL: nil)
 
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        // `openDestination` walks the System hub and lands on Logs & Activity itself.
         XCTAssertTrue(openDestination(.logs, in: app), "Logs should be reachable.")
-
-        let logs = firstButton(labelContaining: "Logs & Activity", in: app)
-        XCTAssertTrue(tapWhenHittable(logs, in: app, timeout: 12), "System should expose Logs & Activity.")
         XCTAssertTrue(app.navigationBars["Logs & Activity"].waitForExistence(in: app, timeout: 10), "The Logs & Activity hub should render.")
 
         let events = firstButton(labelContaining: "Events", in: app)

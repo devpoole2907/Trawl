@@ -69,37 +69,37 @@ struct BazarrSeriesDetailView: View {
     }
 
     private var contentView: some View {
-        List {
+        // A `Form`, styled the way every other detail pane in the app is styled - see
+        // `JellyfinLibraryDetailView`. As a `List` this screen inherited nothing from
+        // `TrawlApp`'s app-wide `.formStyle(.grouped)` (that reaches `Form` only), so
+        // on the Mac it drew as a bare list beside panes that draw as grouped forms.
+        Form {
             if let series {
+                // The same opening every non-media detail screen in the app uses -
+                // see `UnifiedUserDetailView` and `JellyfinLibraryDetailView`. The
+                // artwork, name and status are centred above the fields rather than
+                // set beside them, so a reader lands on the thing the screen is about.
                 Section {
-                    HStack(spacing: 16) {
-                        ArrArtworkView(url: series.poster.flatMap(URL.init(string:)), contentMode: .fill) {
-                            Image(systemName: "tv")
-                                .font(.largeTitle)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(width: 80, height: 120)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    TrawlEntityHeader(
+                        title: series.title,
+                        subtitle: series.year,
+                        systemImage: "tv",
+                        tint: ServiceIdentity.bazarr.brandColor,
+                        artworkURL: series.poster.flatMap(URL.init(string:)),
+                        badges: headerBadges(for: series)
+                    )
+                }
+                .listRowBackground(Color.clear)
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(series.title)
-                                .font(.title3.weight(.semibold))
-                            if let year = series.year {
-                                Text(year)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let overview = series.overview, !overview.isEmpty {
-                                Text(overview)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(4)
-                            }
-                        }
+                if let overview = series.overview, !overview.isEmpty {
+                    Section {
+                        Text(overview)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Info") {
+                Section {
                     LabeledContent("Status", value: statusText)
                     LabeledContent("Episodes", value: "\(series.episodeFileCount) (\(series.episodeMissingCount) missing)")
                     if !series.audioLanguages.isEmpty {
@@ -114,11 +114,13 @@ struct BazarrSeriesDetailView: View {
                     } label: {
                         LabeledContent("Language Profile", value: profile?.name ?? (series.profileId != nil ? "Profile \(series.profileId!)" : "None"))
                     }
+                } header: {
+                    sectionHeader("Info", systemImage: "info.circle")
                 }
             }
 
             if !episodesBySeason.isEmpty {
-                Section("Seasons") {
+                Section {
                     ForEach(episodesBySeason, id: \.0) { season, eps in
                         NavigationLink {
                             BazarrSeasonView(
@@ -132,14 +134,50 @@ struct BazarrSeriesDetailView: View {
                             seasonRow(season: season, episodes: eps)
                         }
                     }
+                } header: {
+                    sectionHeader("Seasons", systemImage: "rectangle.stack")
                 }
             }
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
         .sheet(isPresented: $showProfilePicker) {
             profilePickerSheet
+        }
+    }
+
+    /// The badge row under the title: what Bazarr has to say about this series.
+    private func headerBadges(for series: BazarrSeries) -> [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = []
+        let missing = series.episodeMissingCount
+        badges.append(ArrDetailBadge(
+            icon: missing == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
+            label: missing == 0 ? "All Subtitles Present" : "\(missing) Missing",
+            color: missing == 0 ? .green : .orange
+        ))
+        badges.append(ArrDetailBadge(
+            icon: "tv",
+            label: series.episodeFileCount == 1 ? "1 episode" : "\(series.episodeFileCount) episodes",
+            color: .secondary
+        ))
+        if !series.audioLanguages.isEmpty {
+            badges.append(ArrDetailBadge(
+                icon: "waveform",
+                label: series.audioLanguages.map(\.name).joined(separator: ", "),
+                color: .secondary
+            ))
+        }
+        return badges
+    }
+
+    /// Section headings carry their own glyph here, the way the unified user detail's
+    /// "Jellyfin" and "Seerr" headings do.
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            Text(title)
         }
     }
 

@@ -83,3 +83,57 @@ the mutation path itself stays covered; only the iPad chrome is skipped. Removin
 skip is the acceptance test, and it has not been run yet — **remove the skip, run the
 journey on the iPad chrome, and delete this entry only if it passes.** If it fails, the
 frames above are the thing to re-measure first.
+
+---
+
+## iPhone: the Bazarr series detail has no route into it
+
+**Status:** found 10 Sep 2026 during a full-plan run on the iPhone chrome. Not fixed —
+the fix is a product decision about which route should exist, not a defect in either
+screen. Parked pending that decision.
+
+**Symptom.** On iPhone there is no way to open `BazarrSeriesDetailView` — 1,991
+executable lines holding per-season subtitle state, the language-profile join, and the
+interactive subtitle search. On iPad it is still reachable, because the Missing screen's
+detail pane renders it directly.
+
+**What is actually happening.** Two separate routes closed, one after the other:
+
+- `BazarrBrowserView` (with `BazarrSeriesListView` / `BazarrMovieListView`) is the
+  natural entry point and pushes `MoreDestination.bazarrSeriesDetail`. It is referenced
+  nowhere outside its own file, so nothing in the running app can reach it. That was
+  already true when `BazarrSeriesDetailJourneyUITests` was written, and its header says
+  so.
+- That left one live route: `ArrWantedView`'s `BazarrWantedSeriesRow`. Since `1ab881a`
+  a wanted row calls `selectionAction(for:)`, which returns `nil` unless a detail pane
+  is beside the list. `WantedItemActionRow` treats a nil `onSelect` as "confirm a
+  search", so on iPhone the row now opens a *Search for X?* dialog and never pushes.
+  `IPadSurfaceCaptureUITests/testMissingCompactRowConfirmsBeforeSearching` asserts that
+  confirmation deliberately, so the compact behaviour is intended — it is the absence of
+  any *other* route that is the bug.
+
+Both changes are on `main`; neither came from `macos-ui-polish`.
+
+**Two candidate directions**, neither taken:
+
+1. Give the Subtitles hub a row that opens `BazarrBrowserView`, which is what that
+   screen was built for and would revive the movie browser at the same time.
+2. Let a compact Missing row push the Bazarr detail when the item *has* a Bazarr record,
+   keeping the search confirmation for rows that do not. This reopens the question
+   `1ab881a` answered, so it is the larger change.
+
+**The same shape, elsewhere.** `ServerListView` became unreachable the same way on
+`macos-ui-polish`: qBittorrent Settings dropped its "Servers" row in favour of opening
+the configured server's editor directly, and nothing else pushes the list. Worth
+deciding whether to delete it or route to it while this entry is open.
+
+**Coverage.** `TrawlUITests/BazarrSeriesDetailJourneyUITests/testWantedSubtitleRowOpensTheBazarrSeriesDetailWithRealServerData`
+is `XCTSkipUnless(TrawlChrome.isSidebar)`, naming this file — the mirror of the skip in
+the entry above. The compact chrome, which the plan runs on, has no route to reach; the
+sidebar chrome still renders the screen in its detail pane, so the journey is left
+runnable there rather than switched off outright (that pane path has not been run since
+the skip went in). It is the acceptance test for whichever direction is
+taken: restore a route, point the journey's navigation at it, remove the skip, and
+delete this entry only once it passes. Every assertion below its navigation — the
+composed episode line, the language-profile name and its "Profile 71" fallback, the
+season pluralisation — is still the right contract and should not be rewritten.

@@ -801,6 +801,194 @@ struct JellyfinContractTests {
         #expect(browser.plugins.first?.id == "plugin-2")
     }
 
+    // MARK: - Sessions
+
+    /// A refresh that fails leaves the pane holding an error banner. The next one that
+    /// succeeds has to take it down: the sessions list polls every five seconds, so a
+    /// single timeout otherwise sits over live playback until the screen is left.
+    @Test("JellyfinSessionBrowserState clears a failed read once the server answers again")
+    func sessionBrowserStateClearsAStaleError() async throws {
+        let attempts = JellyfinCallCounter()
+        let server = try await JellyfinContractServer(label: "sessions-recovery") { req in
+            guard req.method == "GET", req.path == "/Sessions" else { return nil }
+            if attempts.next() == 1 {
+                return JellyfinCannedResponse.json(#"{"error":"unavailable"}"#, status: 503)
+            }
+            return JellyfinCannedResponse.json(
+                #"""
+                [
+                    {
+                        "Id": "session-1",
+                        "UserName": "james",
+                        "DeviceName": "Living Room",
+                        "Client": "Jellyfin Web",
+                        "NowPlayingItem": {"Id": "item-1", "Name": "Dune", "RunTimeTicks": 1000},
+                        "PlayState": {"PositionTicks": 500, "IsPaused": false}
+                    }
+                ]
+                """#
+            )
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "test-token")
+        let browser = JellyfinSessionBrowserState()
+
+        await browser.loadSessions(apiClient: client)
+        #expect(browser.sessions.isEmpty)
+        #expect(browser.errorMessage != nil)
+        #expect(browser.isLoading == false)
+
+        await browser.refresh(apiClient: client)
+        #expect(browser.errorMessage == nil)
+        #expect(browser.sessions.map(\.id) == ["session-1"])
+        #expect(browser.sessions.first?.isActive == true)
+    }
+
+    /// Stopping playback from the detail pane has to re-read the list itself. The row
+    /// beside it is drawn from the same state, and waiting for the five-second poll to
+    /// notice leaves a stopped session sitting there as though the button did nothing.
+    @Test("Stopping playback posts to the session and re-reads the list")
+    func stopPlaybackRefreshesTheSessionList() async throws {
+        let stopped = JellyfinCallCounter()
+        let server = try await JellyfinContractServer(label: "sessions-stop") { req in
+            if req.method == "GET", req.path == "/Sessions" {
+                if stopped.value > 0 { return JellyfinCannedResponse.json("[]") }
+                return JellyfinCannedResponse.json(
+                    #"""
+                    [
+                        {
+                            "Id": "session-1",
+                            "UserName": "james",
+                            "DeviceName": "Living Room",
+                            "NowPlayingItem": {"Id": "item-1", "Name": "Dune", "RunTimeTicks": 1000},
+                            "PlayState": {"PositionTicks": 500, "IsPaused": false}
+                        }
+                    ]
+                    """#
+                )
+            }
+            if req.method == "POST", req.path == "/Sessions/session-1/Playing/Stop" {
+                _ = stopped.next()
+                return JellyfinCannedResponse(status: 204, body: Data(), contentType: "application/json")
+            }
+            return nil
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "test-token")
+        let browser = JellyfinSessionBrowserState()
+
+        await browser.loadSessions(apiClient: client)
+        #expect(browser.sessions.map(\.id) == ["session-1"])
+        browser.selectedSessionID = "session-1"
+
+        await browser.stopPlayback(sessionId: "session-1", apiClient: client)
+
+        #expect(browser.sessions.isEmpty)
+        #expect(browser.errorMessage == nil)
+        let stopRequest = try #require(server.requests.first { $0.method == "POST" })
+        #expect(stopRequest.path == "/Sessions/session-1/Playing/Stop")
+        // The list is re-read on the spot rather than left to the poll.
+        #expect(server.requests.filter { $0.path == "/Sessions" }.count == 2)
+    }
+
+    // MARK: - Stream diagnostics
+
+    /// The session detail's Stream Diagnostics section is built entirely out of derived
+    /// properties, and every one of them fails soft: a wrong answer renders as a missing
+    /// row rather than as an error. `isDirectPlay` is the one that matters most - it is
+    /// the difference between "your server is doing nothing" and "your server is
+    /// re-encoding this right now", which is the question anybody opens this screen to
+    /// ask.
+    @Test("Transcoding info decodes Jellyfin's PascalCase and derives the diagnostics rows")
+    func transcodingInfoDecodesAndDerives() throws {
+        let payload = #"""
+        {
+            "AudioCodec": "aac",
+            "VideoCodec": "h264",
+            "Container": "mp4",
+            "IsVideoDirect": false,
+            "IsAudioDirect": true,
+            "Bitrate": 8250000,
+            "Framerate": 23.976,
+            "CompletionPercentage": 42.5,
+            "Width": 1920,
+            "Height": 1080,
+            "AudioChannels": 6,
+            "TranscodeReasons": ["VideoCodecNotSupported"]
+        }
+        """#
+        let info = try JSONDecoder().decode(JellyfinTranscodingInfo.self, from: Data(payload.utf8))
+
+        #expect(info.videoCodec == "h264")
+        #expect(info.container == "mp4")
+        #expect(abs((info.framerate ?? 0) - 23.976) < 0.001, "23.976 fps should survive the Float decode.")
+        #expect(info.completionPercentage == 42.5)
+        #expect(info.transcodeReasons == ["VideoCodecNotSupported"])
+
+        #expect(info.isDirectPlay == false, "A video being re-encoded is not direct play, whatever the audio is doing.")
+        #expect(info.formattedBitrate == "8.2 Mbps")
+        #expect(info.resolution == "1920×1080")
+        #expect(info.audioChannelsDescription == "5.1 Surround")
+    }
+
+    /// Jellyfin omits the fields it has nothing to say about, and a session that is
+    /// genuinely direct-playing sends almost none of them. The derived rows have to read
+    /// that absence as "nothing to report" rather than as a transcode.
+    @Test("A sparse transcoding payload reads as direct play with no invented rows")
+    func sparseTranscodingInfoReadsAsDirectPlay() throws {
+        let info = try JSONDecoder().decode(
+            JellyfinTranscodingInfo.self,
+            from: Data(#"{"Container": "mkv"}"#.utf8)
+        )
+
+        #expect(info.isDirectPlay)
+        #expect(info.formattedBitrate == nil)
+        #expect(info.resolution == nil)
+        #expect(info.audioChannelsDescription == nil)
+
+        // Zero is a value Jellyfin does send, and it means "unknown" rather than a
+        // 0×0 picture or a 0 kbps stream.
+        let zeroed = try JSONDecoder().decode(
+            JellyfinTranscodingInfo.self,
+            from: Data(#"{"Bitrate": 0, "Width": 0, "Height": 0}"#.utf8)
+        )
+        #expect(zeroed.formattedBitrate == nil)
+        #expect(zeroed.resolution == nil)
+    }
+
+    @Test("Bitrate reads in Mbps above a megabit and kbps below it")
+    func bitrateFormattingSwitchesUnits() throws {
+        func info(bitrate: Int) throws -> JellyfinTranscodingInfo {
+            try JSONDecoder().decode(
+                JellyfinTranscodingInfo.self,
+                from: Data(#"{"Bitrate": \#(bitrate)}"#.utf8)
+            )
+        }
+        #expect(try info(bitrate: 1_000_000).formattedBitrate == "1.0 Mbps")
+        #expect(try info(bitrate: 12_500_000).formattedBitrate == "12.5 Mbps")
+        #expect(try info(bitrate: 999_999).formattedBitrate == "999 kbps")
+        #expect(try info(bitrate: 128_000).formattedBitrate == "128 kbps")
+    }
+
+    /// Playback position is ticks - ten million to the second - and the session row
+    /// prints it beside the runtime. An hour-long film has to read "1:02:03" rather
+    /// than "62:03", and a session that has not started reads "0:00" instead of empty.
+    @Test("Playback position renders from ticks, with hours only when there are hours")
+    func playbackPositionFormatsFromTicks() throws {
+        func state(_ ticks: String) throws -> JellyfinPlayState {
+            try JSONDecoder().decode(
+                JellyfinPlayState.self,
+                from: Data(#"{"PositionTicks": \#(ticks)}"#.utf8)
+            )
+        }
+        // 1h 2m 3s, 9m 0s, 59s, and nothing at all.
+        #expect(try state("37230000000").formattedPosition == "1:02:03")
+        #expect(try state("5400000000").formattedPosition == "9:00")
+        #expect(try state("590000000").formattedPosition == "0:59")
+        #expect(try state("0").formattedPosition == "0:00")
+        #expect(try JSONDecoder().decode(JellyfinPlayState.self, from: Data("{}".utf8)).formattedPosition == "0:00")
+    }
+
     // MARK: - Helpers
 
     /// Reads the resolver's settled state. `ensureLoaded` fires a detached Task
@@ -903,6 +1091,27 @@ private nonisolated struct JellyfinRecordedRequest: Sendable, Equatable {
         guard let data = body.data(using: .utf8) else { return nil }
         guard let raw = try? JSONSerialization.jsonObject(with: data) else { return nil }
         return raw as? [String: Any]
+    }
+}
+
+/// Counts handler invocations so a loopback server can answer differently on a
+/// second request without a timing assumption.
+private final class JellyfinCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    @discardableResult
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
     }
 }
 

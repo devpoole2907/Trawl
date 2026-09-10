@@ -242,6 +242,26 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
                 body: Data(torrentsSnapshotJSON().utf8)
             )
 
+        case ("GET", "/api/v2/torrents/files"):
+            // Two files, so the Files row reports a count a test can distinguish from
+            // the empty default (`{}` decodes to nothing and leaves the row at 0).
+            // Shape per `TorrentFile`: no index field - the client assigns it from
+            // array position.
+            return Self.httpResponse(
+                status: 200,
+                reason: "OK",
+                headers: ["Content-Type": "application/json"],
+                body: Data(Self.filesJSON.utf8)
+            )
+
+        case ("GET", "/api/v2/torrents/trackers"):
+            return Self.httpResponse(
+                status: 200,
+                reason: "OK",
+                headers: ["Content-Type": "application/json"],
+                body: Data(Self.trackersJSON.utf8)
+            )
+
         case ("POST", "/api/v2/torrents/stop"):
             lock.lock()
             isPaused = true
@@ -332,6 +352,34 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         ridCounter += 1
         return ridCounter
     }
+
+    /// `GET /api/v2/torrents/files`. Names are deliberately distinctive so a UI
+    /// assertion on them cannot pass against some other screen's text.
+    static let fileNames = ["Fixture.Feature.2024.1080p.mkv", "Fixture.Feature.2024.nfo"]
+
+    private static let filesJSON = """
+    [
+      { "name": "\(fileNames[0])", "size": 1503238553, "progress": 0.5, "priority": 1, "is_seed": false, "availability": 1.0 },
+      { "name": "\(fileNames[1])", "size": 4096, "progress": 1.0, "priority": 1, "is_seed": false, "availability": 1.0 }
+    ]
+    """
+
+    /// `GET /api/v2/torrents/trackers`. Real qBittorrent prepends the three
+    /// pseudo-trackers (DHT/PeX/LSD) with an empty tier; they are included so the
+    /// count on screen matches what a real server would produce.
+    static let trackerURL = "http://fixture-tracker.invalid:6969/announce"
+
+    /// What the UI actually draws: `TrackerRow.displayUrl` strips the scheme.
+    static let trackerHost = "fixture-tracker.invalid:6969/announce"
+
+    private static let trackersJSON = """
+    [
+      { "url": "** [DHT] **", "status": 2, "tier": 0, "num_peers": 0, "num_seeds": -1, "num_leeches": -1, "num_downloaded": -1, "msg": "" },
+      { "url": "** [PeX] **", "status": 2, "tier": 0, "num_peers": 0, "num_seeds": -1, "num_leeches": -1, "num_downloaded": -1, "msg": "" },
+      { "url": "** [LSD] **", "status": 2, "tier": 0, "num_peers": 0, "num_seeds": -1, "num_leeches": -1, "num_downloaded": -1, "msg": "" },
+      { "url": "\(trackerURL)", "status": 2, "tier": 0, "num_peers": 4, "num_seeds": 3, "num_leeches": 1, "num_downloaded": 12, "msg": "" }
+    ]
+    """
 
     private static func emptySuccess() -> Data {
         // Real qBittorrent answers these mutations with `200` and an empty body.

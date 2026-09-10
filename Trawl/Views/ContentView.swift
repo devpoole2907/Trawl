@@ -21,6 +21,35 @@ extension Notification.Name {
 private let notificationSheetTransitionID = "recent-notifications-accessory"
 #endif
 
+/// A sidebar search result, tapped.
+///
+/// Exists only to hold `dismissSearch`. Clearing `sidebarSearch` empties the field
+/// but does not *leave* search: iOS keeps the search presentation up, covering the
+/// sidebar's own rows with an empty results container, so the screen the result
+/// opened arrives with no way back to anything else. Only `dismissSearch` puts the
+/// rows back, and it has to be read from a view inside the `.searchable` content -
+/// `ContentView`'s own body applies the modifier, so it is outside it and reads a
+/// no-op version of the action.
+///
+/// Found on an iPad run: after choosing "Quality Profiles" from the sidebar search,
+/// the sidebar held two blank cells and none of its eleven rows.
+private struct SidebarSearchResultButton<Label: View>: View {
+    @Environment(\.dismissSearch) private var dismissSearch
+
+    let action: () -> Void
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        Button {
+            dismissSearch()
+            action()
+        } label: {
+            label
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct SidebarListChrome: ViewModifier {
     @Binding var search: String
     let placement: SearchFieldPlacement
@@ -950,12 +979,11 @@ struct ContentView: View {
         } else {
             Section("Results") {
                 ForEach(results) { entry in
-                    Button {
+                    SidebarSearchResultButton {
                         open(entry)
                     } label: {
                         MoreSearchResultRow(entry: entry)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -966,6 +994,9 @@ struct ContentView: View {
     /// The push goes onto that hub's own stack, so the screen arrives with the hub
     /// behind it and a working way back - the same place it would have been reached
     /// from by hand.
+    /// Clearing the text is not the same as leaving search. `dismissSearch` is what
+    /// puts the sidebar's own rows back, and `SidebarSearchResultButton` is where it
+    /// is called from - see that type for why it cannot be called from here.
     private func open(_ entry: MoreSearchIndexEntry) {
         sidebarSearch = ""
 
@@ -973,6 +1004,10 @@ struct ContentView: View {
             // Index entries with no destination are Downloads-tab routes. Queue the
             // route first; DownloadsView applies it on arrival, exactly as More's own
             // results do.
+            if entry.downloadsRoute == .blocklist {
+                selectedTab = .blocklist
+                return
+            }
             if let route = entry.downloadsRoute {
                 downloadsNavigator.show(route)
             }
@@ -1015,6 +1050,11 @@ struct ContentView: View {
         switch destination {
         case .downloads:
             downloadsRoot(services: services, detailSelection: $downloadSelection)
+        case .blocklist:
+            ArrBlocklistView()
+                .environment(arrServiceManager)
+                .environment(\.sidebarNavigationColumn, NavigationSplitViewColumn.content)
+                .environment(\.hasDetailPane, true)
         case .series:
             SonarrSeriesListView(detailSelection: $seriesSelection)
                 .environment(arrServiceManager)
@@ -1123,6 +1163,8 @@ struct ContentView: View {
             case nil:
                 listDetailPlaceholder("Select a download", systemImage: "tray.and.arrow.down")
             }
+        case .blocklist:
+            listDetailPlaceholder("Select an item", systemImage: "hand.raised.slash")
         case .series:
             // A detail view builds its own view model from the service manager -
             // the same thing `arrMediaNavigationDestinations` does for every pushed

@@ -5,7 +5,31 @@ struct TorrentDetailView: View {
     @Environment(TorrentService.self) private var torrentService
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @State private var viewModel: TorrentDetailViewModel?
+    @State private var browseSheet: BrowseSheet?
+
+    /// Files and Trackers are pushes on a phone and sheets everywhere else.
+    ///
+    /// Beside a list pane there is nowhere to push to: this detail column already
+    /// holds the download, so a push would replace it and take the list with it. Same
+    /// reasoning as `JellyfinLibraryDetailView`'s options editor.
+    private var presentsBrowseInSheet: Bool {
+        #if os(macOS)
+        true
+        #else
+        hSizeClass == .regular
+        #endif
+    }
+
+    /// One item for one sheet. Two `.sheet` modifiers on a single view is a SwiftUI
+    /// trap rather than two presentations - only the last is reliably honoured, and
+    /// the earlier one opens and dismisses itself. `QBittorrentSettingsView` shipped
+    /// that bug on this branch; this avoids repeating it.
+    private enum BrowseSheet: String, Identifiable {
+        case files, trackers
+        var id: String { rawValue }
+    }
 
     @State private var showDeleteAlert = false
     @State private var showRenameAlert = false
@@ -74,17 +98,26 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func detailContent(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
-        List {
+        // A `Form`, so it picks up `TrawlApp`'s app-wide `.formStyle(.grouped)` on the
+        // Mac the way every other detail pane does. As a `List` it inherited nothing -
+        // `formStyle` reaches `Form` only - and drew as a bare list beside panes that
+        // draw as grouped cards.
+        Form {
             Section {
                 headerSection(torrent: torrent, vm: vm)
             }
+            .listRowBackground(Color.clear)
 
-            Section("Browse") {
+            Section {
                 navigationSection(vm: vm)
+            } header: {
+                sectionHeader("Browse", systemImage: "folder")
             }
 
-            Section("Info") {
+            Section {
                 infoSection(torrent: torrent, vm: vm)
+            } header: {
+                sectionHeader("Info", systemImage: "info.circle")
             }
 
             if let error = vm.error {
@@ -99,11 +132,28 @@ struct TorrentDetailView: View {
                 }
             }
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
         #endif
+        .sheet(item: $browseSheet) { sheet in
+            switch sheet {
+            case .files:
+                AppSheetShell(
+                    title: "Files",
+                    subtitle: torrent.name,
+                    cancelTitle: "Done",
+                    showsCancel: showsFilesShellDone,
+                    minContentHeight: 520
+                ) {
+                    FileListView(viewModel: vm)
+                }
+            case .trackers:
+                AppSheetShell(title: "Trackers", subtitle: torrent.name, cancelTitle: "Done", minContentHeight: 520) {
+                    TrackerListView(viewModel: vm)
+                }
+            }
+        }
         .refreshable {
             await syncService.refreshNow()
             async let properties: Void = vm.loadProperties()
@@ -156,33 +206,115 @@ struct TorrentDetailView: View {
         }
     }
 
+    private var showsFilesShellDone: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
+        #endif
+    }
+
     // MARK: - Sections
 
     @ViewBuilder
+    /// The same opening every non-media detail screen uses - see
+    /// `UnifiedUserDetailView` and `JellyfinLibraryDetailView`. The name, where it is
+    /// saving to and what state it is in sit centred above the fields, and the
+    /// download's own progress follows directly under them, because that is the one
+    /// thing a reader opens this screen for that a user or a library has no equivalent
+    /// of.
     private func headerSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
         let currentTags = vm.currentTags
 
-        TorrentSummaryView(
-            torrent: torrent,
-            titleFont: .headline,
-            titleLineLimit: nil,
-            isTitleSelectable: true,
-            displayedSize: torrent.totalSize
-        ) {
-            if !currentTags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(currentTags, id: \.self) { tag in
-                            DetailTagChip(title: tag)
-                                .transition(.scale.combined(with: .opacity))
-                        }
-                    }
-                    .animation(.snappy, value: currentTags)
+        return VStack(spacing: 14) {
+            TrawlEntityHeader(
+                title: torrent.name,
+                subtitle: torrent.savePath,
+                systemImage: torrent.state.systemImage,
+                tint: torrent.state.color,
+                badges: headerBadges(torrent: torrent, tags: currentTags)
+            )
+
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    ProgressView(value: torrent.progress)
+                        .tint(progressTint(for: torrent))
+                    Text("\(Int(torrent.progress * 100))%")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .fixedSize()
                 }
-                .transition(.scale.combined(with: .opacity))
+
+                HStack(spacing: 12) {
+                    metric(
+                        "arrow.down",
+                        ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed),
+                        torrent.dlspeed > 0 ? .blue : .secondary
+                    )
+                    metric(
+                        "arrow.up",
+                        ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed),
+                        torrent.upspeed > 0 ? .green : .secondary
+                    )
+                    metric(
+                        "clock",
+                        torrent.progress < 1.0 ? ByteFormatter.formatETA(seconds: torrent.eta) : "-",
+                        .secondary
+                    )
+
+                    Spacer()
+
+                    Text(ByteFormatter.format(bytes: torrent.totalSize))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .animation(.snappy, value: currentTags)
+    }
+
+    /// Section headings carry their own glyph here, the way the unified user detail's
+    /// "Jellyfin" and "Seerr" headings do.
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            Text(title)
+        }
+    }
+
+    private func metric(_ systemImage: String, _ text: String, _ tint: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(tint)
+    }
+
+    /// State first, then where the download is filed - the two things that tell a
+    /// reader whether anything is wrong and which library it belongs to.
+    private func headerBadges(torrent: Torrent, tags: [String]) -> [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = [
+            ArrDetailBadge(
+                icon: torrent.state.systemImage,
+                label: torrent.state.displayName,
+                color: torrent.state.color
+            )
+        ]
+        if let category = torrent.category, !category.isEmpty {
+            badges.append(ArrDetailBadge(icon: "folder", label: category, color: .secondary))
+        }
+        for tag in tags {
+            badges.append(ArrDetailBadge(icon: "tag", label: tag, color: .secondary))
+        }
+        return badges
+    }
+
+    private func progressTint(for torrent: Torrent) -> Color {
+        if torrent.progress >= 1.0 { return .green }
+        if torrent.state.filterCategory == .errored { return .red }
+        return .blue
     }
 
     @ViewBuilder
@@ -297,27 +429,70 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func navigationSection(vm: TorrentDetailViewModel) -> some View {
-        NavigationLink {
+        browseRow(
+            title: "Files",
+            systemImage: "doc.on.doc",
+            count: vm.files.count,
+            sheet: .files
+        ) {
             FileListView(viewModel: vm)
-        } label: {
-            HStack {
-                Label("Files", systemImage: "doc.on.doc")
-                Spacer()
-                Text("\(vm.files.count)")
-                    .foregroundStyle(.secondary)
-            }
         }
 
-        NavigationLink {
+        browseRow(
+            title: "Trackers",
+            systemImage: "antenna.radiowaves.left.and.right",
+            count: vm.trackers.count,
+            sheet: .trackers
+        ) {
             TrackerListView(viewModel: vm)
-        } label: {
-            HStack {
-                Label("Trackers", systemImage: "antenna.radiowaves.left.and.right")
-                Spacer()
-                Text("\(vm.trackers.count)")
-                    .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A Browse row: a push on a phone, a sheet beside a list pane. The chevron is
+    /// drawn by hand in the sheet case because a `Button` has none of its own, and a
+    /// row that opens something should look the same either way.
+    @ViewBuilder
+    private func browseRow<Destination: View>(
+        title: LocalizedStringKey,
+        systemImage: String,
+        count: Int,
+        sheet: BrowseSheet,
+        @ViewBuilder destination: @escaping () -> Destination
+    ) -> some View {
+        if presentsBrowseInSheet {
+            Button {
+                browseSheet = sheet
+            } label: {
+                browseLabel(title: title, systemImage: systemImage, count: count, showsChevron: true)
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                destination()
+            } label: {
+                browseLabel(title: title, systemImage: systemImage, count: count, showsChevron: false)
             }
         }
+    }
+
+    private func browseLabel(
+        title: LocalizedStringKey,
+        systemImage: String,
+        count: Int,
+        showsChevron: Bool
+    ) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Text("\(count)")
+                .foregroundStyle(.secondary)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
     }
 
     // MARK: - Helpers

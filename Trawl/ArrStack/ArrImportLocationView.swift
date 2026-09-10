@@ -211,7 +211,13 @@ struct ArrImportLocationView: View {
 
     private var listContent: some View {
         @Bindable var browser = self.browser
-        return List(selection: $browser.selectedPath) {
+        // The binding is withheld at compact width, where the rows are
+        // `NavigationLink`s rather than selectable tags. A live selection binding over
+        // links makes one tap do both jobs: the row is selected *and* pushed, so the
+        // scan screen is built twice and `GET /manualimport` runs twice against a
+        // folder that can hold a whole library. `MoreView` and `CleanuparrDashboardView`
+        // withhold it the same way.
+        return List(selection: showsDetailPane ? $browser.selectedPath : nil) {
             importTipsSection
 
             if !rootFolders.isEmpty {

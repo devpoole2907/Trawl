@@ -40,7 +40,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// introduced became rows. Naming the headings here asserted the arrangement this
     /// replaced, and failed against the one that shipped.
     private static let promotedDestinations = [
-        "Missing", "Calendar", "Requests", "Indexers",
+        "Blocklist", "Missing", "Calendar", "Requests", "Indexers",
         "Download Clients", "Quality Profiles", "Setup Check", "Settings"
     ]
 
@@ -105,6 +105,16 @@ final class IPadSidebarJourneyUITests: XCTestCase {
                 "'\(destination)' should render its own screen in the content column."
             )
         }
+
+        XCTAssertTrue(select(app, "Blocklist"), "The sidebar should offer Blocklist directly.")
+        XCTAssertTrue(
+            app.navigationBars["Blocked & Excluded"].waitForExistence(timeout: 10),
+            "Blocklist should render its list in the content column."
+        )
+        XCTAssertTrue(
+            app.staticTexts["Select an item"].waitForExistence(timeout: 5),
+            "Blocklist should reserve the native detail column without wiring row selection yet."
+        )
     }
 
     // MARK: - Libraries open on something
@@ -273,6 +283,10 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             app.showsScreen(named: "Quality Profiles", timeout: 15),
             "Choosing a search result should open that screen."
         )
+        // Choosing a result has to *leave* search, not merely clear its text. iOS keeps
+        // the search presentation up otherwise, covering the sidebar's own rows with an
+        // empty results container - the screen opens and there is no way back to
+        // anything else. The row being here is how that is detected from the outside.
         XCTAssertNotNil(
             sidebarRow(app, "Quality Profiles"),
             "The result should leave its own sidebar row on screen, so there is a way back."

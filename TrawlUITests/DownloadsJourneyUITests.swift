@@ -270,6 +270,117 @@ final class DownloadsJourneyUITests: XCTestCase {
         )
     }
 
+    /// The torrent detail's Files and Trackers rows go two different ways on purpose,
+    /// and this is the suite that holds them to it.
+    ///
+    /// `TorrentDetailView.presentsBrowseInSheet` pushes on a phone and presents a
+    /// sheet in a regular width, because beside a list pane there is nowhere to push
+    /// to - the detail column already holds the download, so a push replaces it and
+    /// takes the list with it. That divergence is exactly the shape of bug this
+    /// branch has already shipped twice (the Subtitles hub's selection binding
+    /// swallowing compact pushes, `QBittorrentSettingsView`'s two `.sheet` modifiers
+    /// dismissing each other), and until now nothing opened this screen at all.
+    ///
+    /// Regressions this catches: a Files/Trackers row that opens nothing, a sheet
+    /// presented on iPhone (where the push is correct) or a push on iPad (which would
+    /// evict the list column), the file/tracker requests never reaching the server,
+    /// and a dismissal that lands somewhere other than the detail it opened from.
+    @MainActor
+    func testFilesAndTrackersOpenTheRightWayForTheChrome() async throws {
+        let server = try await QBittorrentFixtureServer()
+        fixtureServer = server
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_QBITTORRENT_BASE_URL"] = server.baseURL
+        // Not optional here: this journey does open the detail screen, and a real TMDb
+        // lookup with no fixture sits out a 15s timeout on it.
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        XCTAssertTrue(
+            ensureRootChromeIsReady(in: app),
+            "A launch with a configured qBittorrent service should reach the real app chrome, not the welcome screen."
+        )
+        XCTAssertTrue(openDestination(.downloads, in: app), "The Downloads queue should be reachable.")
+
+        let row = torrentRow(in: app, named: server.name)
+        XCTAssertTrue(
+            row.waitForExistence(in: app, timeout: 15),
+            "The seeded torrent should appear in Downloads once the real connection finishes and the first sync lands."
+        )
+        XCTAssertTrue(tapWhenPossible(row), "Tapping the torrent row should open its detail.")
+
+        // MARK: The detail screen loaded its own data, over real HTTP.
+
+        let filesRow = app.buttons["Files"].firstMatch
+        let filesLink = app.staticTexts["Files"].firstMatch
+        XCTAssertTrue(
+            filesRow.waitForExistence(timeout: 15) || filesLink.waitForExistence(timeout: 5),
+            "The torrent detail should present a Files row - regression: the detail never opened, or the browse section stopped rendering."
+        )
+        XCTAssertTrue(
+            server.hasReceivedRequest(method: "GET", path: "/api/v2/torrents/files"),
+            "Opening the detail should have fetched the torrent's files over real HTTP."
+        )
+
+        // MARK: Files opens - as a sheet beside a list pane, as a push on a phone.
+
+        let filesTarget = filesRow.exists ? filesRow : filesLink
+        XCTAssertTrue(tapWhenPossible(filesTarget), "The Files row should be tappable.")
+
+        XCTAssertTrue(
+            app.staticTexts[QBittorrentFixtureServer.fileNames[0]].waitForExistence(in: app, timeout: 10),
+            "Opening Files should show the fixture torrent's actual file names - regression: the row opens an empty or wrong destination."
+        )
+
+        // The A/B that proves the routing, not just that *something* opened.
+        // `AppSheetShell` is the only source of a "Done" button here: `FileListView`'s
+        // own edit toggle reads "Edit" until editing starts.
+        let done = app.buttons["Done"].firstMatch
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                done.waitForExistence(timeout: 5),
+                "Beside a list pane, Files should be a sheet with its own Done - regression: it pushed instead, which replaces the detail column and takes the download list with it."
+            )
+            XCTAssertTrue(tapWhenPossible(done), "The Files sheet should dismiss.")
+        } else {
+            XCTAssertFalse(
+                done.exists,
+                "On a phone Files should be a push, not a sheet - a sheet here buries the navigation stack the user came up."
+            )
+            let back = backButton(in: app.navigationBars.firstMatch)
+            XCTAssertTrue(tapWhenPossible(back), "Files should be poppable back to the torrent detail.")
+        }
+
+        // MARK: Dismissing lands back on the detail, not on the list.
+
+        let trackersRow = app.buttons["Trackers"].firstMatch
+        let trackersLink = app.staticTexts["Trackers"].firstMatch
+        XCTAssertTrue(
+            trackersRow.waitForExistence(timeout: 10) || trackersLink.waitForExistence(timeout: 5),
+            "Leaving Files should return to the torrent detail - regression: the dismissal popped past it to the download list."
+        )
+
+        // MARK: Trackers takes the same route, and reports the server's own trackers.
+
+        let trackersTarget = trackersRow.exists ? trackersRow : trackersLink
+        XCTAssertTrue(tapWhenPossible(trackersTarget), "The Trackers row should be tappable.")
+        // `TrackerRow.displayUrl` strips the scheme, so this matches on the host
+        // rather than the URL the fixture actually served.
+        let announce = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", QBittorrentFixtureServer.trackerHost)
+        ).firstMatch
+        XCTAssertTrue(
+            announce.waitForExistence(in: app, timeout: 10),
+            "Trackers should list the announce host the fixture server reported."
+        )
+        XCTAssertTrue(
+            server.hasReceivedRequest(method: "GET", path: "/api/v2/torrents/trackers"),
+            "The tracker list should have come from a real request, not from cached sync data."
+        )
+    }
+
     /// Waits for an element to stop being *reachable*, which is not the same as it
     /// ceasing to exist.
     ///

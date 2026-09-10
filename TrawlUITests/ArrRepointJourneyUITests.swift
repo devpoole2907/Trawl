@@ -175,8 +175,10 @@ final class ArrRepointJourneyUITests: XCTestCase {
             "The host field should contain exactly server B's URL after editing - a partial clear or a mistyped '://' would corrupt this and the connection test would fail for the wrong reason."
         )
 
-        let saveButton = app.buttons["Save"]
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "The edit sheet should have a Save action (ModalFormStyle primaryTitle).")
+        // See ArrSetupEditJourneyUITests: an edit commits with "Save Connection" since
+        // 5eb4b7e standardized the setup sheets.
+        let saveButton = app.buttons["Save Connection"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "The edit sheet should have a Save Connection action.")
         XCTAssertTrue(
             saveButton.isEnabled,
             "Save should already be enabled: the host field is non-empty and the API key was pre-filled from Keychain by ArrSetupViewModel.loadExisting."

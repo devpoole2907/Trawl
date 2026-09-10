@@ -174,13 +174,11 @@ final class SeerrJellyfinUserImportJourneyUITests: XCTestCase {
             ensureRootChromeIsReady(in: app),
             "Seeded Jellyfin and Seerr profiles should take the app past the welcome gate into the real app chrome."
         )
+        // `openDestination` lands on Users itself, hub and all - the "Jellyfin and
+        // Seerr accounts" row it went through is behind the pushed screen by the time
+        // it returns, so tapping it again finds nothing hittable and blames the screen
+        // that never appeared rather than the tap that never took.
         XCTAssertTrue(openDestination(.users, in: app), "Users should be reachable.")
-
-        let usersRow = firstButton(labelContaining: "Jellyfin and Seerr accounts", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(usersRow, in: app, timeout: 15),
-            "Requests & Access should expose the Users route once Jellyfin is configured."
-        )
 
         XCTAssertTrue(
             app.staticTexts[JellyfinUIFixtureServer.userName].waitForExistence(in: app, timeout: 20),

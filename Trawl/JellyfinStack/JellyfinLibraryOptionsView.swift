@@ -282,7 +282,10 @@ private struct JellyfinTypeFetchersView: View {
     let available: JellyfinAvailableTypeOptions?
 
     var body: some View {
-        List {
+        // A `Form`, so the Mac gets the grouped styling the rest of this sheet has.
+        // `formStyle` reaches `Form` only, so as a `List` this child drew flat inside
+        // a grouped parent.
+        Form {
             Section {
                 NavigationLink {
                     JellyfinFetcherOrderEditor(
@@ -317,6 +320,7 @@ private struct JellyfinTypeFetchersView: View {
                 }
             }
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
@@ -380,7 +384,13 @@ private struct JellyfinFetcherOrderEditor: View {
     }
 
     var body: some View {
-        List {
+        // A `Form`, so this matches its parent and its sibling - but reordering is the
+        // whole point of the screen, and the two platforms have to get there
+        // differently. `onMove` needs a real list to attach to; on iOS a `Form` *is* a
+        // list, so drag still works. A macOS grouped form is a layout rather than a
+        // list, so the Mac gets explicit move controls instead. Converting without
+        // them would have kept the styling and silently dropped the feature.
+        Form {
             Section {
                 if rows.isEmpty {
                     ContentUnavailableView(
@@ -390,19 +400,28 @@ private struct JellyfinFetcherOrderEditor: View {
                     )
                 } else {
                     ForEach($rows) { $row in
-                        Toggle(isOn: $row.isEnabled) {
-                            Text(row.name)
+                        HStack {
+                            Toggle(isOn: $row.isEnabled) {
+                                Text(row.name)
+                            }
+                            #if os(macOS)
+                            Spacer()
+                            moveControls(for: row)
+                            #endif
                         }
                     }
+                    #if os(iOS)
                     .onMove { rows.move(fromOffsets: $0, toOffset: $1) }
+                    #endif
                 }
             } footer: {
                 Text(footer)
             }
         }
+        .serviceSettingsFormStyle()
         #if os(iOS)
-        // Forces the reorder handles to show without an Edit button. macOS lists are
-        // drag-reorderable natively, and editMode doesn't exist there.
+        // Forces the reorder handles to show without an Edit button. macOS uses the
+        // move controls on each row instead; `editMode` doesn't exist there.
         .environment(\.editMode, .constant(.active))
         .listStyle(.insetGrouped)
         #endif
@@ -423,6 +442,38 @@ private struct JellyfinFetcherOrderEditor: View {
     /// Priority order = saved order, then any newly-available providers appended.
     /// Enabled = the saved enabled set, or each provider's server default when the
     /// library has never been configured.
+    #if os(macOS)
+    /// Up/down instead of drag. Priority order is what this screen edits, so it has to
+    /// stay editable on a platform where the grouped form cannot host `onMove`.
+    @ViewBuilder
+    private func moveControls(for row: FetcherRow) -> some View {
+        let index = rows.firstIndex(of: row)
+        HStack(spacing: 2) {
+            Button {
+                if let index, index > 0 {
+                    rows.move(fromOffsets: IndexSet(integer: index), toOffset: index - 1)
+                }
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .disabled((index ?? 0) == 0)
+            .help("Move \(row.name) up")
+
+            Button {
+                if let index, index < rows.count - 1 {
+                    rows.move(fromOffsets: IndexSet(integer: index), toOffset: index + 2)
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .disabled((index ?? 0) >= rows.count - 1)
+            .help("Move \(row.name) down")
+        }
+        .buttonStyle(.borderless)
+        .font(.caption.weight(.semibold))
+    }
+    #endif
+
     private static func buildRows(
         available: [JellyfinLibraryOptionInfo],
         enabled: [String],
@@ -463,6 +514,118 @@ extension JellyfinLibraryOptionsView {
         _originalOptions = State(initialValue: initial)
         _available = State(initialValue: available)
         self.isPreview = true
+    }
+}
+#endif
+
+// MARK: - Previews
+
+#if DEBUG
+/// The models here are decode-only (a custom `init(from:)` suppresses the memberwise
+/// init), so preview fixtures come in the same way the app's do - through JSON.
+private enum JellyfinFetcherPreviewFixture {
+    static let movieOptions: JellyfinAvailableTypeOptions = decode(
+        """
+        {
+          "Type": "Movie",
+          "MetadataFetchers": [
+            { "Name": "TheMovieDb", "DefaultEnabled": true },
+            { "Name": "The Open Movie Database", "DefaultEnabled": true },
+            { "Name": "Embedded Metadata", "DefaultEnabled": false },
+            { "Name": "Nfo", "DefaultEnabled": false }
+          ],
+          "ImageFetchers": [
+            { "Name": "TheMovieDb", "DefaultEnabled": true },
+            { "Name": "Embedded Image Extractor", "DefaultEnabled": true },
+            { "Name": "Screen Grabber", "DefaultEnabled": true },
+            { "Name": "The Open Movie Database", "DefaultEnabled": false }
+          ]
+        }
+        """
+    )
+
+    static let emptyOptions: JellyfinAvailableTypeOptions = decode(
+        #"{ "Type": "Book", "MetadataFetchers": [], "ImageFetchers": [] }"#
+    )
+
+    private static func decode(_ json: String) -> JellyfinAvailableTypeOptions {
+        // Force-try: the literals above are fixed, so a throw here is a typo in this
+        // file rather than anything a preview should try to recover from.
+        try! JSONDecoder().decode(JellyfinAvailableTypeOptions.self, from: Data(json.utf8))
+    }
+}
+
+#Preview("Jellyfin Metadata Downloaders") {
+    @Previewable @State var enabled = ["TheMovieDb", "The Open Movie Database"]
+    @Previewable @State var order = ["TheMovieDb", "The Open Movie Database", "Embedded Metadata", "Nfo"]
+
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinFetcherOrderEditor(
+                title: "Metadata Downloaders",
+                footer: "Lower-priority downloaders only fill in information the higher ones are missing.",
+                available: JellyfinFetcherPreviewFixture.movieOptions.metadataFetchers,
+                enabled: $enabled,
+                order: $order
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Image Fetchers") {
+    @Previewable @State var enabled = ["TheMovieDb", "Embedded Image Extractor", "Screen Grabber"]
+    @Previewable @State var order: [String] = []
+
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinFetcherOrderEditor(
+                title: "Image Fetchers",
+                footer: "Jellyfin tries enabled fetchers top-to-bottom. The Screen Grabber / Embedded Image Extractor make good last-resort fallbacks.",
+                available: JellyfinFetcherPreviewFixture.movieOptions.imageFetchers,
+                enabled: $enabled,
+                order: $order
+            )
+        }
+    }
+}
+
+/// A server that reports no providers for the type - the branch that draws
+/// `ContentUnavailableView` instead of rows.
+#Preview("Jellyfin Fetchers - No Providers") {
+    @Previewable @State var enabled: [String] = []
+    @Previewable @State var order: [String] = []
+
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinFetcherOrderEditor(
+                title: "Metadata Downloaders",
+                footer: "Lower-priority downloaders only fill in information the higher ones are missing.",
+                available: JellyfinFetcherPreviewFixture.emptyOptions.metadataFetchers,
+                enabled: $enabled,
+                order: $order
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Type Fetchers") {
+    @Previewable @State var typeOption: JellyfinTypeOptions = {
+        var option = JellyfinTypeOptions()
+        option.type = "Movie"
+        option.metadataFetchers = ["TheMovieDb", "The Open Movie Database"]
+        option.metadataFetcherOrder = ["TheMovieDb", "The Open Movie Database", "Embedded Metadata", "Nfo"]
+        option.imageFetchers = ["TheMovieDb", "Embedded Image Extractor", "Screen Grabber"]
+        option.imageFetcherOrder = []
+        return option
+    }()
+
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinTypeFetchersView(
+                typeOption: $typeOption,
+                available: JellyfinFetcherPreviewFixture.movieOptions
+            )
+        }
     }
 }
 #endif

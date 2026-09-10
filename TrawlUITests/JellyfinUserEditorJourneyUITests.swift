@@ -47,14 +47,10 @@ final class JellyfinUserEditorJourneyUITests: XCTestCase {
         // Users lives under Requests & Access - it lists Jellyfin *and* Seerr
         // accounts, so it is filed with request management rather than under the
         // media server.
+        // `openDestination` walks the Requests & Access hub itself and lands on Users,
+        // so neither the hub's own navigation bar nor the row that got here is still on
+        // screen to assert against.
         XCTAssertTrue(openDestination(.users, in: app), "Users should be reachable.")
-        XCTAssertTrue(
-            app.navigationBars["Requests & Access"].waitForExistence(in: app, timeout: 10),
-            "The Requests & Access hub should render."
-        )
-
-        let users = firstButton(labelContaining: "Users", in: app)
-        XCTAssertTrue(tapWhenHittable(users, in: app, timeout: 12), "Requests & Access should expose the unified Users destination.")
         XCTAssertTrue(app.navigationBars["Users"].waitForExistence(in: app, timeout: 10), "The Users list should render.")
 
         let userRow = app.staticTexts[JellyfinUIFixtureServer.userName]
@@ -64,11 +60,25 @@ final class JellyfinUserEditorJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(tapWhenHittable(userRow, in: app, timeout: 10), "Tapping a user should open its detail screen.")
 
-        // The editor is a push from the user's Jellyfin section, not the detail itself.
-        let editor = firstButton(labelContaining: "Jellyfin", in: app)
+        // The editor is reached from the detail's own Edit menu. It used to be a row in
+        // a "Jellyfin" section; the screen now answers what the account *is* on
+        // Jellyfin itself and offers the editor as an action beside the Seerr one, so
+        // the route is the toolbar menu rather than a section row.
+        //
+        // The menu is opened once and not retried: tapping a `Menu` toggles it, so a
+        // retry closes one that had in fact opened.
+        XCTAssertTrue(
+            tapWhenHittable(app.buttons["Edit"], in: app, timeout: 12),
+            "The unified user detail should offer its Edit menu for an account that exists on a service."
+        )
+        let editor = app.buttons["Edit Jellyfin Account"]
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 10),
+            "The Edit menu should offer the Jellyfin user editor for an account that is in Jellyfin."
+        )
         XCTAssertTrue(
             tapWhenHittable(editor, in: app, timeout: 12),
-            "The unified user detail should offer the Jellyfin user editor."
+            "The Jellyfin editor action should be tappable once the menu has opened."
         )
         XCTAssertTrue(
             app.navigationBars[JellyfinUIFixtureServer.userName].waitForExistence(in: app, timeout: 12),

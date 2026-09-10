@@ -28,7 +28,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
     var rows: [RootTab] {
         switch self {
         case .library:
-            [.downloads, .series, .movies, .missing, .calendar, .search]
+            [.downloads, .blocklist, .series, .movies, .missing, .calendar, .search]
         case .requests:
             [.requests, .issues, .users]
         case .mediaServer:
@@ -73,6 +73,7 @@ enum RootTab: Hashable, CaseIterable {
     // and keeps these out of places that mean "primary tab", such as the startup-tab
     // picker in Settings.
 
+    case blocklist
     case missing
     case calendar
 
@@ -111,6 +112,7 @@ enum RootTab: Hashable, CaseIterable {
     var displayName: String {
         switch self {
         case .downloads: "Downloads"
+        case .blocklist: "Blocklist"
         case .series: "Series"
         case .movies: "Movies"
         case .search: "Search"
@@ -162,7 +164,7 @@ enum RootTab: Hashable, CaseIterable {
     /// which have views of their own.
     var moreRoot: MoreDestination? {
         switch self {
-        case .downloads, .series, .movies, .search, .more: nil
+        case .downloads, .blocklist, .series, .movies, .search, .more: nil
         case .missing: .wanted
         case .calendar: .calendar
         case .requests: .seerrAdmin
@@ -244,7 +246,7 @@ enum RootTab: Hashable, CaseIterable {
     /// before anything is selected.
     var wantsDetailColumn: Bool {
         switch self {
-        case .downloads, .series, .movies, .search, .indexers,
+        case .downloads, .blocklist, .series, .movies, .search, .indexers,
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
              .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .subtitles, .logs, .settings, .health,
@@ -265,6 +267,7 @@ enum RootTab: Hashable, CaseIterable {
     var systemImage: String {
         switch self {
         case .downloads: "tray.and.arrow.down"
+        case .blocklist: "hand.raised.slash"
         case .series: ServiceIdentity.sonarr.tabSystemImage
         case .movies: ServiceIdentity.radarr.tabSystemImage
         case .search: "magnifyingglass"

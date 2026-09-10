@@ -28,7 +28,11 @@ struct DownloadsBatchSelectionTests {
     /// Decoded from a qBittorrent payload rather than constructed field by field:
     /// the wire shape is what the app actually sees, and a hand-built value drifts
     /// silently when the model gains a field.
-    private static func torrent(hash: String, name: String = "Example") throws -> Torrent {
+    private static func torrent(
+        hash: String,
+        name: String = "Example",
+        state: String = "downloading"
+    ) throws -> Torrent {
         let json = """
         {
           "hash": "\(hash)",
@@ -42,7 +46,7 @@ struct DownloadsBatchSelectionTests {
           "num_leechs": 1,
           "ratio": 0.5,
           "eta": 600,
-          "state": "downloading",
+          "state": "\(state)",
           "category": "",
           "tags": "",
           "added_on": 0,
@@ -59,12 +63,15 @@ struct DownloadsBatchSelectionTests {
         return try decoder.decode(Torrent.self, from: Data(json.utf8))
     }
 
-    private static func sabJob(id: String = "SABnzbd_nzo_1") throws -> SABnzbdJob {
+    private static func sabJob(
+        id: String = "SABnzbd_nzo_1",
+        status: String = "Downloading"
+    ) throws -> SABnzbdJob {
         let json = """
         {
           "nzo_id": "\(id)",
           "filename": "Example.Job",
-          "status": "Downloading",
+          "status": "\(status)",
           "timeleft": "0:10:00",
           "percentage": "50",
           "size": "1 GB",
@@ -76,9 +83,10 @@ struct DownloadsBatchSelectionTests {
         return SABnzbdJob(queueSlot: try decoder.decode(SABnzbdQueueSlot.self, from: Data(json.utf8)))
     }
 
-    private static func arrQueueItem() throws -> ArrQueueItem {
+    private static func arrQueueItem(status: String? = nil) throws -> ArrQueueItem {
+        let statusField = status.map { ", \"status\": \"\($0)\"" } ?? ""
         let json = """
-        { "id": 1, "title": "Example", "size": 1000, "sizeleft": 500, "movieId": 7 }
+        { "id": 1, "title": "Example", "size": 1000, "sizeleft": 500, "movieId": 7\(statusField) }
         """
         return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
     }
@@ -199,6 +207,145 @@ struct DownloadsBatchSelectionTests {
         chrome.totalCount = 0
         chrome.selectedCount = 0
         #expect(chrome.selectAllTitle == "Select All")
+    }
+
+    // MARK: - Linking a detail screen's queue row to the live download
+
+    /// The same resolution question the rows above ask, asked from a movie or series
+    /// detail instead: `arrDetailLinkedTorrent` is what turns a static "Downloading"
+    /// row into the live progress card. When it misses there is no error - the card
+    /// simply never appears, and the screen looks like it has always looked.
+    ///
+    /// Casing is the whole risk. qBittorrent reports lowercase hashes and Arr stores
+    /// whatever the grab handed it, so an exact dictionary hit is only the lucky path.
+    @Test("A detail row finds its torrent whatever case the hash arrived in")
+    func detailQueueRowLinksItsTorrentAcrossCasing() throws {
+        let lower = try Self.torrent(hash: "abc123def", name: "Lowercase Hash")
+        let upper = try Self.torrent(hash: "FFEE0011", name: "Uppercase Hash")
+        let torrents = [lower.hash: lower, upper.hash: upper]
+
+        // Exact, and the same hash in the other case.
+        #expect(arrDetailLinkedTorrent(for: "abc123def", in: torrents)?.name == "Lowercase Hash")
+        #expect(arrDetailLinkedTorrent(for: "ABC123DEF", in: torrents)?.name == "Lowercase Hash")
+        #expect(arrDetailLinkedTorrent(for: "ffee0011", in: torrents)?.name == "Uppercase Hash")
+
+        // A download this client has never heard of stays unlinked rather than
+        // borrowing the first row in the dictionary.
+        #expect(arrDetailLinkedTorrent(for: "not-a-hash", in: torrents) == nil)
+        #expect(arrDetailLinkedTorrent(for: nil, in: torrents) == nil)
+        #expect(arrDetailLinkedTorrent(for: "", in: torrents) == nil)
+    }
+
+    /// SABnzbd's counterpart. Arr keeps the `nzo_id` in `downloadId`, and a value
+    /// that arrived with surrounding whitespace still names the same job.
+    @Test("A detail row finds its SABnzbd job across casing and padding")
+    func detailQueueRowLinksItsSABJob() throws {
+        let job = try Self.sabJob(id: "SABnzbd_nzo_ax12")
+        let other = try Self.sabJob(id: "SABnzbd_nzo_zz99")
+
+        #expect(arrDetailLinkedSABJob(for: "SABnzbd_nzo_ax12", in: [job, other])?.id == job.id)
+        #expect(arrDetailLinkedSABJob(for: "sabnzbd_nzo_AX12", in: [job, other])?.id == job.id)
+        #expect(arrDetailLinkedSABJob(for: "  SABnzbd_nzo_ax12  ", in: [job, other])?.id == job.id)
+
+        #expect(arrDetailLinkedSABJob(for: "SABnzbd_nzo_none", in: [job, other]) == nil)
+        #expect(arrDetailLinkedSABJob(for: "   ", in: [job, other]) == nil)
+        #expect(arrDetailLinkedSABJob(for: nil, in: [job, other]) == nil)
+    }
+
+    /// Whether the "Current Download" card appears on a movie or series at all.
+    ///
+    /// The row is Arr's *view* of a download running elsewhere, and Arr is the last to
+    /// know: it still lists a grab as downloading while qBittorrent has it paused, and
+    /// still lists one as importing while SABnzbd is unpacking. So the live client
+    /// wins whenever there is one to ask, and Arr's own flag is the fallback. Getting
+    /// it wrong is silent both ways - no progress card while a download runs, or a
+    /// finished download that never stops claiming to be active.
+    @Test("A linked torrent decides whether the download card is live, not the queue row")
+    func activeQueueItemPrefersTheLinkedTorrentsState() throws {
+        let item = try Self.arrQueueItem()
+
+        for state in ["downloading", "stalledDL", "queuedDL", "metaDL"] {
+            let torrent = try Self.torrent(hash: "abc", state: state)
+            #expect(
+                arrDetailIsActiveQueueItem(item, linkedTorrent: torrent),
+                "\(state) is a downloading state; the card should be live."
+            )
+        }
+
+        for state in ["pausedDL", "uploading", "error", "missingFiles"] {
+            let torrent = try Self.torrent(hash: "abc", state: state)
+            #expect(
+                arrDetailIsActiveQueueItem(item, linkedTorrent: torrent) == false,
+                "\(state) is not downloading; the card should not claim it is."
+            )
+        }
+    }
+
+    /// SABnzbd's side. A usenet grab that is queued, paused or post-processing is
+    /// still *this* download's business - the comment on the production side says so
+    /// explicitly, because a grab that fell out of both the download card and the
+    /// import-issues card would vanish from the screen entirely.
+    @Test("A SABnzbd job counts as live while it is queued, paused or post-processing")
+    func activeQueueItemAcceptsEverySABnzbdWorkingState() throws {
+        let item = try Self.arrQueueItem()
+
+        for status in ["Queued", "Downloading", "Paused", "Repairing", "Extracting", "Verifying"] {
+            let job = try Self.sabJob(status: status)
+            #expect(
+                arrDetailIsActiveQueueItem(item, linkedTorrent: nil, linkedSABJob: job),
+                "\(status) is work in progress; the download card should stay."
+            )
+        }
+
+        for status in ["Completed", "Failed"] {
+            let job = try Self.sabJob(status: status)
+            #expect(
+                arrDetailIsActiveQueueItem(item, linkedTorrent: nil, linkedSABJob: job) == false,
+                "\(status) is finished; it belongs to the import-issues card or to nothing."
+            )
+        }
+    }
+
+    /// With nothing linked - the window between Arr grabbing a release and the client
+    /// poll catching up - Arr's own status is all there is to go on.
+    @Test("With no live client to ask, the queue row's own status decides")
+    func activeQueueItemFallsBackToTheQueueRow() throws {
+        let downloading = try Self.arrQueueItem(status: "downloading")
+        #expect(arrDetailIsActiveQueueItem(downloading, linkedTorrent: nil, linkedSABJob: nil))
+
+        // Arr's other states are somebody else's card: an import that is pending or
+        // has failed belongs to the import-issues section, not to a progress bar.
+        for status in ["completed", "importPending", "failed", "warning"] {
+            let item = try Self.arrQueueItem(status: status)
+            #expect(
+                arrDetailIsActiveQueueItem(item, linkedTorrent: nil, linkedSABJob: nil) == false,
+                "\(status) is not a download in progress."
+            )
+        }
+
+        // A linked torrent still wins over a job that matched the same id.
+        let torrent = try Self.torrent(hash: "abc", state: "pausedDL")
+        let job = try Self.sabJob(status: "Downloading")
+        #expect(
+            arrDetailIsActiveQueueItem(downloading, linkedTorrent: torrent, linkedSABJob: job) == false,
+            "The torrent is the download; a job that happened to match its id must not overrule it."
+        )
+    }
+
+    /// A torrent grab and a usenet grab can be in the queue at once, and the two
+    /// lookups are given the same `downloadId` in turn. Neither may answer for the
+    /// other's download: a torrent hash that happens to match an `nzo_id` would put
+    /// someone else's progress bar on the card.
+    @Test("The torrent and SABnzbd lookups never answer for each other")
+    func theTwoLookupsStayInTheirOwnClient() throws {
+        let shared = "COLLIDING-ID"
+        let torrent = try Self.torrent(hash: shared, name: "Torrent Side")
+        let job = try Self.sabJob(id: shared)
+
+        #expect(arrDetailLinkedTorrent(for: shared, in: [torrent.hash: torrent])?.name == "Torrent Side")
+        #expect(arrDetailLinkedTorrent(for: shared, in: [:]) == nil)
+        #expect(arrDetailLinkedSABJob(for: shared, in: [job])?.id == shared)
+        #expect(arrDetailLinkedSABJob(for: shared, in: []) == nil)
     }
 }
 

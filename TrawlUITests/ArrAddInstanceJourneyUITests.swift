@@ -118,11 +118,15 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         let keyField = app.secureTextFields["API Key"]
         XCTAssertTrue(keyField.waitForExistence(timeout: 10), "The add sheet should present the API Key field.")
 
-        let save = app.buttons["Save"]
-        XCTAssertTrue(save.waitForExistence(timeout: 5), "The add sheet should have a Save action.")
+        // Every service setup sheet commits with "Connect" when it is adding a server
+        // and "Save Connection" when it is editing one (5eb4b7e standardized the six of
+        // them). This is the add path, so the button is Connect; the assertion below is
+        // unchanged, only the name it looks for.
+        let save = app.buttons["Connect"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "The add sheet should have a Connect action.")
         XCTAssertFalse(
             save.isEnabled,
-            "Save must be disabled while the form is empty - ArrSetupSheet gates it on a non-empty host and key."
+            "Connect must be disabled while the form is empty - ArrSetupSheet gates it on a non-empty host and key."
         )
 
         // MARK: Fill it in and save
@@ -132,7 +136,7 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
 
         let existingRequestsBeforeSave = existing.requests.count
 
-        XCTAssertTrue(tap(save, in: app, timeout: 10), "A populated add form should enable Save.")
+        XCTAssertTrue(tap(save, in: app, timeout: 10), "A populated add form should enable Connect.")
 
         waitForDisappearance(of: addSheetTitle, timeout: 20)
         XCTAssertFalse(

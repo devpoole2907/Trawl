@@ -76,13 +76,10 @@ final class ProwlarrJourneyUITests: XCTestCase {
         fixtureServer = server
         let app = launchApp(server: server)
 
+        // `openDestination` lands on Linked Applications on both chromes - the compact
+        // route walks More and the Integrations & Automation hub for you, so the row
+        // this used to tap afterwards is behind the pushed screen.
         XCTAssertTrue(openDestination(.linkedApplications, in: app), "Linked Applications should be reachable.")
-
-        if !TrawlChrome.isSidebar {
-            let linkedApplications = button(containing: "Linked Applications", in: app)
-            XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
-            linkedApplications.tap()
-        }
 
         // The Indexer Sync row selects beside a detail pane and pushes without one,
         // so it is a Cell on one chrome and a Button on the other.

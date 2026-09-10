@@ -21,8 +21,9 @@
 //  without it, detail screens fire a real TMDb lookup that reaches the public internet
 //  and sits out a 15s timeout.
 //
-//  Radarr, Prowlarr, Bazarr, Seerr, Jellyfin, and Cleanuparr are deliberately left
-//  unconfigured. Visiting their screens anyway is still valuable: every one of them is
+//  Radarr, Prowlarr, Bazarr, Seerr, and Cleanuparr are deliberately left unconfigured
+//  (as is Jellyfin, except in the hub-destination walk, which needs it for the two rows
+//  Requests & Access and Media Server hide without a Jellyfin profile). Visiting their screens anyway is still valuable: every one of them is
 //  written to render a real "not set up" / "no services configured" empty state rather
 //  than crash or render blank, and that is exactly the kind of screen N-02 proves can't
 //  be taken on faith. Where a screen genuinely cannot be reached without live service
@@ -41,6 +42,7 @@ import XCTest
 final class NavigationSmokeWalkUITests: XCTestCase {
     private var sonarrServer: SonarrFixtureServer?
     private var sabnzbdServer: SABnzbdFixtureServer?
+    private var jellyfinServer: JellyfinUIFixtureServer?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -51,6 +53,8 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         sonarrServer = nil
         sabnzbdServer?.stop()
         sabnzbdServer = nil
+        jellyfinServer?.stop()
+        jellyfinServer = nil
     }
 
     // MARK: - 1. Tab bar
@@ -128,7 +132,21 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// under test is the same in both: you can get there, and you can get back.
     @MainActor
     func testEveryHubDestinationOpensAndCanBeLeft() async throws {
-        let app = try await launchWithSonarrAndSABnzbd()
+        // The one method in this suite that also seeds Jellyfin. Two of the
+        // destinations below are *rows that only exist when Jellyfin is configured* -
+        // Requests & Access hides Users without a Jellyfin profile, and the Media
+        // Server hub shows a "Jellyfin Not Set Up" empty state instead of its list.
+        // Walking to them from a Sonarr-only launch asks whether a row that was never
+        // rendered can be opened, which it cannot, and the failure reads as a
+        // navigation bug rather than as the seeding gap it is. The unconfigured empty
+        // states those rows are hidden behind stay covered by the other methods here.
+        let sonarr = try await SonarrFixtureServer(seriesJSON: #"[{"id":1,"title":"Fixture Series Alpha"}]"#)
+        sonarrServer = sonarr
+        let sab = try await SABnzbdFixtureServer(queueJobName: "Fixture NZB Alpha")
+        sabnzbdServer = sab
+        let jellyfin = try await JellyfinUIFixtureServer()
+        jellyfinServer = jellyfin
+        let app = launchApp(sonarr: sonarr, sabnzbd: sab, jellyfin: jellyfin)
         waitForRootChrome(app)
 
         // One per section rather than the old seven hubs, which no longer exist as
@@ -394,7 +412,11 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
     // MARK: - Launch helpers
 
-    private func launchApp(sonarr: SonarrFixtureServer?, sabnzbd: SABnzbdFixtureServer?) -> XCUIApplication {
+    private func launchApp(
+        sonarr: SonarrFixtureServer?,
+        sabnzbd: SABnzbdFixtureServer?,
+        jellyfin: JellyfinUIFixtureServer? = nil
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         if let sonarr {
@@ -402,6 +424,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         }
         if let sabnzbd {
             app.launchEnvironment["TRAWL_UITEST_SABNZBD_BASE_URL"] = sabnzbd.baseURL
+        }
+        if let jellyfin {
+            app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = jellyfin.baseURL
         }
         // Detail screens fire a real TMDb lookup otherwise, which reaches the public
         // internet and sits out a 15s timeout.

@@ -249,18 +249,39 @@ private struct AddTrackersSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
+            Group {
+                #if os(macOS)
+                VStack(alignment: .leading, spacing: 8) {
                     TextEditor(text: $text)
-                        .frame(minHeight: 140)
+                        .frame(height: 160)
                         .font(.callout.monospaced())
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        #endif
-                } footer: {
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .background(.background)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(.separator)
+                        }
+
                     Text("One URL per line. Only http, https, and udp schemes are accepted.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
+                .padding()
+                #else
+                Form {
+                    Section {
+                        TextEditor(text: $text)
+                            .frame(minHeight: 140)
+                            .font(.callout.monospaced())
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                    } footer: {
+                        Text("One URL per line. Only http, https, and udp schemes are accepted.")
+                    }
+                }
+                #endif
             }
             .navigationTitle("Add Trackers")
             #if os(iOS)
@@ -284,7 +305,7 @@ private struct AddTrackersSheet: View {
             }
             .errorAlert(item: $errorAlert)
         }
-        .macSheetSizing(minWidth: 500, idealWidth: 540, minHeight: 280)
+        .macSheetSizing(minWidth: 500, idealWidth: 540, minHeight: 260)
     }
 
     private var parsedURLs: [String] {

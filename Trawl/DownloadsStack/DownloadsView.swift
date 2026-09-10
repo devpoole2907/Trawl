@@ -382,17 +382,16 @@ struct DownloadsView: View {
 
                     Divider()
 
-                    // Same reasoning as Calendar: Download Clients, qBittorrent and
-                    // SABnzbd are sidebar rows on iPad and Mac, so the shortcut into
-                    // them only earns its place in the tab chrome.
-                    if !isDrivingDetailColumn {
+                    // Download Clients and Blocklist are sidebar rows on regular iPad
+                    // and Mac, so their shortcuts only earn a place in compact chrome.
+                    if detailSelection == nil {
                         Button("Client Management", systemImage: "server.rack") {
                             managementRoute = .clients
                         }
-                    }
 
-                    Button("Blocklist", systemImage: "hand.raised.slash.fill") {
-                        managementRoute = .blocklist
+                        Button("Blocklist", systemImage: "hand.raised.slash.fill") {
+                            managementRoute = .blocklist
+                        }
                     }
                 } label: {
                     Label("Downloads Options", systemImage: "ellipsis")

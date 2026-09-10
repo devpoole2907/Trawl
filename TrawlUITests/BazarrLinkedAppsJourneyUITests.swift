@@ -157,14 +157,9 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
         )
 
         // Compact only: there is no Integrations hub on the sidebar chrome, so
-        // `openDestination` has already landed on Linked Applications itself.
-        if !TrawlChrome.isSidebar {
-            let linkedApplications = firstButton(labelContaining: "Linked Applications", in: app)
-            XCTAssertTrue(
-                tapWhenHittable(linkedApplications, in: app, timeout: 12),
-                "Integrations & Automation should expose the Linked Applications hub."
-            )
-        }
+        // `openDestination` has already landed on Linked Applications itself, on both
+        // chromes: the compact route walks More and the hub for you. The extra tap this
+        // used to make looked for a row that is behind the pushed screen by then.
         XCTAssertTrue(
             app.showsScreen(named: "Linked Applications"),
             "The Linked Applications hub should render."

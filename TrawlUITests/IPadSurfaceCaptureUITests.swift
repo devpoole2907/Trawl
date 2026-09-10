@@ -23,6 +23,14 @@
 //  Screenshots come back as `.keepAlways` attachments in the result bundle and are
 //  pulled out with `xcrun xcresulttool export attachments`.
 //
+//  The capture methods are still the point of this file, but it has since collected a
+//  handful of *behaviour* tests about the iPad chrome itself - detail-pane titles,
+//  selection reaching the detail column, sidebar position surviving a column-count
+//  change. Those assert, and what they assert about does not exist on an iPhone, so
+//  each one opens with `requireSidebarChrome()` (and the single compact-width case
+//  with `requireCompactChrome()`). Without those guards they failed on every run of
+//  the plan, which runs on the iPhone destination and cannot skip this suite.
+//
 //  Seeding follows the established pattern (`NavigationSmokeWalkUITests`): real
 //  loopback fixture servers handed to the app through `TrawlApp`'s DEBUG hooks, so
 //  the app's own startup, connect, and navigation code runs unmodified. The one
@@ -74,6 +82,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// far more readably than portrait does.
     @MainActor
     func testCapturePrimarySurfacesLandscape() async throws {
+        try requireSidebarChrome()
         // Orientation is set *before* launch, so the app lays out for landscape once
         // at startup and nothing rotates mid-session. Rotating a running app was the
         // source of both earlier capture failures: it wedged the chrome so no
@@ -191,6 +200,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// here rather than assumed to match landscape.
     @MainActor
     func testCapturePrimarySurfacesPortrait() async throws {
+        try requireSidebarChrome()
         let app = try await launchFullyConfiguredApp(orientation: .portrait)
 
         guard reachedTabUI(app) else {
@@ -276,6 +286,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     func testCaptureNewScreensSplitViewsLandscape() async throws {
+        try requireSidebarChrome()
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
 
         guard reachedTabUI(app) else {
@@ -403,6 +414,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// Download Clients retains its existing list header and detail title.
     @MainActor
     func testDetailPaneTitlesSurviveSelection() async throws {
+        try requireSidebarChrome()
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
 
         guard reachedTabUI(app) else {
@@ -441,9 +453,13 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             // so its hub is the "Bazarr Not Set Up" empty state and there is no row
             // to select. Adding it here asserted against a screen that cannot exist.
             //
-            // `ArrEventsView` carries its own scope subtitle, so the detail bar is
-            // two strings rather than one.
-            ("logs", "Logs & Activity", "Arr Events", ["All Servers", "Events"]),
+            // `ArrEventsView` carries its own scope subtitle, so the detail bar is two
+            // strings rather than one. Title first, subtitle second - which is both the
+            // order the bar lists them in and, since `expectedBar[0]` is used to find
+            // the bar, the only order that identifies it. A run against the iPad
+            // reported `identifier=Events texts=[Events | All Servers]`; this entry had
+            // them the other way round and looked for a bar named "All Servers".
+            ("logs", "Logs & Activity", "Arr Events", ["Events", "All Servers"]),
         ]
 
         for (offset, pane) in panes.enumerated() {
@@ -462,6 +478,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// does not intercept taps intended for the calendar beside it.
     @MainActor
     func testCalendarAndMissingSelectionsUpdateTheDetailColumn() async throws {
+        try requireSidebarChrome()
         continueAfterFailure = false
         let date = Date.now.ISO8601Format()
         let server = try await SonarrFixtureServer(
@@ -506,6 +523,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     func testMissingCompactRowConfirmsBeforeSearching() async throws {
+        try requireCompactChrome()
         continueAfterFailure = false
         let server = try await SonarrFixtureServer(
             seriesJSON: #"[{"id":1,"title":"Missing Fixture Series"}]"#,
@@ -544,6 +562,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     func testSidebarPositionSurvivesColumnCountChanges() async throws {
+        try requireSidebarChrome()
         continueAfterFailure = false
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
         XCTAssertTrue(ensureRootChromeIsReady(in: app))
@@ -572,6 +591,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     func testTitleMenusLeadTheirIPadColumns() async throws {
+        try requireSidebarChrome()
         continueAfterFailure = false
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft, multipleInstances: true)
         XCTAssertTrue(ensureRootChromeIsReady(in: app))
@@ -589,6 +609,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
     @MainActor
     func testQueueActionDialogsBelongToTheirRows() async throws {
+        try requireSidebarChrome()
         continueAfterFailure = false
         let server = try await SonarrFixtureServer(seriesJSON: "[]", queueJSON: #"{"page":1,"pageSize":20,"totalRecords":2,"records":[{"id":101,"title":"First Unlinked Download","status":"downloading","size":1000,"sizeleft":500},{"id":102,"title":"Second Unlinked Download","status":"downloading","size":1000,"sizeleft":500}]}"#)
         sonarr = server
@@ -620,6 +641,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// a calendar has no "current" date the way a list of servers has a first server.
     @MainActor
     func testCalendarAndMissingOpenBesideAnEmptyPane() async throws {
+        try requireSidebarChrome()
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
 
         guard reachedTabUI(app) else {
@@ -1400,4 +1422,49 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
         return "[\(entries.joined(separator: ","))]"
     }
+
+    // MARK: - Chrome guards
+
+    /// The tests below this suite's capture methods describe the iPad's own chrome:
+    /// a sidebar row, a detail column beside a list, a title menu at the head of a
+    /// column. None of those exist on an iPhone, so on the compact chrome they do not
+    /// fail because something regressed - they fail because the thing they describe
+    /// was never there.
+    ///
+    /// That mattered more than it sounds. `Trawl.xctestplan` runs on the iPhone
+    /// destination and cannot skip this suite (a plan skip beats `-only-testing`, and
+    /// the capture methods have to stay runnable), so six of these reported failure on
+    /// every full-plan run. A gate that is always red is not a gate: the seventh
+    /// failure, the real one, arrives in a list of six that everybody has learned to
+    /// scroll past. The skip is deliberately loud about which destination does run
+    /// them, so a reader who wants the coverage knows how to get it.
+    @MainActor
+    private func requireSidebarChrome() throws {
+        try XCTSkipUnless(
+            TrawlChrome.current == .sidebar,
+            "iPad chrome behaviour. Run it with -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)'; on the compact chrome there is no sidebar or detail column to assert against."
+        )
+    }
+
+    /// The capture methods are guarded by the same helper, for a different reason:
+    /// they do not fail on an iPhone, they just photograph one, slowly. The landscape
+    /// pass alone spent **eight minutes** of a full-plan run walking a compact chrome
+    /// looking for a sidebar, and the pictures it produced were of a layout nobody
+    /// opens this file to look at. `testCaptureWelcomeSurface` (7s, no chrome to walk)
+    /// and `testDumpChromeHierarchies` (a diagnostic that dumps whichever chrome is
+    /// running) are deliberately left unguarded.
+    ///
+    /// The mirror of `requireSidebarChrome`: a row that opens a confirmation *instead*
+    /// of pushing is a compact-width contract, and beside a detail pane the same tap
+    /// is a selection.
+    @MainActor
+    private func requireCompactChrome() throws {
+        try XCTSkipUnless(
+            TrawlChrome.current == .tabBar,
+            "Compact chrome behaviour. Beside a detail pane this row is a selection rather than a confirmation, so the assertion describes a screen this destination does not render."
+        )
+    }
+
+    // MARK: - Helpers
+
 }

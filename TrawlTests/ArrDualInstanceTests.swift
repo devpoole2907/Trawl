@@ -1041,6 +1041,112 @@ struct ArrDualInstanceRoutingTests {
         #expect(browser.selectedDiskID == sample.id)
     }
 
+    /// Two servers on one machine report the same mounts. The split view's list is
+    /// keyed by snapshot id, so an id built from the path alone collapses an HD/4K
+    /// pair into one row - and selecting it points the inspector at whichever server
+    /// happened to answer first. This runs the real load against two loopback Radarrs
+    /// serving the *same* mount path and asserts both rows survive it.
+    @Test("Two servers reporting one mount stay two selectable drives")
+    func diskSpaceSeparatesInstancesSharingAMountPoint() async throws {
+        let hd = try await DualInstanceRadarrServer(
+            label: "hd-disk",
+            movies: "[]",
+            diskSpace: #"[{"path":"/media","label":"Media","freeSpace":500000000000,"totalSpace":4000000000000}]"#
+        )
+        let uhd = try await DualInstanceRadarrServer(
+            label: "4k-disk",
+            movies: "[]",
+            diskSpace: #"[{"path":"/media","label":"Media 4K","freeSpace":100000000000,"totalSpace":8000000000000}]"#
+        )
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, hdID, uhdID in
+            let browser = ArrDiskSpaceBrowserState()
+            await browser.loadDiskSpace(serviceManager: manager)
+
+            #expect(browser.snapshots.count == 2)
+            #expect(Set(browser.snapshots.map(\.id)).count == 2)
+            #expect(Set(browser.snapshots.compactMap(\.instance?.id)) == [hdID, uhdID])
+            #expect(browser.snapshots.allSatisfy { $0.path == "/media" })
+
+            // Nothing selected yet: the pane opens on a drive rather than empty.
+            #expect(browser.selectedDiskID == browser.snapshots.first?.id)
+
+            // A drive chosen on the 4K server is still that drive after a refresh.
+            // Reconciliation compares ids, and both rows answer to "/media".
+            let uhdDrive = try #require(browser.snapshots.first { $0.instance?.id == uhdID })
+            browser.selectedDiskID = uhdDrive.id
+            await browser.loadDiskSpace(serviceManager: manager)
+            #expect(browser.selectedDiskID == uhdDrive.id)
+            #expect(browser.snapshots.first { $0.id == uhdDrive.id }?.label == "Media 4K")
+
+            // Filtering that server out leaves a selection naming a drive that is no
+            // longer listed; the pane must move rather than go blank beside a list
+            // that still has rows in it.
+            manager.showOnlyInstance(hdID, serviceType: .radarr)
+            await browser.loadDiskSpace(serviceManager: manager)
+            #expect(browser.snapshots.count == 1)
+            #expect(browser.selectedDiskID != uhdDrive.id)
+            #expect(browser.selectedDiskID == browser.snapshots.first?.id)
+        }
+    }
+
+    /// The mappings list blends every server's mappings into one column, so its order
+    /// is the only thing telling a reader which server they are editing. Sorting is by
+    /// service, then HD before 4K, then host - and host comparison is
+    /// case-insensitive, because a mapping typed as "NAS" is the same machine as one
+    /// typed "nas" and they belong next to each other.
+    @Test("Remote path mappings sort by service, then tier, then host")
+    func remotePathMappingsSortByServiceTierThenHost() {
+        func ref(_ serviceType: ArrServiceType, _ tier: ArrQualityTier) -> ArrInstanceRef {
+            ArrInstanceRef(
+                id: UUID(),
+                serviceType: serviceType,
+                displayName: "\(serviceType.displayName) \(tier.label)",
+                tier: tier
+            )
+        }
+
+        func entry(
+            _ serviceType: ArrServiceType,
+            _ tier: ArrQualityTier,
+            host: String,
+            id: Int
+        ) -> RemotePathMappingEntry {
+            RemotePathMappingEntry(
+                serviceType: serviceType,
+                mapping: ArrRemotePathMapping(
+                    id: id,
+                    host: host,
+                    remotePath: "/remote/\(host)",
+                    localPath: "/local/\(host)"
+                ),
+                instance: ref(serviceType, tier)
+            )
+        }
+
+        let browser = ArrRemotePathMappingBrowserState()
+        browser.mappings = [
+            entry(.sonarr, .uhd, host: "nas", id: 1),
+            entry(.radarr, .hd, host: "seedbox", id: 2),
+            entry(.sonarr, .hd, host: "NAS", id: 3),
+            entry(.radarr, .uhd, host: "attic", id: 4),
+            entry(.sonarr, .hd, host: "attic", id: 5)
+        ]
+        browser.sortMappings()
+
+        #expect(
+            browser.mappings.map { "\($0.serviceType.displayName)/\($0.instance?.shortLabel ?? "-")/\($0.mapping.host)" }
+                == [
+                    "Radarr/Default/seedbox",
+                    "Radarr/4K/attic",
+                    "Sonarr/Default/attic",
+                    "Sonarr/Default/NAS",
+                    "Sonarr/4K/nas"
+                ]
+        )
+    }
+
     @Test("Badges appear only once a second server exists")
     func provenanceIsSuppressedForASingleServer() async throws {
         let hd = try await DualInstanceRadarrServer(label: "hd-badge", movies: "[]")
@@ -1138,11 +1244,14 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
     private let queue: DispatchQueue
     private let moviesBody: String
     private let rootFoldersBody: String
+    private let diskSpaceBody: String
+    private let downloadClientsBody: String
     private let releaseResponseJSON: String
     private let lock = NSLock()
     private var deletes: [String] = []
     private var commands: [String] = []
     private var releases: [String] = []
+    private var puts: [(path: String, body: String)] = []
     private var requests: [String] = []
 
     /// Queue payload for `GET /api/v3/queue`, settable so one test can hand out
@@ -1157,12 +1266,16 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
         label: String,
         movies: String,
         rootFolders: String = "[]",
+        diskSpace: String = "[]",
+        downloadClients: String = "[]",
         releaseResponseJSON: String = "[]"
     ) async throws {
         self.queue = DispatchQueue(label: "DualInstanceRadarrServer.\(label)")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.moviesBody = movies
         self.rootFoldersBody = rootFolders
+        self.diskSpaceBody = diskSpace
+        self.downloadClientsBody = downloadClients
         self.releaseResponseJSON = releaseResponseJSON
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
@@ -1207,6 +1320,13 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
         return requests
     }
 
+    /// Paths and bodies of every PUT, so a test can assert what a repair actually
+    /// wrote rather than only that something was saved.
+    var putRequests: [(path: String, body: String)] {
+        lock.lock(); defer { lock.unlock() }
+        return puts
+    }
+
     func stop() { listener.cancel() }
 
     private func respond(to connection: NWConnection) {
@@ -1240,12 +1360,19 @@ final class DualInstanceRadarrServer: @unchecked Sendable {
             if request.method == "POST", request.path == "/api/v3/release" {
                 self.releases.append(request.body)
             }
+            if request.method == "PUT" { self.puts.append((request.path, request.body)) }
             self.lock.unlock()
 
             let body: String
             switch (request.method, request.path) {
             case ("GET", "/api/v3/movie"): body = self.moviesBody
             case ("GET", "/api/v3/rootfolder"): body = self.rootFoldersBody
+            case ("GET", "/api/v3/diskspace"): body = self.diskSpaceBody
+            case ("GET", "/api/v3/downloadclient"): body = self.downloadClientsBody
+            // Arr answers a PUT with the saved row. Echoing the request body back is
+            // the honest form of that: a test asserting on what was written reads the
+            // recorded body, not this reply.
+            case ("PUT", _): body = request.body
             case ("GET", "/api/v3/queue"): body = self.queueBody
             case ("GET", "/api/v3/release"): body = self.releaseResponseJSON
             // `ArrServiceManager.fetchQueueSnapshot` awaits queue and history

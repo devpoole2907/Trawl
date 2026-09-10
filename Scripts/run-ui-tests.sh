@@ -24,6 +24,9 @@ RESULTS="${TRAWL_RESULTS_DIR:-/tmp/trawl-ci-results}"
 SUITE="${1:-}"
 ONLY=()
 [ -n "$SUITE" ] && ONLY=(-only-testing:"TrawlUITests/$SUITE")
+# Expanded below as ${ONLY[@]+"${ONLY[@]}"}: macOS ships bash 3.2, where an empty
+# array expansion counts as unbound under `set -u`, so the plain "${ONLY[@]}" form
+# aborted the no-argument (whole-plan) case before xcodebuild ever ran.
 
 mkdir -p "$RESULTS"
 failures=0
@@ -39,7 +42,7 @@ run() {
         -destination "platform=iOS Simulator,name=$device,OS=latest" \
         -derivedDataPath "$DERIVED" \
         -resultBundlePath "$bundle" \
-        "${ONLY[@]}" \
+        ${ONLY[@]+"${ONLY[@]}"} \
         test > "$log" 2>&1
     local status=$?
 

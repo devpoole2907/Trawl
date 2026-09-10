@@ -628,8 +628,25 @@ struct QBittorrentSettingsView: View {
     @State private var isUpdatingAlternativeSpeed = false
     @State private var isUpdatingDefaultSavePath = false
     
-    @State private var serverToEdit: ServerProfile?
-    @State private var showAddSheet = false
+    /// One item for one sheet. Two `.sheet` modifiers on the same view is a SwiftUI
+    /// trap rather than two presentations: only the last one is reliably honoured, and
+    /// presenting through the earlier one opened the editor and then dismissed it a
+    /// beat later - which reads as a tap that did nothing at all. This screen gained
+    /// its editor sheet when qBittorrent Settings stopped pushing `ServerListView`, so
+    /// the add sheet it already had became the second one.
+    @State private var serverEditor: ServerEditorTarget?
+
+    private enum ServerEditorTarget: Identifiable {
+        case add
+        case edit(ServerProfile)
+
+        var id: String {
+            switch self {
+            case .add: "add"
+            case .edit(let profile): profile.id.uuidString
+            }
+        }
+    }
     @State private var showRemoveConfirmation = false
     @State private var isDeleting = false
     
@@ -671,7 +688,7 @@ struct QBittorrentSettingsView: View {
             Section {
                 if let server = viewModel.serverProfile {
                     Button {
-                        serverToEdit = server
+                        serverEditor = .edit(server)
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -692,13 +709,13 @@ struct QBittorrentSettingsView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        serverToEdit = server
+                        serverEditor = .edit(server)
                     } label: {
                         Label("Edit Server", systemImage: "pencil")
                     }
                 } else {
                     Button {
-                        showAddSheet = true
+                        serverEditor = .add
                     } label: {
                         Label("Add Server", systemImage: "plus")
                     }
@@ -847,11 +864,13 @@ struct QBittorrentSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .tint(ServiceIdentity.qbittorrent.brandColor)
-        .sheet(item: $serverToEdit) { server in
-            OnboardingSheet(serverProfile: server) {}
-        }
-        .sheet(isPresented: $showAddSheet) {
-            OnboardingSheet(serverProfile: nil) {}
+        .sheet(item: $serverEditor) { target in
+            switch target {
+            case .add:
+                OnboardingSheet(serverProfile: nil) {}
+            case .edit(let server):
+                OnboardingSheet(serverProfile: server) {}
+            }
         }
         .task {
             #if DEBUG

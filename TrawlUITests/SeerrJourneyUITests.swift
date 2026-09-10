@@ -57,12 +57,8 @@ final class SeerrJourneyUITests: XCTestCase {
             "The real Requests & Access navigation hub should be reachable for a configured Seerr profile."
         )
 
-        let issuesRow = button(labelContaining: "Issues", in: app)
-        XCTAssertTrue(
-            issuesRow.waitForExistence(in: app, timeout: 10),
-            "Requests & Access should expose the Issues route for the configured Seerr service."
-        )
-        issuesRow.tap()
+        // `openDestination` walks the Requests & Access hub itself and lands on Issues;
+        // the row it went through is behind the pushed screen by the time it returns.
 
         let issueTitle = app.staticTexts[SeerrUIFixtureServer.issueTitle]
         XCTAssertTrue(
@@ -78,6 +74,16 @@ final class SeerrJourneyUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts[SeerrUIFixtureServer.detailComment].waitForExistence(in: app, timeout: 15),
             "The detail-only comment should render after the production client fetches /api/v1/issue/{id}."
+        )
+        // Once, not twice. The list is a `List(selection:)` whose rows are
+        // `NavigationLink`s at compact width, and a live selection binding over links
+        // makes one tap both select *and* push - building the detail twice and
+        // fetching for it twice. That is a real defect on the import-location list
+        // (see `ArrImportLocationView`), so it is asserted here rather than assumed.
+        XCTAssertEqual(
+            server.requests.filter { $0.method == "GET" && $0.path == "/api/v1/issue/\(SeerrUIFixtureServer.issueID)" }.count,
+            1,
+            "Opening an issue should fetch its detail exactly once."
         )
 
         let resolveButton = app.buttons["Resolve Issue"]

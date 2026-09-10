@@ -284,10 +284,9 @@ final class LibraryImportScanJourneyUITests: XCTestCase {
     @MainActor
     private func openLibraryImportRoot(in app: XCUIApplication) {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        // `openDestination` walks More and the Library Management hub itself and lands
+        // on Library Import, so the row that got it there is no longer on screen to tap.
         XCTAssertTrue(openDestination(.libraryImport, in: app), "Library Import should be reachable.")
-
-        let libraryImport = firstButton(labelContaining: "Library Import", in: app)
-        XCTAssertTrue(tapWhenHittable(libraryImport, in: app, timeout: 10), "Library Management should expose Library Import.")
         XCTAssertTrue(app.navigationBars["Library Import"].waitForExistence(in: app, timeout: 10))
 
         let rootFolder = firstButton(labelContaining: LibraryImportScanUIFixtureServer.rootFolderPath, in: app)

@@ -481,6 +481,9 @@ struct ArrInstanceRootFoldersDetailView: View {
             whenPane: title
         )
         .toolbar {
+            #if os(macOS)
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            #endif
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button {
                     showingAddSheet = true

@@ -650,13 +650,24 @@ extension XCTestCase {
     /// element nor any descendant has keyboard focus" - which reads as a broken screen
     /// and is really a tap that missed by a few points.
     ///
-    /// So focus is *verified* rather than assumed, using the one observable signal
-    /// there is: a keyboard on screen. The fallback tap is the field's centre, which
-    /// always focuses but may place the caret mid-text - acceptable, because it only
-    /// runs when the precise tap already failed.
+    /// So focus is *verified* rather than assumed. The signal is the field's own
+    /// `hasKeyboardFocus`, not merely a keyboard on screen: moving between two fields
+    /// in the same form leaves the keyboard up throughout, so "a keyboard exists" is
+    /// already true before the tap and stays true when the tap misses. What follows is
+    /// then typed into the field the caller has just left - silently. That is not
+    /// hypothetical: a qBittorrent edit typed the new *username* into the *host* field
+    /// and saved `http://fixture-updated-user`, and the failure surfaced twenty lines
+    /// later as "the server never received a login", naming the wrong thing entirely.
+    ///
+    /// The keyboard check is kept as a fallback for any element that does not report
+    /// focus, so nothing that passes today starts failing on a missing attribute.
+    /// The fallback tap is the field's centre, which always focuses but may place the
+    /// caret mid-text - acceptable, because it only runs when the precise tap failed.
     @MainActor
     @discardableResult
     func focus(_ field: XCUIElement, in app: XCUIApplication) -> Bool {
+        if hasKeyboardFocus(field) { return true }
+
         if field.elementType == .secureTextField {
             // A SecureField exposes a compact text-input element with no meaningful
             // trailing inset; tapping it directly is what focuses it.
@@ -664,10 +675,29 @@ extension XCTestCase {
         } else {
             field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         }
-        if app.keyboards.element.waitForExistence(timeout: 3) { return true }
+        if waitForKeyboardFocus(field) { return true }
 
         field.tap()
-        return app.keyboards.element.waitForExistence(timeout: 3)
+        if waitForKeyboardFocus(field) { return true }
+        return app.keyboards.element.waitForExistence(timeout: 1)
+    }
+
+    /// Whether this element currently owns the keyboard. Read through the predicate
+    /// XCTest itself evaluates for focus, so it works for any element that publishes
+    /// the attribute and is simply false for one that does not.
+    @MainActor
+    private func hasKeyboardFocus(_ field: XCUIElement) -> Bool {
+        guard field.exists else { return false }
+        return NSPredicate(format: "hasKeyboardFocus == true").evaluate(with: field)
+    }
+
+    @MainActor
+    private func waitForKeyboardFocus(_ field: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let focused = expectation(
+            for: NSPredicate(format: "hasKeyboardFocus == true"),
+            evaluatedWith: field
+        )
+        return XCTWaiter().wait(for: [focused], timeout: timeout) == .completed
     }
 
     // MARK: Library rows

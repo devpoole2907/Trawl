@@ -150,9 +150,17 @@ final class MoreSettingsBreadthUITests: XCTestCase {
     /// simple title-only navigation check.
     @MainActor
     func testAutomationHubLoadsRemoteMappingsFromEveryConfiguredArrService() async throws {
-        let sonarr = try await SonarrFixtureServer(seriesJSON: #"[{"id":1,"title":"Mappings Route Series"}]"#)
+        // Both fixtures gained a default remote-path mapping in 139b373, for the iPad
+        // capture harness. This journey is about the fan-out reaching every configured
+        // server and about the empty state that follows a completed load, so it asks
+        // for servers with nothing mapped rather than inheriting a shared default that
+        // another suite is free to change again.
+        let sonarr = try await SonarrFixtureServer(
+            seriesJSON: #"[{"id":1,"title":"Mappings Route Series"}]"#,
+            remotePathMappingsJSON: "[]"
+        )
         sonarrServer = sonarr
-        let radarr = try await RadarrFixtureServer()
+        let radarr = try await RadarrFixtureServer(remotePathMappingsJSON: "[]")
         radarrServer = radarr
 
         let app = launchApp(sonarr: sonarr, radarr: radarr)

@@ -145,8 +145,11 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
             "The edit sheet should present the API Key field."
         )
 
-        let save = app.buttons["Save"]
-        XCTAssertTrue(save.waitForExistence(timeout: 5), "The edit sheet should have a Save action (ModalFormStyle primaryTitle).")
+        // "Save Connection" rather than "Save": 5eb4b7e gave all six service setup
+        // sheets one pair of commit labels, Connect for an add and Save Connection for
+        // an edit. This is the edit path.
+        let save = app.buttons["Save Connection"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "The edit sheet should have a Save Connection action.")
         XCTAssertTrue(
             save.isEnabled,
             "Save should arrive enabled: ArrSetupViewModel.loadExisting pre-fills both the host and the Keychain-held API key, and Save is disabled only when one of them is empty."
