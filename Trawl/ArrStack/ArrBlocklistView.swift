@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ArrBlocklistView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(\.hasDetailPane) private var hasDetailPane
     @State private var mode: SuppressionMode = .blocklist
     @State private var scope: BlocklistScope = .all
     @State private var showClearConfirm = false
@@ -14,18 +15,21 @@ struct ArrBlocklistView: View {
     private let previewRadarrBlocklist: [ArrBlocklistItem]?
     private let previewSonarrExclusions: [ArrImportListExclusion]?
     private let previewRadarrExclusions: [ArrImportListExclusion]?
+    private var detailSelection: Binding<BlocklistEntry?>?
 
     init(
         previewSonarrBlocklist: [ArrBlocklistItem]? = nil,
         previewRadarrBlocklist: [ArrBlocklistItem]? = nil,
         previewSonarrExclusions: [ArrImportListExclusion]? = nil,
         previewRadarrExclusions: [ArrImportListExclusion]? = nil,
-        initialMode: SuppressionMode = .blocklist
+        initialMode: SuppressionMode = .blocklist,
+        detailSelection: Binding<BlocklistEntry?>? = nil
     ) {
         self.previewSonarrBlocklist = previewSonarrBlocklist
         self.previewRadarrBlocklist = previewRadarrBlocklist
         self.previewSonarrExclusions = previewSonarrExclusions
         self.previewRadarrExclusions = previewRadarrExclusions
+        self.detailSelection = detailSelection
         _mode = State(initialValue: initialMode)
     }
 
@@ -53,7 +57,7 @@ struct ArrBlocklistView: View {
     /// A blocklist row plus the server that holds it. Both instances of a service
     /// contribute to one list, and their row IDs overlap, so the entry is keyed by
     /// instance - and a delete reaches the right server for the same reason.
-    struct BlocklistEntry: Identifiable {
+    struct BlocklistEntry: Identifiable, Hashable {
         let instanced: ArrInstanced<ArrBlocklistItem>
         let source: ArrServiceType
         /// Whether to show the server on the row. Presentation only; the delete
@@ -64,6 +68,9 @@ struct ArrBlocklistView: View {
         var instance: ArrInstanceRef { instanced.instance }
         var badgeInstance: ArrInstanceRef? { showsInstance ? instanced.instance : nil }
         var id: String { instanced.id }
+
+        static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
     }
 
     struct ExclusionEntry: Identifiable {
@@ -430,6 +437,12 @@ struct ArrBlocklistView: View {
         }
         .refreshable { await loadCurrentMode() }
         .task(id: blocklistReloadKey) { await loadCurrentMode() }
+        .onChange(of: mode) { _, _ in detailSelection?.wrappedValue = nil }
+        .onChange(of: allEntries.map(\.id)) { _, visibleIDs in
+            guard let selected = detailSelection?.wrappedValue,
+                  !visibleIDs.contains(selected.id) else { return }
+            detailSelection?.wrappedValue = nil
+        }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: blocklistSettingsService)
@@ -448,7 +461,7 @@ struct ArrBlocklistView: View {
     private var searchContent: some View {
         let sections = suppressionSearchSections(matching: suppressionSearchQuery)
 
-        List {
+        List(selection: hasDetailPane ? detailSelection : nil) {
             if sections.isEmpty {
                 ContentUnavailableView.search(text: suppressionSearchQuery)
                     .listRowBackground(Color.clear)
@@ -458,7 +471,7 @@ struct ArrBlocklistView: View {
                         ForEach(section.items) { item in
                             switch item.kind {
                             case .blocklist(let entry):
-                                BlocklistRow(entry: entry)
+                                blocklistNavigationRow(entry)
                                     .swipeActions(allowsFullSwipe: false) {
                                         Button {
                                             entryToDelete = entry
@@ -514,9 +527,9 @@ struct ArrBlocklistView: View {
 
     @ViewBuilder
     private var blocklistContent: some View {
-        List {
+        List(selection: hasDetailPane ? detailSelection : nil) {
             ForEach(allEntries) { entry in
-                BlocklistRow(entry: entry)
+                blocklistNavigationRow(entry)
                     .swipeActions(allowsFullSwipe: false) {
                         Button {
                             entryToDelete = entry
@@ -534,6 +547,29 @@ struct ArrBlocklistView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private func blocklistNavigationRow(_ entry: BlocklistEntry) -> some View {
+        if hasDetailPane, let detailSelection {
+            Button {
+                detailSelection.wrappedValue = entry
+            } label: {
+                BlocklistRow(entry: entry)
+            }
+            .buttonStyle(.plain)
+            .tag(entry)
+            .accessibilityIdentifier("blocklist-row-\(entry.id)")
+        } else {
+            NavigationLink {
+                ArrBlocklistDetailView(entry: entry) {
+                    await unblock(entry)
+                }
+            } label: {
+                BlocklistRow(entry: entry)
+            }
+            .accessibilityIdentifier("blocklist-row-\(entry.id)")
+        }
     }
 
     @ViewBuilder
@@ -609,6 +645,16 @@ struct ArrBlocklistView: View {
 
     private func deleteEntry(_ entry: BlocklistEntry) async {
         await serviceManager.removeBlocklistItem(entry.instanced)
+    }
+
+    private func unblock(_ entry: BlocklistEntry) async -> Bool {
+        await deleteEntry(entry)
+        let remaining = liveBlocklist(entry.source)
+        let didRemove = !remaining.contains { $0.id == entry.id }
+        if didRemove, detailSelection?.wrappedValue?.id == entry.id {
+            detailSelection?.wrappedValue = nil
+        }
+        return didRemove
     }
 
     private func deleteExclusion(_ entry: ExclusionEntry) async {

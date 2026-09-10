@@ -28,7 +28,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
     var rows: [RootTab] {
         switch self {
         case .library:
-            [.downloads, .blocklist, .series, .movies, .missing, .calendar, .search]
+            [.downloads, .series, .movies, .missing, .blocklist, .calendar, .search]
         case .requests:
             [.requests, .issues, .users]
         case .mediaServer:

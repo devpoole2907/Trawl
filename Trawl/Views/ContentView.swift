@@ -127,6 +127,7 @@ struct ContentView: View {
     /// closures of one split view, and both need to read it.
     /// Which download the detail column is showing, when the sidebar chrome is up.
     @State private var downloadSelection: DownloadDetailSelection?
+    @State private var blocklistSelection: ArrBlocklistView.BlocklistEntry?
     @State private var seriesSelection: ArrMergeKey?
     @State private var moviesSelection: ArrMergeKey?
     @State private var searchDetailDestination: ArrMediaDestination?
@@ -1051,7 +1052,7 @@ struct ContentView: View {
         case .downloads:
             downloadsRoot(services: services, detailSelection: $downloadSelection)
         case .blocklist:
-            ArrBlocklistView()
+            ArrBlocklistView(detailSelection: $blocklistSelection)
                 .environment(arrServiceManager)
                 .environment(\.sidebarNavigationColumn, NavigationSplitViewColumn.content)
                 .environment(\.hasDetailPane, true)
@@ -1164,7 +1165,21 @@ struct ContentView: View {
                 listDetailPlaceholder("Select a download", systemImage: "tray.and.arrow.down")
             }
         case .blocklist:
-            listDetailPlaceholder("Select an item", systemImage: "hand.raised.slash")
+            if let blocklistSelection {
+                ArrBlocklistDetailView(entry: blocklistSelection) {
+                    await arrServiceManager.removeBlocklistItem(blocklistSelection.instanced)
+                    let rows = blocklistSelection.source == .sonarr
+                        ? arrServiceManager.sonarrBlocklist
+                        : arrServiceManager.radarrBlocklist
+                    let didRemove = !rows.contains { $0.id == blocklistSelection.id }
+                    if didRemove { self.blocklistSelection = nil }
+                    return didRemove
+                }
+                .id(blocklistSelection.id)
+                .environment(\.isDetailPane, true)
+            } else {
+                listDetailPlaceholder("Select a blocked release", systemImage: "hand.raised.slash")
+            }
         case .series:
             // A detail view builds its own view model from the service manager -
             // the same thing `arrMediaNavigationDestinations` does for every pushed

@@ -165,7 +165,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// Client Management -> SABnzbd -> Queue is the exact path that used to crash the
     /// app outright on a bare `@Environment(SyncService.self)` read in
     /// `SABnzbdManagerView` that nothing on this path injected. Also walks the rest of
-    /// the SABnzbd client hub (Categories & Scripts, News Servers, SABnzbd Settings)
+    /// the SABnzbd client hub (Categories & Scripts and News Servers)
     /// and the Blocklist route, since all of them sit behind the same overflow menu and
     /// none of them had ever been opened by a test either.
     @MainActor
@@ -225,16 +225,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
         popBack(app, fromTitle: "News Servers")
 
-        let sabSettingsRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Settings")).firstMatch
-        XCTAssertTrue(sabSettingsRow.waitForExistence(in: app, timeout: 10), "Screen: the SABnzbd hub should list 'SABnzbd Settings' again after popping back.")
-        sabSettingsRow.tap()
-        XCTAssertTrue(
-            app.buttons["Edit Server"].waitForExistence(timeout: 10),
-            "Screen: 'SABnzbd Settings' should render the configured server's Edit Server control."
+        XCTAssertFalse(
+            app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Settings")).firstMatch.exists,
+            "Screen: SABnzbd settings belong in the main Settings area, not the client hub."
         )
-        // The settings screen and client hub have distinct titles so the back path
-        // communicates where the user will land at each level.
-        popBack(app, fromTitle: "SABnzbd Settings")
         popBack(app, fromTitle: "SABnzbd")
 
         // Back at Client Management, then all the way back to Downloads.

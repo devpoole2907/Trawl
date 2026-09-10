@@ -40,7 +40,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// introduced became rows. Naming the headings here asserted the arrangement this
     /// replaced, and failed against the one that shipped.
     private static let promotedDestinations = [
-        "Blocklist", "Missing", "Calendar", "Requests", "Indexers",
+        "Missing", "Blocklist", "Calendar", "Requests", "Indexers",
         "Download Clients", "Quality Profiles", "Setup Check", "Settings"
     ]
 
@@ -112,8 +112,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             "Blocklist should render its list in the content column."
         )
         XCTAssertTrue(
-            app.staticTexts["Select an item"].waitForExistence(timeout: 5),
-            "Blocklist should reserve the native detail column without wiring row selection yet."
+            app.staticTexts["Select a blocked release"].waitForExistence(timeout: 5),
+            "Blocklist should reserve its native detail column until a release is selected."
         )
     }
 

@@ -272,8 +272,7 @@ struct DownloadClientManagementView: View {
 /// so an umbrella protocol-neutral hub would read as empty-by-accident to a SAB-only
 /// user. Naming the hub after the client keeps the empty state predictable.
 /// SABnzbd's counterpart to `QBittorrentClientHubView`, laid out the same way:
-/// the live queue first, then the configuration the client owns, then settings
-/// and logs. Both clients are reached the same way - Downloads → Client
+/// the configuration the client owns. Both clients are reached the same way - Downloads → Client
 /// Management → the client - rather than one living here and the other buried in
 /// app settings.
 struct SABnzbdClientHubView: View {
@@ -312,20 +311,6 @@ struct SABnzbdClientHubView: View {
                 }
             } footer: {
                 Text("These tools are specific to SABnzbd. qBittorrent's equivalents live in its own hub.")
-            }
-
-            Section {
-                NavigationLink {
-                    SABnzbdSettingsView()
-                        .environment(serviceManager)
-                } label: {
-                    NavigationMenuRow(
-                        icon: "gearshape.fill",
-                        color: .secondary,
-                        title: "SABnzbd Settings",
-                        subtitle: "Connection, speed limit, and queue controls"
-                    )
-                }
             }
         }
         #if os(iOS)
@@ -384,33 +369,6 @@ struct QBittorrentClientHubView: View {
                 }
             } footer: {
                 Text("These tools are specific to qBittorrent. SABnzbd's equivalents live in its own hub.")
-            }
-
-            Section {
-                NavigationLink {
-                    QBittorrentSettingsView()
-                        .environment(syncService)
-                        .environment(torrentService)
-                } label: {
-                    NavigationMenuRow(
-                        icon: "gearshape.fill",
-                        color: .secondary,
-                        title: "qBittorrent Settings",
-                        subtitle: "Connection and client preferences"
-                    )
-                }
-
-                NavigationLink {
-                    QBittorrentLogView()
-                        .environment(torrentService)
-                } label: {
-                    NavigationMenuRow(
-                        icon: "doc.text.fill",
-                        color: ServiceIdentity.qbittorrent.brandColor,
-                        title: "qBittorrent Log",
-                        subtitle: "Application events and warnings"
-                    )
-                }
             }
         }
         #if os(iOS)
