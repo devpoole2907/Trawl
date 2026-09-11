@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct QBittorrentCategoriesAndTagsView: View {
+    enum Section: Int {
+        case categories
+        case tags
+    }
+
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     
@@ -20,12 +25,18 @@ struct QBittorrentCategoriesAndTagsView: View {
     // Shared State
     @State private var isSubmitting = false
     @State private var actionErrorAlert: ErrorAlertItem?
+    private let fixedSection: Section?
+    private let isPresented: Bool
     #if DEBUG
     private var previewCategories: [String: SyncCategory]?
     private var previewTags: [String]?
     #endif
 
-    init() {}
+    init(section: Section? = nil, isPresented: Bool = true) {
+        fixedSection = section
+        self.isPresented = isPresented
+        _selectedTab = State(initialValue: section?.rawValue ?? Section.categories.rawValue)
+    }
 
     var body: some View {
         Group {
@@ -49,17 +60,19 @@ struct QBittorrentCategoriesAndTagsView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    if selectedTab == 0 {
-                        showCreateCategoryAlert = true
-                    } else {
-                        showCreateTagAlert = true
+            if isPresented {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        if selectedTab == 0 {
+                            showCreateCategoryAlert = true
+                        } else {
+                            showCreateTagAlert = true
+                        }
+                    } label: {
+                        Label("New", systemImage: "plus")
                     }
-                } label: {
-                    Label("New", systemImage: "plus")
+                    .disabled(isSubmitting)
                 }
-                .disabled(isSubmitting)
             }
         }
         .alert("Add Category", isPresented: $showCreateCategoryAlert) {
@@ -110,21 +123,24 @@ struct QBittorrentCategoriesAndTagsView: View {
             Text("This removes the tag \"\(tagPendingDeletion ?? "")\" from qBittorrent.")
         }
         .errorAlert(item: $actionErrorAlert)
-        .task {
+        .task(id: isPresented) {
+            guard isPresented else { return }
             await syncService.refreshNow()
         }
         .refreshable {
             await syncService.refreshNow()
         }
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar("View", selection: Binding(
-                get: { selectedTab },
-                set: { newValue in withAnimation { selectedTab = newValue } }
-            ), items: [
-                TrawlSegmentBarItem("Categories", value: 0),
-                TrawlSegmentBarItem("Tags", value: 1)
-            ], alignment: .center)
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            if fixedSection == nil {
+                TrawlSegmentBar("View", selection: Binding(
+                    get: { selectedTab },
+                    set: { newValue in withAnimation { selectedTab = newValue } }
+                ), items: [
+                    TrawlSegmentBarItem("Categories", value: 0),
+                    TrawlSegmentBarItem("Tags", value: 1)
+                ], alignment: .center)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
     
@@ -140,7 +156,7 @@ struct QBittorrentCategoriesAndTagsView: View {
             )
             .listRowBackground(Color.clear)
         } else {
-            Section {
+            SwiftUI.Section {
                 ForEach(categoryNames, id: \.self) { category in
                     categoryRow(name: category)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -194,7 +210,7 @@ struct QBittorrentCategoriesAndTagsView: View {
             )
             .listRowBackground(Color.clear)
         } else {
-            Section {
+            SwiftUI.Section {
                 ForEach(tagNames, id: \.self) { tag in
                     tagRow(name: tag)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {

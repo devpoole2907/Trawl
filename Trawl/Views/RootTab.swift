@@ -40,9 +40,9 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
                 : [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
             #endif
         case .integrations:
-            [.indexers, .downloadClients, .qbittorrent, .sabnzbd, .linkedApplications, .remotePaths, .cleanuparr]
+            [.indexers, .downloadClients, .newsServers, .qbittorrent, .sabnzbd, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
-            [.rootFolders, .qualityProfiles, .libraryImport, .subtitles]
+            [.downloadOrganization, .rootFolders, .qualityProfiles, .libraryImport, .subtitles]
         case .system:
             // Settings sits at the bottom of System rather than in a section of its
             // own: it is one row, and a heading over a single row is a heading that
@@ -89,6 +89,7 @@ enum RootTab: Hashable, CaseIterable {
 
     case indexers
     case downloadClients
+    case newsServers
     case qbittorrent
     case sabnzbd
     case linkedApplications
@@ -96,6 +97,7 @@ enum RootTab: Hashable, CaseIterable {
     case cleanuparr
 
     case rootFolders
+    case downloadOrganization
     case qualityProfiles
     case libraryImport
     case subtitles
@@ -129,12 +131,14 @@ enum RootTab: Hashable, CaseIterable {
         case .jellyfinActivity: "Activity"
         case .indexers: "Indexers"
         case .downloadClients: "Download Clients"
+        case .newsServers: "News Servers"
         case .qbittorrent: "qBittorrent"
         case .sabnzbd: "SABnzbd"
         case .linkedApplications: "Linked Applications"
         case .remotePaths: "Remote Path Mappings"
         case .cleanuparr: "Cleanuparr"
         case .rootFolders: "Root Folders"
+        case .downloadOrganization: "Categories, Tags & Scripts"
         case .qualityProfiles: "Quality Profiles"
         case .libraryImport: "Library Import"
         case .subtitles: "Subtitles"
@@ -177,12 +181,14 @@ enum RootTab: Hashable, CaseIterable {
         case .jellyfinActivity: .jellyfinActivityLog
         case .indexers: .prowlarrIndexers
         case .downloadClients: .downloadClientsManagement
+        case .newsServers: .newsServers
         case .qbittorrent: .qbittorrentHub
         case .sabnzbd: .sabnzbdHub
         case .linkedApplications: .linkedApplicationsManagement
         case .remotePaths: .remotePathMappings
         case .cleanuparr: .cleanuparrDashboard
         case .rootFolders: .rootFolders
+        case .downloadOrganization: .downloadOrganization
         case .qualityProfiles: .qualityProfiles
         case .libraryImport: .libraryImport
         case .subtitles: .subtitleManagement
@@ -247,7 +253,7 @@ enum RootTab: Hashable, CaseIterable {
     var wantsDetailColumn: Bool {
         switch self {
         case .downloads, .blocklist, .series, .movies, .search, .indexers,
-             .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
+             .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
              .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .subtitles, .logs, .settings, .health,
              .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck: true
@@ -284,12 +290,14 @@ enum RootTab: Hashable, CaseIterable {
         case .jellyfinActivity: "list.bullet.rectangle"
         case .indexers: "magnifyingglass.circle"
         case .downloadClients: "arrow.down.circle"
+        case .newsServers: "server.rack"
         case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
         case .sabnzbd: ServiceIdentity.sabnzbd.systemImage
         case .linkedApplications: "link"
         case .remotePaths: "arrow.triangle.branch"
         case .cleanuparr: "sparkles"
         case .rootFolders: "folder"
+        case .downloadOrganization: "tag"
         case .qualityProfiles: "slider.horizontal.3"
         case .libraryImport: "square.and.arrow.down.on.square"
         case .subtitles: "captions.bubble"

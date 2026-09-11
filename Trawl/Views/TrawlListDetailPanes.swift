@@ -59,6 +59,7 @@ struct DetailPanePlaceholder {
     static let user = Self(title: "Select a User", systemImage: "person.2")
     static let issue = Self(title: "Select an Issue", systemImage: "exclamationmark.bubble")
     static let request = Self(title: "Select a Request", systemImage: "square.and.arrow.down.on.square")
+    static let newsServer = Self(title: "Select a News Server", systemImage: "server.rack")
 }
 
 extension View {

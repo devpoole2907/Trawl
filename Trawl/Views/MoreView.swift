@@ -17,6 +17,7 @@ enum MoreDestination: Hashable {
     case systemHub
     case linkedApplicationsManagement
     case downloadClientsManagement
+    case downloadOrganization
     case prowlarrLinkedApplications
     case bazarrLinkedApplications
     case seerrLinkedApplications
@@ -67,6 +68,7 @@ enum MoreDestination: Hashable {
     case backupsHub
     case qualityDefinitions
     case setupCheck
+    case newsServers
 }
 
 /// User-facing breadcrumbs for destinations referenced outside the More hierarchy.
@@ -129,6 +131,7 @@ enum MoreDestinationAccent {
     case systemHub
     case automationClients
     case setupCheck
+    case newsServers
 
     var color: Color {
         switch self {
@@ -167,6 +170,7 @@ enum MoreDestinationAccent {
         case .systemHub: return .gray
         case .automationClients: return .blue
         case .setupCheck: return .teal
+        case .newsServers: return ServiceIdentity.sabnzbd.brandColor
         }
     }
 }
@@ -684,6 +688,15 @@ struct MoreView: View {
                 .moreDestinationTitleStyle()
         case .downloadClientsManagement:
             DownloadClientsManagementView()
+                .moreDestinationTitleStyle()
+        case .downloadOrganization:
+            DownloadOrganizationManagementView()
+                .environment(syncService)
+                .environment(torrentService)
+                .environment(sabnzbdServiceManager)
+                .moreDestinationTitleStyle()
+        case .newsServers:
+            SABnzbdNewsServersView()
                 .moreDestinationTitleStyle()
         case .prowlarrLinkedApplications:
             prowlarrLinkedApplicationsDestination
@@ -1761,15 +1774,14 @@ enum MoreSearchIndex {
                 downloadsRoute: .transferStats
             ),
             .init(
-                id: "categories-tags",
-                destination: nil,
+                id: "download-organization",
+                destination: .downloadOrganization,
                 icon: "tag.fill",
                 color: MoreDestinationAccent.categoriesAndTags.color,
-                title: "Categories & Tags",
-                subtitle: "Torrent organization labels",
-                category: "Downloads › qBittorrent",
-                keywords: ["qbittorrent", "category", "tag", "labels", "organization"],
-                downloadsRoute: .categoriesAndTags
+                title: "Categories, Tags & Scripts",
+                subtitle: "qBittorrent and SABnzbd download organization",
+                category: "Management",
+                keywords: ["qbittorrent", "sabnzbd", "category", "tag", "script", "labels", "organization"]
             ),
             .init(
                 id: "rss-feeds",
@@ -1851,6 +1863,16 @@ enum MoreSearchIndex {
                 subtitle: "Sonarr and Radarr download clients",
                 category: "Integrations & Automation",
                 keywords: ["qbittorrent", "sabnzbd", "sab", "usenet", "nzb", "newsgroup", "torrent", "client", "download", "sonarr", "radarr"]
+            ),
+            .init(
+                id: "news-servers",
+                destination: .newsServers,
+                icon: "server.rack",
+                color: ServiceIdentity.sabnzbd.brandColor,
+                title: "News Servers",
+                subtitle: "Usenet providers, connections, and SSL",
+                category: "Integrations & Automation",
+                keywords: ["news", "servers", "usenet", "sabnzbd", "nntp", "providers", "ssl", "connections"]
             ),
             .init(
                 id: "sonarr-download-clients",

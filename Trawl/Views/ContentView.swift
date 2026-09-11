@@ -133,6 +133,7 @@ struct ContentView: View {
     @State private var searchDetailDestination: ArrMediaDestination?
     @State private var indexerBrowser = ProwlarrIndexerBrowserState()
     @State private var downloadClientSelection = TrawlColumnSelection<MoreDestination>()
+    @State private var downloadOrganizationSelection = TrawlColumnSelection<DownloadOrganizationDestination>()
     @State private var linkedApplicationSelection = TrawlColumnSelection<MoreDestination>()
     @State private var taskSelection = TrawlColumnSelection<MoreDestination>()
     @State private var subtitleSelection = TrawlColumnSelection<MoreDestination>()
@@ -156,6 +157,7 @@ struct ContentView: View {
     @State private var rootFolderBrowser = ArrRootFolderBrowserState()
     @State private var diskSpaceBrowser = ArrDiskSpaceBrowserState()
     @State private var setupCheckBrowser = SetupCheckBrowserState()
+    @State private var newsServerBrowser = SABnzbdNewsServerBrowserState()
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -1077,7 +1079,7 @@ struct ContentView: View {
                 presentation: .contentColumn
             )
             .environment(indexerBrowser)
-        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
+        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .content)
@@ -1223,7 +1225,7 @@ struct ContentView: View {
             ProwlarrIndexerListView(showsSelectedIndexer: true)
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
-        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
+        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
@@ -1255,6 +1257,7 @@ struct ContentView: View {
         .environment(\.sidebarNavigationColumn, column)
         .environment(\.hasDetailPane, column == .content)
         .environment(moreColumnSelection(for: destination))
+        .environment(downloadOrganizationSelection)
         .environment(calendarSelection)
         .environment(missingSelection)
         .environment(qualityProfileBrowser)
@@ -1273,6 +1276,7 @@ struct ContentView: View {
         .environment(rootFolderBrowser)
         .environment(diskSpaceBrowser)
         .environment(setupCheckBrowser)
+        .environment(newsServerBrowser)
         .id(destination)
     }
 

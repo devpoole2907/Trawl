@@ -9,12 +9,19 @@ import SwiftUI
 /// path, and scripts are files on SABnzbd's disk with no API to create them, so
 /// that half is a read-only list rather than an editor.
 struct SABnzbdCategoriesView: View {
+    enum Section: Int {
+        case categories
+        case scripts
+    }
+
     @Environment(SABnzbdServiceManager.self) private var serviceManager
 
     @State private var selectedTab = 0 // 0 = Categories, 1 = Scripts
     @State private var editorTarget: EditorTarget?
     @State private var categoryPendingDeletion: SABnzbdCategory?
     @State private var actionError: String?
+    private let fixedSection: Section?
+    private let isPresented: Bool
 
     private struct EditorTarget: Identifiable {
         let category: SABnzbdCategory?
@@ -29,6 +36,12 @@ struct SABnzbdCategoriesView: View {
     }
 
     private var scripts: [String] { serviceManager.scripts }
+
+    init(section: Section? = nil, isPresented: Bool = true) {
+        fixedSection = section
+        self.isPresented = isPresented
+        _selectedTab = State(initialValue: section?.rawValue ?? Section.categories.rawValue)
+    }
 
     var body: some View {
         List {
@@ -54,18 +67,20 @@ struct SABnzbdCategoriesView: View {
         .listStyle(.inset)
         #endif
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Section",
-                selection: Binding(
-                    get: { selectedTab },
-                    set: { newValue in withAnimation { selectedTab = newValue } }
-                ),
-                items: [
-                    TrawlSegmentBarItem("Categories", value: 0),
-                    TrawlSegmentBarItem("Scripts", value: 1)
-                ],
-                alignment: .center
-            )
+            if fixedSection == nil {
+                TrawlSegmentBar(
+                    "Section",
+                    selection: Binding(
+                        get: { selectedTab },
+                        set: { newValue in withAnimation { selectedTab = newValue } }
+                    ),
+                    items: [
+                        TrawlSegmentBarItem("Categories", value: 0),
+                        TrawlSegmentBarItem("Scripts", value: 1)
+                    ],
+                    alignment: .center
+                )
+            }
         }
         .navigationTitle(selectedTab == 0 ? "Categories" : "Scripts")
         .navigationSubtitle("SABnzbd")
@@ -73,7 +88,7 @@ struct SABnzbdCategoriesView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            if selectedTab == 0 {
+            if selectedTab == 0 && isPresented {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         editorTarget = EditorTarget(category: nil)
@@ -84,7 +99,10 @@ struct SABnzbdCategoriesView: View {
             }
         }
         .refreshable { await serviceManager.refreshCategoryConfigs() }
-        .task { await serviceManager.refreshCategoryConfigs() }
+        .task(id: isPresented) {
+            guard isPresented else { return }
+            await serviceManager.refreshCategoryConfigs()
+        }
         .sheet(item: $editorTarget) { target in
             SABnzbdCategoryEditorSheet(existingCategory: target.category) {
                 editorTarget = nil
@@ -123,7 +141,7 @@ struct SABnzbdCategoriesView: View {
     @ViewBuilder
     private var categoriesList: some View {
         if categories.isEmpty {
-            Section {
+            SwiftUI.Section {
                 if serviceManager.isLoadingCategoryConfigs {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -138,7 +156,7 @@ struct SABnzbdCategoriesView: View {
                 }
             }
         } else {
-            Section {
+            SwiftUI.Section {
                 ForEach(categories) { category in
                     Button {
                         editorTarget = EditorTarget(category: category)
@@ -166,7 +184,7 @@ struct SABnzbdCategoriesView: View {
     @ViewBuilder
     private var scriptsList: some View {
         if scripts.isEmpty {
-            Section {
+            SwiftUI.Section {
                 Text("SABnzbd has no post-processing scripts installed.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -174,7 +192,7 @@ struct SABnzbdCategoriesView: View {
                 Text("Scripts are files in SABnzbd's scripts folder. They have to be added on the server itself.")
             }
         } else {
-            Section {
+            SwiftUI.Section {
                 ForEach(scripts, id: \.self) { script in
                     Label(script, systemImage: "terminal")
                         .font(.subheadline)

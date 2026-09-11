@@ -204,26 +204,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             "Screen: tapping the SABnzbd row should push SABnzbdClientHubView titled 'SABnzbd'."
         )
 
-        let categoriesRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Categories & Scripts")).firstMatch
         XCTAssertTrue(
-            categoriesRow.waitForExistence(in: app, timeout: 10),
-            "Screen: the SABnzbd hub should list 'Categories & Scripts'."
+            app.staticTexts["Connection"].waitForExistence(timeout: 10),
+            "Screen: the SABnzbd hub should render connection status."
         )
-        categoriesRow.tap()
-        XCTAssertTrue(
-            app.navigationBars["Categories"].waitForExistence(timeout: 10),
-            "Screen: 'Categories & Scripts' should push SABnzbdCategoriesView."
-        )
-        popBack(app, fromTitle: "Categories")
-
-        let newsServersRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "News Servers")).firstMatch
-        XCTAssertTrue(newsServersRow.waitForExistence(in: app, timeout: 10), "Screen: the SABnzbd hub should list 'News Servers' again after popping back.")
-        newsServersRow.tap()
-        XCTAssertTrue(
-            app.navigationBars["News Servers"].waitForExistence(timeout: 10),
-            "Screen: 'News Servers' should push SABnzbdNewsServersView."
-        )
-        popBack(app, fromTitle: "News Servers")
 
         XCTAssertFalse(
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Settings")).firstMatch.exists,
