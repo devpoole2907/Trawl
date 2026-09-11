@@ -264,17 +264,25 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         // Matched on the connection state as well as the name: the Notifications
         // section further down carries "Fixture Sonarr" too, and a name-only
         // predicate taps that instead and then waits for a sheet that never opens.
-        let serverRow = app.buttons.matching(
+        //
+        // And the *right-most* match, not `firstMatch`. On iPad two buttons carry this
+        // exact label: the detail pane's server row, and Settings' own Sonarr row in
+        // the list column beside it - `arrServiceRow` combines name, host and a status
+        // dot labelled "Connected". Tapping the Settings row only re-selects Sonarr,
+        // so the editor never opens. The detail column is the right-most one; on a
+        // phone only one of these exists, so this is the element it always was.
+        let serverRows = app.buttons.matching(
             NSPredicate(
                 format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
                 "Fixture Sonarr",
                 "onnected"
             )
-        ).firstMatch
+        )
         XCTAssertTrue(
-            serverRow.waitForExistence(in: app, timeout: 10),
+            serverRows.firstMatch.waitForExistence(in: app, timeout: 10),
             "ArrServiceSettingsView should list the configured Sonarr server as a tappable row (ArrServiceSettingsDetailView.swift)."
         )
+        let serverRow = serverRows.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX } ?? serverRows.firstMatch
         serverRow.tap()
     }
 

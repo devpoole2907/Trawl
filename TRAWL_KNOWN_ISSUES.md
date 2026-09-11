@@ -156,18 +156,20 @@ blind to rows on three-column screens (`TrawlChrome.tapHubRow`); `popBack` requi
 back control a detail pane correctly lacks; the scroller picking the list column
 instead of the detail pane; and asserting on XCUITest query order.
 
-**Likely one real bug — an edit sheet that does not present on iPad.** Three tests, one
-symptom: a row is found and tapped, and its sheet never appears.
-
-- `ArrSetupEditJourneyUITests` — the configured Sonarr row should present "Edit Sonarr"
-- `SheetFocusDiagnosticUITests` — the same editor, already tapped via `tapWhenPossible`
-- `ArrRemotePathMappingJourneyUITests` — a mapping row should present "Edit Mapping"
-
-`SheetFocusDiagnostic` rules out a swallowed tap: it already uses the coordinate
-fallback and still gets no sheet. Worth checking first for the two-`.sheet`-modifier
-trap `QBittorrentSettingsView` shipped on this branch, where only the last modifier is
-honoured and the earlier one opens and dismisses itself. Test-side guesses were tried
-on two of these and reverted, because the evidence contradicted them.
+**Fixed afterwards, and misdiagnosed here first.** Three tests this entry once called
+"likely one real bug — an edit sheet that does not present on iPad". Checked by hand on
+an iPad: the sheet opens. `ArrSetupEditJourneyUITests` and `SheetFocusDiagnosticUITests`
+looked the server row up by a label two buttons share on iPad: the detail pane's server
+row, and Settings' own Sonarr row beside it, whose `arrServiceRow` combines name, host
+and a status dot labelled "Connected". `firstMatch` could take the Settings row, whose
+tap only re-selects Sonarr. Both now take the right-most match - the detail column.
+Two mechanisms were written down here first and both disproved by the log: that a
+second tap dismissed an open sheet (the sheet never appeared), and that the row's
+midpoint was not hit-testable (it has `.contentShape`).
+`ArrRemotePathMappingJourneyUITests` expected a row tap to open the editor, which beside
+a pane only selects; editing is the pane's "Edit Mapping" button. The entry also claimed
+`SheetFocusDiagnostic` ruled out a lost tap, but its tap sits inside an `if` that skips
+silently, so it ruled out nothing.
 
 **Pre-existing, not yet diagnosed:**
 

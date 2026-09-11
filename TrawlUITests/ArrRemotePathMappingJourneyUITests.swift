@@ -91,6 +91,16 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         let addedRow = firstButton(containing: ArrRemotePathMappingUIFixtureServer.addedRemotePath, in: app)
         XCTAssertTrue(addedRow.waitForExistence(in: app, timeout: 10), "The newly-added mapping row should be a tappable edit entry point.")
         addedRow.tap()
+        // Beside a detail pane the row only selects (`mappingRowButton` under
+        // `hasDetailPane`), and the add sheet has already selected the new mapping in
+        // any case. Editing there is the pane's own "Edit Mapping" button; the pane's
+        // toolbar carries a second one labelled just "Edit", so the name is unique.
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                tapWhenPossible(app.buttons["Edit Mapping"]),
+                "The mapping's detail pane should offer Edit Mapping."
+            )
+        }
         XCTAssertTrue(app.navigationBars["Edit Mapping"].waitForExistence(timeout: 10), "Tapping a mapping should present its real edit sheet.")
 
         let existingRemote = app.textFields["/downloads/"]
@@ -138,10 +148,22 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         // must present the confirmation before DELETE is permitted.
         let editedRow = firstButton(containing: ArrRemotePathMappingUIFixtureServer.editedRemotePath, in: app)
         XCTAssertTrue(editedRow.waitForExistence(in: app, timeout: 10), "The updated row should remain available for deletion.")
-        revealSwipeActions(.trailing, on: editedRow)
-        let deleteAction = app.buttons["Delete"]
-        XCTAssertTrue(deleteAction.waitForExistence(timeout: 10), "Swiping a mapping should reveal the explicit Delete action, not delete immediately.")
-        deleteAction.tap()
+        if TrawlChrome.isSidebar {
+            // The pane is the iPad's delete route, and it acts on whatever is
+            // selected - so the edited row is selected first, explicitly. The
+            // original mapping is still listed, and the test ends by proving it
+            // survives; deleting whichever one the pane happened to hold could remove
+            // the wrong one and fail there instead of here.
+            XCTAssertTrue(tapWhenPossible(editedRow), "The updated row should be selectable.")
+            let paneDelete = app.buttons["Delete"].firstMatch
+            XCTAssertTrue(paneDelete.waitForExistence(timeout: 10), "The mapping's detail pane should offer Delete, and it must confirm rather than delete immediately.")
+            XCTAssertTrue(tapWhenPossible(paneDelete), "The pane's Delete should be tappable.")
+        } else {
+            revealSwipeActions(.trailing, on: editedRow)
+            let deleteAction = app.buttons["Delete"]
+            XCTAssertTrue(deleteAction.waitForExistence(timeout: 10), "Swiping a mapping should reveal the explicit Delete action, not delete immediately.")
+            deleteAction.tap()
+        }
 
         XCTAssertTrue(
             app.staticTexts["Delete Mapping?"].waitForExistence(timeout: 10),
@@ -151,7 +173,21 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
             server.hasReceivedRequest(method: "DELETE", path: "/api/v3/remotepathmapping/42"),
             "Opening the destructive confirmation must not issue DELETE before the user explicitly confirms it."
         )
-        let confirmDelete = app.buttons["Delete"]
+        // On iPad the pane's two Delete buttons - toolbar and card - stay on screen
+        // behind the dialog, so an unscoped query could press one of those again
+        // instead of confirming. There the tap is scoped to the dialog's own
+        // container; a confirmationDialog is a popover on iPad, so that is looked in
+        // first. If none of them holds the button, the assertion fails rather than
+        // falling back to a Delete that might be the pane's.
+        let confirmDelete: XCUIElement
+        if TrawlChrome.isSidebar {
+            confirmDelete = [app.popovers, app.sheets, app.alerts]
+                .map { $0.buttons["Delete"] }
+                .first { $0.waitForExistence(timeout: 2) }
+                ?? app.popovers.buttons["Delete"]
+        } else {
+            confirmDelete = app.buttons["Delete"]
+        }
         XCTAssertTrue(confirmDelete.waitForExistence(timeout: 5), "The confirmation dialog should offer its destructive Delete choice.")
         confirmDelete.tap()
 

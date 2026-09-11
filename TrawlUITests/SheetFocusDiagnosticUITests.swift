@@ -34,10 +34,13 @@ final class SheetFocusDiagnosticUITests: XCTestCase {
         XCTAssertTrue(sonarrRow.waitForExistence(in: app, timeout: 15))
         _ = tapWhenPossible(sonarrRow, timeout: 10)
 
-        let serverRow = app.buttons
+        // The right-most match: on iPad Settings' own Sonarr row carries this exact
+        // label too, and tapping it only re-selects Sonarr. See
+        // `ArrSetupEditJourneyUITests.openSonarrEditor`.
+        let serverRows = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@", "Fixture Sonarr", "onnected"))
-            .firstMatch
-        if serverRow.waitForExistence(in: app, timeout: 15) {
+        if serverRows.firstMatch.waitForExistence(in: app, timeout: 15) {
+            let serverRow = serverRows.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX } ?? serverRows.firstMatch
             _ = tapWhenPossible(serverRow, timeout: 10)
         }
 
