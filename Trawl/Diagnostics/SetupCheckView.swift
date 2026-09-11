@@ -39,6 +39,19 @@ struct SetupCheckView: View {
         browser.selectedIssueID.flatMap { id in allIssues.first { $0.id == id } }
     }
 
+    /// What an empty result may claim - see `SetupCheckCoverage`. Built from the
+    /// same configuration the audit reads, so an all-clear only names services the
+    /// audit actually looked at, and an empty setup is never reported as a pass.
+    private var coverage: SetupCheckCoverage {
+        SetupCheckCoverage(
+            arrServices: serviceManager.storedProfiles.compactMap(\.resolvedServiceType),
+            hasQBittorrent: !qbittorrentServers.isEmpty,
+            hasSABnzbd: !sabnzbdProfiles.isEmpty,
+            hasSeerr: seerrServiceManager?.hasConfiguredProfile ?? false,
+            hasCleanuparr: cleanuparrServiceManager?.hasConfiguredProfile ?? false
+        )
+    }
+
     private var trawlClientHosts: [DownloadClientLinkKind: [String]] {
         ConfigurationAuditInput.trawlClientHosts(
             qbittorrentServers: qbittorrentServers,
@@ -56,6 +69,9 @@ struct SetupCheckView: View {
     }
 
     private var navigationSubtitle: String {
+        // Ahead of the audit's own state: with nothing configured the audit finishes
+        // at once with no findings, and "All Clear" would be the answer.
+        if coverage == .nothingConfigured { return "Nothing to Check" }
         guard auditStore.hasCompletedAnAudit else { return "Checking…" }
         let problems = auditStore.problemCount
         if problems > 0 {
@@ -101,11 +117,12 @@ struct SetupCheckView: View {
         VStack(spacing: 0) {
             if !allIssues.isEmpty {
                 filterBar
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
             }
 
-            if auditStore.isAuditing && allIssues.isEmpty {
+            if coverage == .nothingConfigured {
+                nothingToCheck
+            } else if auditStore.isAuditing && allIssues.isEmpty {
                 ProgressView("Auditing configuration…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if allIssues.isEmpty && auditStore.hasCompletedAnAudit {
@@ -172,19 +189,25 @@ struct SetupCheckView: View {
         }
     }
 
+    /// Sits above whatever the list shows - "No Findings" included - rather than
+    /// riding on the list itself. `SeerrIssueListView` insets its bar on the `List`,
+    /// but a filter that matches nothing here swaps the list for a placeholder, and a
+    /// bar attached to the list would leave with it: the user stranded on a filter
+    /// they could no longer change.
     private var filterBar: some View {
-        Picker("Filter", selection: Binding(
-            get: { browser.filter },
-            set: {
-                browser.filter = $0
-                browser.reconcileSelection(issues: allIssues)
-            }
-        )) {
-            ForEach(SetupCheckFilter.allCases) { filter in
-                Text(filterTitle(for: filter)).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
+        TrawlSegmentBar(
+            "Filter",
+            selection: Binding(
+                get: { browser.filter },
+                set: { newFilter in
+                    withAnimation {
+                        browser.filter = newFilter
+                        browser.reconcileSelection(issues: allIssues)
+                    }
+                }
+            ),
+            items: SetupCheckFilter.allCases.map { TrawlSegmentBarItem(filterTitle(for: $0), value: $0) }
+        )
     }
 
     private func filterTitle(for filter: SetupCheckFilter) -> String {
@@ -299,20 +322,31 @@ struct SetupCheckView: View {
                 .listRowBackground(Color.clear)
             }
 
-            Section("Verified Topology") {
-                Label("Download Clients: Configured", systemImage: "checkmark")
-                    .foregroundStyle(.green)
-                Label("Root Folders: Accessible", systemImage: "checkmark")
-                    .foregroundStyle(.green)
-                Label("Indexers: Sync Active", systemImage: "checkmark")
-                    .foregroundStyle(.green)
-                Label("Categories: Partitioned", systemImage: "checkmark")
-                    .foregroundStyle(.green)
+            // Names what the audit read, and nothing else. This section used to show
+            // four hard-coded ticks - download clients, root folders, indexer sync,
+            // categories - whatever was actually configured.
+            if let summary = coverage.auditedSummary {
+                Section("Checked") {
+                    Text(summary)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
+    }
+
+    /// An empty setup, which is not the same thing as a clean one. List column only:
+    /// the detail column keeps its placeholder, as every other screen's does when its
+    /// service is not set up.
+    private var nothingToCheck: some View {
+        ServiceSetupView(
+            title: "Nothing to Check Yet",
+            message: "Setup Check audits how your services are wired together. Add a server in Settings and it will be checked here.",
+            systemImage: "checklist"
+        )
+        .scrollableUnavailableState()
     }
 
     // MARK: - Detail Column
@@ -332,7 +366,7 @@ struct SetupCheckView: View {
             .environment(serviceManager)
             .environment(sabnzbdServiceManager)
             .environment(seerrServiceManager)
-        } else if allIssues.isEmpty && auditStore.hasCompletedAnAudit {
+        } else if coverage != .nothingConfigured && allIssues.isEmpty && auditStore.hasCompletedAnAudit {
             allClearDetailPane
         } else {
             listDetailPlaceholder("Select a Finding", systemImage: "checklist")
@@ -350,7 +384,10 @@ struct SetupCheckView: View {
                     Text("Everything Is Wired Up")
                         .font(.title2.weight(.bold))
 
-                    Text("Trawl checked your connected services, download client allocations, indexer synchronization, category mappings, and remote paths. No wiring faults were found.")
+                    // The compact wizard's sentence. This one used to list download
+                    // clients, indexer sync, categories and remote paths as checked,
+                    // whatever was actually configured.
+                    Text("Trawl could not find anything wrong with how your services are pointed at each other.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -358,20 +395,15 @@ struct SetupCheckView: View {
                 }
                 .padding(.vertical, 24)
 
-                HStack(spacing: 12) {
-                    Label("All Services Operational", systemImage: "checkmark.shield.fill")
+                // What was audited, in place of two badges asserting every service was
+                // operational - which the audit never measures.
+                if let summary = coverage.auditedSummary {
+                    Label("Checked \(summary)", systemImage: "checklist")
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(Color.green.opacity(0.12), in: Capsule())
-
-                    Label("Zero Faults Detected", systemImage: "hand.thumbsup.fill")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.12), in: Capsule())
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
                 }
 
                 Button {
@@ -396,14 +428,24 @@ struct SetupCheckView: View {
 
     // MARK: - Compact Mode (iPhone)
 
+    /// The phone keeps the wizard, except when there is nothing to audit: the
+    /// wizard's own terminal state for "no findings" is "Everything Is Wired Up",
+    /// which is exactly the claim an empty setup must not make.
+    @ViewBuilder
     private var compactContent: some View {
-        ConfigurationWizardView(
-            issues: auditStore.issues,
-            onDismissIssue: { auditStore.dismiss($0) },
-            onRecheck: { await refreshAudit() },
-            presentation: .screen
-        )
-        .environment(serviceManager)
+        if coverage == .nothingConfigured {
+            nothingToCheck
+                .moreDestinationBackground(.systemHub)
+                .navigationTitle("Setup Check")
+        } else {
+            ConfigurationWizardView(
+                issues: auditStore.issues,
+                onDismissIssue: { auditStore.dismiss($0) },
+                onRecheck: { await refreshAudit() },
+                presentation: .screen
+            )
+            .environment(serviceManager)
+        }
     }
 
     private func refreshAudit() async {

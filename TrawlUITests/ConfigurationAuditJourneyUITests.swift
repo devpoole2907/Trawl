@@ -99,6 +99,35 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             app.buttons["configuration-wizard-fix"].waitForExistence(in: app, timeout: 10),
             "A problem the wizard can route to should offer its fix action."
         )
+
+        // The filter only exists beside a detail pane; the phone walks findings one at
+        // a time instead. Asserted on the section headers, because they are what the
+        // filter actually changes: under Problems neither of the other two sections may
+        // be drawn, whatever this fixture happens to produce under All. Waited on, not
+        // read once - the list animates between filters.
+        if TrawlChrome.isSidebar {
+            let problemsSegment = app.buttons.matching(
+                NSPredicate(format: "label BEGINSWITH[c] %@", "Problems (")
+            ).firstMatch
+            XCTAssertTrue(
+                tapWhenPossible(problemsSegment),
+                "The Setup Check filter should offer a Problems segment."
+            )
+            XCTAssertTrue(
+                downloadClientIssue.waitForExistence(in: app, timeout: 10)
+                    || issueHeadline.waitForExistence(in: app, timeout: 5),
+                "Filtering to Problems must keep the missing download client, which is one."
+            )
+            for otherSection in ["Could Not Verify (", "Worth Knowing ("] {
+                let header = app.staticTexts.matching(
+                    NSPredicate(format: "label BEGINSWITH[c] %@", otherSection)
+                ).firstMatch
+                XCTAssertTrue(
+                    header.waitForNonExistence(timeout: 5),
+                    "Filtering to Problems should hide the '\(otherSection)...' section."
+                )
+            }
+        }
     }
 
     /// System wiring is persistent attention, not notification history. The live
