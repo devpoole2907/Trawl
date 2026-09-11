@@ -20,11 +20,7 @@ struct ProwlarrIndexerDetailView: View {
     }
 
     private var currentStateLabel: String {
-        if viewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
-            return "Temporarily Disabled"
-        }
-
-        return currentIndexer.enable ? "Active" : "Disabled"
+        headerStatus.label
     }
 
     private var indexerName: String {
@@ -39,29 +35,14 @@ struct ProwlarrIndexerDetailView: View {
         }
     }
 
-    private var headerBadges: [ArrDetailBadge] {
-        let stateBadge: ArrDetailBadge
+    private var headerStatus: IndexerDetailStatus {
         if viewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
-            stateBadge = ArrDetailBadge(
-                icon: "exclamationmark.triangle.fill",
-                label: currentStateLabel,
-                color: .orange
-            )
+            .temporarilyDisabled
         } else if currentIndexer.enable {
-            stateBadge = ArrDetailBadge(
-                icon: "checkmark.circle.fill",
-                label: currentStateLabel,
-                color: .green
-            )
+            .active
         } else {
-            stateBadge = ArrDetailBadge(
-                icon: "pause.circle.fill",
-                label: currentStateLabel,
-                color: .secondary
-            )
+            .disabled
         }
-
-        return [stateBadge]
     }
 
     var body: some View {
@@ -70,12 +51,11 @@ struct ProwlarrIndexerDetailView: View {
             // particularly useful in a split view, where the navigation title is
             // owned by the list column on macOS.
             Section {
-                TrawlEntityHeader(
+                IndexerDetailHeader(
                     title: indexerName,
                     subtitle: headerSubtitle,
-                    systemImage: "magnifyingglass",
                     tint: ServiceIdentity.prowlarr.brandColor,
-                    badges: headerBadges
+                    status: headerStatus
                 )
             }
             .listRowBackground(Color.clear)

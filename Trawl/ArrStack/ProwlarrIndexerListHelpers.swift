@@ -413,6 +413,7 @@ struct DirectIndexerEditorView: View {
     @State private var showAdvanced = false
     @State private var fieldValues: [String: ArrIndexerFieldValue]
     @State private var isSaving = false
+    @State private var isEditingForm: Bool
 
     init(
         profile: ArrServiceProfile,
@@ -435,6 +436,12 @@ struct DirectIndexerEditorView: View {
         _enableRss = State(initialValue: seed.enableRss)
         _enableAutomaticSearch = State(initialValue: seed.enableAutomaticSearch)
         _enableInteractiveSearch = State(initialValue: seed.enableInteractiveSearch)
+        switch mode {
+        case .add:
+            _isEditingForm = State(initialValue: true)
+        case .edit:
+            _isEditingForm = State(initialValue: false)
+        }
 
         var defaults: [String: ArrIndexerFieldValue] = [:]
         for field in seed.fields ?? [] {
@@ -463,8 +470,53 @@ struct DirectIndexerEditorView: View {
         (mode.seed.fields ?? []).contains { $0.advanced == true && $0.hidden != "hidden" && $0.type != "info" }
     }
 
+    private var isExistingIndexer: Bool {
+        switch mode {
+        case .add: false
+        case .edit: true
+        }
+    }
+
+    private var headerTitle: String {
+        indexerName.isEmpty ? mode.navigationTitle : indexerName
+    }
+
+    private var headerSubtitle: String {
+        if let proto = mode.seed.protocol?.displayName {
+            "\(profile.displayName) · \(proto)"
+        } else {
+            profile.displayName
+        }
+    }
+
+    private var headerTint: Color {
+        switch serviceType {
+        case .sonarr: ServiceIdentity.sonarr.brandColor
+        case .radarr: ServiceIdentity.radarr.brandColor
+        case .prowlarr: ServiceIdentity.prowlarr.brandColor
+        case .bazarr: ServiceIdentity.bazarr.brandColor
+        }
+    }
+
+    private var headerStatus: IndexerDetailStatus {
+        let isEnabled = enableRss || enableAutomaticSearch || enableInteractiveSearch
+        return isEnabled ? .active : .disabled
+    }
+
     var body: some View {
         Form {
+            if isExistingIndexer {
+                Section {
+                    IndexerDetailHeader(
+                        title: headerTitle,
+                        subtitle: headerSubtitle,
+                        tint: headerTint,
+                        status: headerStatus
+                    )
+                }
+                .listRowBackground(Color.clear)
+            }
+
             if let linkedApplication {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
@@ -496,6 +548,7 @@ struct DirectIndexerEditorView: View {
             } footer: {
                 Text("These switches control how \(profile.displayName) uses this indexer.")
             }
+            .disabled(!isEditingForm)
 
             if !infoFields.isEmpty {
                 Section {
@@ -518,12 +571,14 @@ struct DirectIndexerEditorView: View {
                         )
                     }
                 }
+                .disabled(!isEditingForm)
             }
 
             if hasAdvancedFields {
                 Section {
                     Toggle("Show Advanced Settings", isOn: $showAdvanced)
                 }
+                .disabled(!isEditingForm)
             }
 
             if let error = viewModel.error(for: profile.id) {
@@ -534,6 +589,7 @@ struct DirectIndexerEditorView: View {
                 }
             }
         }
+        .serviceSettingsFormStyle()
         .paneAwareNavigationTitle(mode.navigationTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -548,11 +604,15 @@ struct DirectIndexerEditorView: View {
             ToolbarItem(placement: .confirmationAction) {
                 if isSaving {
                     ProgressView()
-                } else {
+                } else if isEditingForm {
                     Button(mode.buttonTitle) {
                         Task { await save() }
                     }
                     .disabled(indexerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else {
+                    Button("Edit", systemImage: "pencil") {
+                        isEditingForm = true
+                    }
                 }
             }
         }
@@ -651,6 +711,7 @@ struct DirectIndexerEditorView: View {
         }
 
         if saved {
+            isEditingForm = false
             onSaved?()
         }
     }
