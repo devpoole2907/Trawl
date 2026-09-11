@@ -38,6 +38,9 @@ struct AddTorrentSheet: View {
                 }
             },
             confirmPlacement: .prominentBottom,
+            // Width comes from the shell. A wider minimum here overflowed the sheet
+            // the shell sized, centring the form and clipping both edges.
+            minContentHeight: 540,
             detents: [.large],
             dragIndicator: .visible
         ) {
@@ -50,9 +53,6 @@ struct AddTorrentSheet: View {
                     ProgressView()
                 }
             }
-            #if os(macOS)
-            .frame(minWidth: 620, idealWidth: 700, minHeight: 540)
-            #endif
             .task {
                 #if DEBUG
                 guard !skipsAutomaticLoading else { return }

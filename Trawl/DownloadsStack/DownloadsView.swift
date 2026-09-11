@@ -487,6 +487,11 @@ struct DownloadsView: View {
                             }
                         }
                 }
+                #if os(macOS)
+                // A List's fitting height can be just its empty toolbar before it
+                // receives data, leaving this utility sheet visibly crushed.
+                .frame(minWidth: 720, minHeight: 640)
+                #endif
                 .presentationDetents([.large])
             }
             .sheet(isPresented: $showAddTorrent) {

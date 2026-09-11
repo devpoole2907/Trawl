@@ -8,7 +8,6 @@ nonisolated struct QBittorrentRSSFeedOption: Identifiable, Hashable, Sendable {
 }
 
 struct QBittorrentRSSRulesSheet: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(AppServices.self) private var appServices
 
     let feedOptions: [QBittorrentRSSFeedOption]
@@ -27,8 +26,7 @@ struct QBittorrentRSSRulesSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
+        Group {
                 if isLoading && rules.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,15 +57,16 @@ struct QBittorrentRSSRulesSheet: View {
                     .listStyle(.insetGrouped)
                     #endif
                 }
-            }
-            .navigationTitle("Auto-Download Rules")
+        }
+        // The empty state hugs its content. Pushed into a Mac sheet sized by a
+        // minimum frame, that shrank the whole stack and centred it, leaving the
+        // title bar floating halfway down the sheet.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Auto-Download Rules")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
+        #endif
+        .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         newRuleDestination = NewRuleDestination()
@@ -75,8 +74,8 @@ struct QBittorrentRSSRulesSheet: View {
                         Label("New Rule", systemImage: "plus")
                     }
                 }
-            }
-            .navigationDestination(item: $newRuleDestination) { _ in
+        }
+        .navigationDestination(item: $newRuleDestination) { _ in
                 QBittorrentRSSRuleEditorView(
                     mode: .create,
                     initialRule: QBittorrentRSSRule(),
@@ -86,8 +85,8 @@ struct QBittorrentRSSRulesSheet: View {
                         try await saveRule(name: name, rule: rule)
                     }
                 )
-            }
-            .alert("Delete Rule?", isPresented: deleteAlertBinding) {
+        }
+        .alert("Delete Rule?", isPresented: deleteAlertBinding) {
                 Button("Delete", role: .destructive) {
                     guard let rulePendingDeletion else { return }
                     Task { await deleteRule(rulePendingDeletion) }
@@ -95,21 +94,19 @@ struct QBittorrentRSSRulesSheet: View {
                 Button("Cancel", role: .cancel) {
                     rulePendingDeletion = nil
                 }
-            } message: {
+        } message: {
                 Text("This removes the auto-download rule \"\(rulePendingDeletion ?? "")\" from qBittorrent.")
-            }
-            .errorAlert(item: $actionErrorAlert)
-            .task {
+        }
+        .errorAlert(item: $actionErrorAlert)
+        .task {
                 #if DEBUG
                 guard !skipsAutomaticLoading else { return }
                 #endif
                 await loadRules()
-            }
-            .refreshable {
-                await loadRules()
-            }
         }
-        .macSheetSizing()
+        .refreshable {
+            await loadRules()
+        }
     }
 
     @ViewBuilder

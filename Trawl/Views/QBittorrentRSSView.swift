@@ -78,7 +78,7 @@ struct QBittorrentRSSView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingRulesSheet) {
+        .navigationDestination(isPresented: $showingRulesSheet) {
             QBittorrentRSSRulesSheet(feedOptions: feedOptions)
         }
         .alert("Add RSS Feed", isPresented: $showCreateFeedAlert) {

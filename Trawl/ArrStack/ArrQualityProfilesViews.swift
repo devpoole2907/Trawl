@@ -338,33 +338,44 @@ struct ArrQualityProfileDetailView: View {
         profile.minUpgradeFormatScore != nil || !(profile.formatItems?.isEmpty ?? true)
     }
 
+    private var headerBadges: [ArrDetailBadge] {
+        var badges = [
+            ArrDetailBadge(
+                icon: serviceType.systemImage,
+                label: instance?.qualifiedLabel ?? serviceType.displayName,
+                color: serviceType.serviceIdentity.brandColor
+            ),
+            ArrDetailBadge(
+                icon: profile.upgradeAllowed == true ? "arrow.up.circle.fill" : "arrow.up.circle",
+                label: profile.upgradeAllowed == true ? "Upgrades On" : "Upgrades Off",
+                color: profile.upgradeAllowed == true ? .green : .secondary
+            )
+        ]
+        if profile.hasActiveCustomFormatScoring {
+            badges.append(ArrDetailBadge(icon: "star.circle.fill", label: "Custom Formats", color: .purple))
+        }
+        return badges
+    }
+
     var body: some View {
         Form {
+            Section {
+                TrawlEntityHeader(
+                    title: profile.name,
+                    subtitle: "\(serviceType.displayName) · \(profile.cutoffDisplayName)",
+                    systemImage: "slider.horizontal.3",
+                    tint: serviceType.serviceIdentity.brandColor,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
+
             Section {
                 if let instance {
                     LabeledContent("Server") {
                         ArrInstanceBadge(label: instance.qualifiedLabel, ordinal: instance.ordinal)
                     }
                 }
-
-                LabeledContent("Service") {
-                    HStack(spacing: 4) {
-                        Image(systemName: serviceType.systemImage)
-                        Text(serviceType.displayName)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-
-                LabeledContent("Upgrade Allowed") {
-                    Text(profile.upgradeAllowed == true ? "Yes" : "No")
-                        .foregroundStyle(profile.upgradeAllowed == true ? .green : .secondary)
-                }
-
-                LabeledContent("Cutoff") {
-                    Text(profile.cutoffDisplayName)
-                        .foregroundStyle(.secondary)
-                }
-
                 LabeledContent("Allowed Qualities") {
                     Text("\(allowedQualities.count)")
                         .foregroundStyle(.secondary)
@@ -377,7 +388,7 @@ struct ArrQualityProfileDetailView: View {
                     }
                 }
             } header: {
-                Text(profile.name)
+                Text("Profile")
             } footer: {
                 Text("Use this profile when adding or editing library items to control what release qualities are accepted.")
             }

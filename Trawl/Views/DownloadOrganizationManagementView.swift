@@ -214,7 +214,7 @@ private struct DownloadOrganizationCategoriesView: View {
         } else {
             Section {
                 ForEach(syncService.sortedCategoryNames, id: \.self) { name in
-                    categoryRow(name, path: syncService.categories[name]?.savePath ?? "Uses default save path")
+                    categoryRow(name, path: qBittorrentSavePath(for: name))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button("Delete", systemImage: "trash", role: .destructive) { qBittorrentCategoryPendingDeletion = name }
                         }
@@ -253,10 +253,22 @@ private struct DownloadOrganizationCategoriesView: View {
             Image(systemName: "tag.fill").foregroundStyle(MoreDestinationAccent.categoriesAndTags.color).frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
                 Text(name).font(.body.weight(.medium))
-                Text(path).font(.footnote).foregroundStyle(path == "Uses default save path" ? .tertiary : .secondary).lineLimit(1)
+                Text(path)
+                    .font(.footnote)
+                    .foregroundStyle(path == "Uses default save path" ? .tertiary : .secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func qBittorrentSavePath(for name: String) -> String {
+        guard let path = syncService.categories[name]?.savePath?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
+            return "Uses default save path"
+        }
+        return path
     }
 
     private func addCategory() {

@@ -13,7 +13,7 @@ struct TorrentStatsView: View {
     var body: some View {
         let state = resolvedServerState
         let history = resolvedSpeedHistory
-        List {
+        Form {
             if !history.isEmpty {
                 Section {
                     SpeedGraphView(history: history)
@@ -93,12 +93,7 @@ struct TorrentStatsView: View {
                 }
             }
         }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
+        .serviceSettingsFormStyle()
         .moreDestinationBackground(.transferStats)
         .navigationTitle("Transfer Stats")
         .navigationSubtitle("qBittorrent")

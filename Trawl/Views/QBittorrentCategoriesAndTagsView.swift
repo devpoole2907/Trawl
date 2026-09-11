@@ -235,9 +235,6 @@ struct QBittorrentCategoriesAndTagsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(name)
                     .font(.body.weight(.medium))
-                Text("Available for torrent assignment")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)

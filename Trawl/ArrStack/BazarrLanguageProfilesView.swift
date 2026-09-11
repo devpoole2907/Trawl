@@ -9,6 +9,7 @@ struct BazarrLanguageProfilesView: View {
     @State private var errorMessage: String?
     @State private var searchText = ""
     @State private var addSheetPresented = false
+    @State private var editTarget: BazarrLanguageProfile?
     @State private var deleteTarget: BazarrLanguageProfile?
     private let loadsOnAppear: Bool
 
@@ -32,6 +33,16 @@ struct BazarrLanguageProfilesView: View {
         guard !query.isEmpty else { return profiles }
         return profiles.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
+
+    private var presentsEditorsAsSheets: Bool {
+        #if os(macOS)
+        true
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         availabilityContent
@@ -62,6 +73,18 @@ struct BazarrLanguageProfilesView: View {
                 await save(draft: draft, existing: nil)
                 addSheetPresented = false
             }
+        }
+        .sheet(item: $editTarget) { profile in
+            NavigationStack {
+                LanguageProfileEditorView(
+                    mode: .edit(profile),
+                    availableLanguages: availableLanguages
+                ) { draft in
+                    await save(draft: draft, existing: profile)
+                    editTarget = nil
+                }
+            }
+            .macSheetSizing()
         }
         .alert(
             "Delete Profile?",
@@ -139,15 +162,27 @@ struct BazarrLanguageProfilesView: View {
             } else {
                 Section("Profiles") {
                     ForEach(filteredProfiles) { profile in
-                        NavigationLink {
-                            LanguageProfileDetailView(
-                                profile: profile,
-                                availableLanguages: availableLanguages,
-                                allProfiles: profiles,
-                                onSave: { draft in await save(draft: draft, existing: profile) }
-                            )
-                        } label: {
-                            LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
+                        Group {
+                            if presentsEditorsAsSheets {
+                                Button {
+                                    editTarget = profile
+                                } label: {
+                                    LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink {
+                                    LanguageProfileDetailView(
+                                        profile: profile,
+                                        availableLanguages: availableLanguages,
+                                        allProfiles: profiles,
+                                        onSave: { draft in await save(draft: draft, existing: profile) }
+                                    )
+                                } label: {
+                                    LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
+                                }
+                            }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
