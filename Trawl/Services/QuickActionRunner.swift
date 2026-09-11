@@ -194,10 +194,19 @@ struct QuickActionRunner {
 
     /// Runs an action once, keeping the row spinning and untappable until every
     /// fanned-out call has come back.
-    func perform(_ action: NotificationQuickAction) {
-        guard !inAppNotificationCenter.runningQuickActions.contains(action) else { return }
+    ///
+    /// Returns the fan-out's task so a caller that needs to know when it finished can
+    /// await it; `nil` when the guard dropped this call. The app ignores both - it
+    /// learns the result from the banner - but a test has no other honest barrier.
+    /// Polling for the banner instead means spinning on `Task.yield()`, which
+    /// reschedules on the cooperative pool without ever waiting for the real HTTP
+    /// round trips this performs, so it passes on an idle machine and fails on a busy
+    /// one.
+    @discardableResult
+    func perform(_ action: NotificationQuickAction) -> Task<Void, Never>? {
+        guard !inAppNotificationCenter.runningQuickActions.contains(action) else { return nil }
         inAppNotificationCenter.runningQuickActions.insert(action)
-        Task {
+        return Task {
             let outcome = await runOutcome(for: action)
             inAppNotificationCenter.runningQuickActions.remove(action)
             report(action, outcome: outcome)

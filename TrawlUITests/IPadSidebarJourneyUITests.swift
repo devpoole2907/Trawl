@@ -117,6 +117,52 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         )
     }
 
+    // MARK: - An unconfigured service says so once, not twice
+
+    /// A three-column destination is built once per column, so a screen whose service
+    /// is not configured used to draw its "Not Set Up" card in the content column and
+    /// again in the detail column - the same sentence twice, side by side, with two
+    /// Open Settings buttons under it.
+    ///
+    /// Requests was the only screen that got this right, through a one-off
+    /// `title == "Requests"` test in `MoreView.seerrAdminDestination`. The detail
+    /// column should keep saying what it says once the service *is* configured: name
+    /// the thing you have not selected yet.
+    ///
+    /// `launchOnIPad` seeds Sonarr, Radarr and SABnzbd and deliberately never seeds
+    /// Jellyfin or Seerr, so both screens below are genuinely unconfigured rather than
+    /// pretending to be. The count assertion is the load-bearing one - asserting only
+    /// that the placeholder exists would still pass with the card drawn twice beside
+    /// it.
+    @MainActor
+    func testAnUnconfiguredServiceReportsItselfInTheListColumnOnly() async throws {
+        let app = try await launchOnIPad()
+
+        let screens = [
+            (destination: "Libraries", setup: "Jellyfin Not Set Up", placeholder: "Select a Library"),
+            (destination: "Issues", setup: "Seerr Not Set Up", placeholder: "Select an Issue")
+        ]
+
+        for screen in screens {
+            XCTAssertTrue(
+                select(app, screen.destination),
+                "The sidebar should offer \(screen.destination) whether or not its service is configured."
+            )
+            XCTAssertTrue(
+                app.staticTexts[screen.setup].waitForExistence(timeout: 10),
+                "\(screen.destination): the list column should still offer setup - this is the only place that invitation belongs."
+            )
+            XCTAssertTrue(
+                app.staticTexts[screen.placeholder].waitForExistence(timeout: 10),
+                "\(screen.destination): the detail column should read '\(screen.placeholder)', the same as it does once the service is configured."
+            )
+            XCTAssertEqual(
+                app.staticTexts.matching(NSPredicate(format: "label == %@", screen.setup)).count, 1,
+                "\(screen.destination): '\(screen.setup)' should appear once. Twice means the detail column is repeating the list column's empty state."
+            )
+        }
+    }
+
     // MARK: - Libraries open on something
 
     /// The reason the libraries became selection-driven at all. A three-column layout
@@ -376,6 +422,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         case "Search": "search"
         case "More": "more"
         case "Missing": "missing"
+        case "Blocklist": "blocklist"
         case "Calendar": "calendar"
         case "Requests": "requests"
         case "Indexers": "indexers"
@@ -383,6 +430,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         case "Quality Profiles": "qualityProfiles"
         case "Setup Check": "setupCheck"
         case "Settings": "settings"
+        case "Libraries": "jellyfinLibraries"
+        case "Issues": "issues"
         default: nil
         }
     }

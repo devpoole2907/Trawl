@@ -121,10 +121,12 @@ final class MoreSettingsBreadthUITests: XCTestCase {
             "The subtitle-administration hub should render its navigation title."
         )
 
-        let languageProfiles = firstButton(labelContaining: "Language Profiles", in: app)
+        // Not `firstButton`: beside a detail pane the hub's rows select rather than
+        // push, so they stop surfacing as buttons and a button-only query reports this
+        // row missing against a hub that plainly lists it.
         XCTAssertTrue(
-            tapWhenHittable(languageProfiles, in: app),
-            "The Subtitles hub should push Bazarr language-profile administration."
+            tapHubRow(labelContaining: "Language Profiles", in: app),
+            "The Subtitles hub should open Bazarr language-profile administration."
         )
         XCTAssertTrue(
             app.navigationBars["Language Profiles"].waitForExistence(timeout: 10),
@@ -363,11 +365,20 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         return false
     }
 
+    /// Returns to the settings list, by whichever route the running chrome provides.
+    ///
+    /// On a phone the screen was pushed over the list, so leaving it means popping.
+    /// Beside a detail pane there is nothing to pop and nothing that needs popping:
+    /// `.settings` is one of `ContentView`'s three-column destinations, so the service
+    /// screen opened *next to* the list rather than over it and the list never went
+    /// away - the next row can be picked straight from it. Requiring a back control
+    /// there asserted the compact chrome's shape against the split-view one.
     @MainActor
     private func popBack(_ app: XCUIApplication, from title: String) {
         let navigationBar = app.navigationBars[title]
         XCTAssertTrue(navigationBar.waitForExistence(timeout: 5), "Expected the \(title) navigation bar before returning.")
         let backButton = backButton(in: navigationBar)
+        if TrawlChrome.isSidebar, !backButton.exists { return }
         XCTAssertTrue(backButton.waitForExistence(timeout: 5), "Expected a back control from \(title).")
         backButton.tap()
     }

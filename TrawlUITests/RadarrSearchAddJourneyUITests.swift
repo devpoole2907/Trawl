@@ -220,13 +220,24 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
         // split-view column carries the sidebar toggle at its leading edge as well as
         // the back button, so the first button slides the sidebar out and the test
         // then fails on the screen it never left.
+        // And beside a detail pane there is no back control at all: the movie opened
+        // *next to* the results rather than over them, so the list never went away and
+        // the second result can be tapped straight from it. Requiring a back button
+        // there asserted the compact chrome's shape against the split-view one.
+        //
+        // So "leaving the first movie" is only a step on the chrome that pushed it.
+        // Beside a pane the first movie stays in the detail column until the second
+        // result replaces it, and the two assertions at the end - the second opens its
+        // own screen, the first is gone - are what prove that replacement on both.
         let back = backButton(in: app.navigationBars[firstTitle])
-        XCTAssertTrue(back.waitForExistence(timeout: 10))
-        back.tap()
-        XCTAssertTrue(
-            app.navigationBars[firstTitle].waitForNonExistence(timeout: 10),
-            "Going back should leave the first movie's screen."
-        )
+        if !(TrawlChrome.isSidebar && !back.exists) {
+            XCTAssertTrue(back.waitForExistence(timeout: 10))
+            back.tap()
+            XCTAssertTrue(
+                app.navigationBars[firstTitle].waitForNonExistence(timeout: 10),
+                "Going back should leave the first movie's screen."
+            )
+        }
 
         let secondRow = app.staticTexts[secondTitle]
         XCTAssertTrue(secondRow.waitForExistence(in: app, timeout: 10))

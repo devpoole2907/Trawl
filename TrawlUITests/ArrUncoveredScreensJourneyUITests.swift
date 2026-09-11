@@ -52,8 +52,13 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         XCTAssertTrue(openDestination(.logs, in: app), "Logs should be reachable.")
         XCTAssertTrue(app.navigationBars["Logs & Activity"].waitForExistence(in: app, timeout: 10), "The Logs & Activity hub should render.")
 
-        let events = firstButton(labelContaining: "Events", in: app)
-        XCTAssertTrue(tapWhenHittable(events, in: app, timeout: 12), "Logs should expose the Arr Events screen.")
+        // Not `firstButton`: beside a detail pane the hub's rows drive a selection
+        // rather than push, so they stop surfacing as buttons and a button query
+        // reports the Events row missing on iPad against a hub that plainly lists it.
+        XCTAssertTrue(
+            tapHubRow(labelContaining: "Events", in: app),
+            "Logs should expose the Arr Events screen."
+        )
         XCTAssertTrue(app.navigationBars["Events"].waitForExistence(in: app, timeout: 10), "Events should render its own screen.")
 
         // The payload, not the chrome. A decode regression in ArrLogPage/ArrLogRecord

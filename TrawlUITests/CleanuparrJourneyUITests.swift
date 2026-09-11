@@ -54,17 +54,43 @@ final class CleanuparrJourneyUITests: XCTestCase {
             app.staticTexts["Fixture Radarr is unavailable"].waitForExistence(in: app, timeout: 10),
             "The dashboard should render Cleanuparr's unhealthy Arr service error, not merely a generic connected state - regression: Health.Service.errorMessage stopped reaching healthRow(_:)."
         )
-        let readiness = app.descendants(matching: .any)
-            .matching(NSPredicate(
-                format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
-                "Cleanuparr Readiness",
-                "Ready"
-            ))
-            .firstMatch
-        XCTAssertTrue(
-            readiness.waitForExistence(in: app, timeout: 10),
-            "Cleanuparr Readiness should report Ready after the production client receives the fixture's successful GET /health/ready response."
-        )
+        // Readiness is drawn in two different places, so it has to be asserted in two.
+        // `CleanuparrDashboardView` branches on `hasDetailPane`: the phone gets
+        // `compactSections`, whose `LabeledContent("Cleanuparr Readiness")` merges
+        // label and value into one accessibility element, while a regular width gets
+        // `splitViewSections` and renders "Readiness" and its value as separate text
+        // in the detail column. The single compact-shaped query this used to make
+        // could never match on iPad.
+        //
+        // Both branches match "Ready" as a whole word. `CONTAINS "Ready"` is satisfied
+        // by the word "Readiness" itself, so the old assertion could not actually tell
+        // Ready from Not Ready - it passed on the label alone.
+        let readyWord = ".*\\bReady\\b.*"
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                app.staticTexts["Readiness"].waitForExistence(in: app, timeout: 10),
+                "The Cleanuparr detail column should label its readiness row."
+            )
+            let readyValue = app.staticTexts
+                .matching(NSPredicate(format: "label MATCHES[c] %@", readyWord))
+                .firstMatch
+            XCTAssertTrue(
+                readyValue.waitForExistence(in: app, timeout: 10),
+                "Cleanuparr Readiness should report Ready after the production client receives the fixture's successful GET /health/ready response."
+            )
+        } else {
+            let readiness = app.descendants(matching: .any)
+                .matching(NSPredicate(
+                    format: "label CONTAINS[c] %@ AND label MATCHES[c] %@",
+                    "Cleanuparr Readiness",
+                    readyWord
+                ))
+                .firstMatch
+            XCTAssertTrue(
+                readiness.waitForExistence(in: app, timeout: 10),
+                "Cleanuparr Readiness should report Ready after the production client receives the fixture's successful GET /health/ready response."
+            )
+        }
         XCTAssertTrue(
             server.hasReceivedStatsRequest(hours: 168, includeDryRun: false),
             "The app should request GET /api/v2/stats with hours=168, includeDryRun=false, and the seeded X-Api-Key before rendering dashboard content - proves this is a production HTTP path, not installed state."

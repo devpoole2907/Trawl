@@ -9,9 +9,14 @@
 //  result must arrive as one line rather than as a stack of banners, one per service,
 //  which is what a per-call report degenerates into on a dual-instance setup.
 //
-//  `perform` fires an unstructured `Task` with no seam to await, so the tests below
-//  wait on the observable outcome using the target's established `awaitCondition`
-//  idiom rather than sleeping.
+//  `perform` returns the fan-out's `Task` (the app discards it - it reads the result
+//  off the banner), and these tests await that task. They first polled the banner with
+//  the target's `awaitCondition` yield loop, which was wrong for this suite: yielding
+//  reschedules on the cooperative pool but never waits for the real HTTP round trips a
+//  fan-out performs, so 5,000 yields burn off in milliseconds. That passed when the
+//  suite was run on its own and failed in a full-plan run on a loaded machine. Awaiting
+//  the task is the actual barrier; the yield idiom belongs to suites whose work is
+//  already resident on the cooperative pool.
 //
 
 import Foundation
@@ -68,11 +73,12 @@ struct QuickActionRunnerTests {
 
         try await withRadarrPair(hd: hd, uhd: uhd) { manager, center in
             let runner = makeRunner(arr: manager, center: center)
-            runner.perform(.refreshLibrary)
+            await runner.perform(.refreshLibrary)?.value
 
-            let reported = await awaitCondition { center.currentBanner != nil }
-            #expect(reported, "The fan-out should report itself once every call has come back.")
-            let banner = try #require(center.currentBanner)
+            let banner = try #require(
+                center.currentBanner,
+                "The fan-out should report itself once every call has come back."
+            )
             #expect(banner.title == "Refresh Library")
             #expect(banner.style == .success)
             #expect(banner.message == "Refreshed Radarr HD and Radarr 4K.")
@@ -102,11 +108,12 @@ struct QuickActionRunnerTests {
             uhd.stop()
 
             let runner = makeRunner(arr: manager, center: center)
-            runner.perform(.refreshLibrary)
+            await runner.perform(.refreshLibrary)?.value
 
-            let reported = await awaitCondition { center.currentBanner != nil }
-            #expect(reported, "A fan-out with one server down should still report.")
-            let banner = try #require(center.currentBanner)
+            let banner = try #require(
+                center.currentBanner,
+                "A fan-out with one server down should still report."
+            )
             #expect(banner.title == "Refresh Library")
             #expect(banner.style == .error, "A partial failure is an error banner, not a success one.")
             #expect(banner.message.contains("Refreshed Radarr HD"))
@@ -122,11 +129,12 @@ struct QuickActionRunnerTests {
         let center = InAppNotificationCenter()
         let runner = makeRunner(arr: ArrServiceManager(), center: center)
 
-        runner.perform(.refreshLibrary)
+        await runner.perform(.refreshLibrary)?.value
 
-        let reported = await awaitCondition { center.currentBanner != nil }
-        #expect(reported, "An action with nothing to act on should still report.")
-        let banner = try #require(center.currentBanner)
+        let banner = try #require(
+            center.currentBanner,
+            "An action with nothing to act on should still report."
+        )
         #expect(banner.title == "Refresh Library")
         #expect(banner.style == .error)
         #expect(banner.message == "No connected service handled this command.")
@@ -144,12 +152,13 @@ struct QuickActionRunnerTests {
             center.runningQuickActions.insert(.refreshLibrary)
             let runner = makeRunner(arr: manager, center: center)
 
-            runner.perform(.refreshLibrary)
+            let dropped = runner.perform(.refreshLibrary)
 
             // Nothing was sent and nothing was reported: the second tap is dropped
-            // rather than queued behind the first.
-            let sentSomething = await awaitCondition(maxYields: 200) { !hd.commandBodies.isEmpty }
-            #expect(sentSomething == false, "A second tap while the action is in flight must not fan out again.")
+            // rather than queued behind the first. No task means nothing to await -
+            // the guard returning `nil` *is* the barrier here.
+            #expect(dropped == nil, "A second tap while the action is in flight must not fan out again.")
+            #expect(hd.commandBodies.isEmpty)
             #expect(center.currentBanner == nil)
             #expect(center.runningQuickActions.contains(.refreshLibrary))
         }
@@ -173,16 +182,6 @@ struct QuickActionRunnerTests {
             ),
             inAppNotificationCenter: center
         )
-    }
-
-    /// Waits for an unstructured `Task`'s observable result without sleeping, matching
-    /// `BazarrViewModelTests.awaitCondition` and its neighbours.
-    private func awaitCondition(maxYields: Int = 5_000, _ condition: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if condition() { return true }
-            await Task.yield()
-        }
-        return condition()
     }
 
     private func withRadarrPair(

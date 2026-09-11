@@ -137,3 +137,51 @@ taken: restore a route, point the journey's navigation at it, remove the skip, a
 delete this entry only once it passes. Every assertion below its navigation — the
 composed episode line, the language-profile name and its "Profile 71" fallback, the
 season pluralisation — is still the right contract and should not be rewritten.
+
+## iPad: pre-existing UI failures the two-chrome plan had never surfaced
+
+`Scripts/run-ui-tests.sh` could not run the whole plan until 2026-09-11: macOS ships
+bash 3.2, where an empty array expansion is unbound under `set -u`, so the no-argument
+form died before `xcodebuild` started and only single-suite runs ever happened. The
+first full iPad leg therefore reported 18 failures at once. Some were a concurrent edit
+landing mid-run, some were test-harness bugs fixed alongside this entry, and the rest
+below reproduce **byte-identically** — same file, same line — against both the original
+run and a re-run at `155d806`, so they predate that day and are not caused by the
+blocklist work.
+
+**Fixed with this entry** (test-side, all chrome divergence between the phone's
+push-and-pop and the iPad's select-beside): the Blocklist `identifierSuffix` mapping
+`155d806` added an assertion for without adding; `firstButton` being button-only and so
+blind to rows on three-column screens (`TrawlChrome.tapHubRow`); `popBack` requiring a
+back control a detail pane correctly lacks; the scroller picking the list column
+instead of the detail pane; and asserting on XCUITest query order.
+
+**Likely one real bug — an edit sheet that does not present on iPad.** Three tests, one
+symptom: a row is found and tapped, and its sheet never appears.
+
+- `ArrSetupEditJourneyUITests` — the configured Sonarr row should present "Edit Sonarr"
+- `SheetFocusDiagnosticUITests` — the same editor, already tapped via `tapWhenPossible`
+- `ArrRemotePathMappingJourneyUITests` — a mapping row should present "Edit Mapping"
+
+`SheetFocusDiagnostic` rules out a swallowed tap: it already uses the coordinate
+fallback and still gets no sheet. Worth checking first for the two-`.sheet`-modifier
+trap `QBittorrentSettingsView` shipped on this branch, where only the last modifier is
+honoured and the earlier one opens and dismisses itself. Test-side guesses were tried
+on two of these and reverted, because the evidence contradicted them.
+
+**Pre-existing, not yet diagnosed:**
+
+- `DownloadsJourneyUITests/testPauseResumeDeleteTorrentThroughRealUIAndServer` — the
+  swipe-to-pause row. Beside a detail pane the row is a selection cell, not a
+  `NavigationLink`, and its swipe actions do not reveal the same way.
+- `NavigationSmokeWalkUITests` — five: Search's title, Subtitles opening blank, the
+  SABnzbd hub's `XCTWaiter` result, a missing `Arr Tasks` row, and Sonarr's back
+  control (the same shape as the `popBack` fix, in this suite's own helper).
+- `ArrUncoveredScreensJourneyUITests/testBazarrProvidersScreenRendersARealProvider` —
+  fails at its first step, `openDestination(.subtitles)`, which scrolls the sidebar
+  directly and does not touch the fixed scroller. It passed in the original run, so it
+  may be contamination from the failing test before it in the same suite.
+- `WidgetInstalledProcessUITests/testInstalledWidgetRendersAndOpensTrawl`.
+
+**Coverage.** Each of these fails on the sidebar chrome only; the iPhone leg of the same
+plan was clean (104 UI tests, 0 failures). Delete an item once its suite passes on iPad.

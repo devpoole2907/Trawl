@@ -37,6 +37,30 @@ extension EnvironmentValues {
     @Entry var sidebarNavigationColumn: NavigationSplitViewColumn? = nil
 }
 
+/// What a screen's detail column should say when nothing is selected.
+///
+/// A three-column destination is built once per column, so a screen whose service is
+/// unavailable used to draw its "Not Set Up" card in the content column *and* again in
+/// the detail column - the same message twice, side by side, and two Open Settings
+/// buttons with it. The detail column should keep saying what it always says when
+/// nothing is selected, exactly as it does once the service is configured.
+///
+/// Requests already behaved this way, through a one-off `title == "Requests"` test in
+/// `MoreView.seerrAdminDestination`. These cases are that special case generalised, and
+/// each one repeats the string its own screen already uses so the column does not
+/// change its wording depending on whether the server is reachable.
+struct DetailPanePlaceholder {
+    let title: String
+    let systemImage: String
+
+    static let library = Self(title: "Select a Library", systemImage: "folder")
+    static let session = Self(title: "Select a Session", systemImage: "play.rectangle.on.rectangle")
+    static let plugin = Self(title: "Select a Plugin", systemImage: "puzzlepiece.extension")
+    static let user = Self(title: "Select a User", systemImage: "person.2")
+    static let issue = Self(title: "Select an Issue", systemImage: "exclamationmark.bubble")
+    static let request = Self(title: "Select a Request", systemImage: "square.and.arrow.down.on.square")
+}
+
 extension View {
     /// The right-hand pane's placeholder, in the one shape every screen uses.
     func listDetailPlaceholder(_ title: String, systemImage: String) -> some View {

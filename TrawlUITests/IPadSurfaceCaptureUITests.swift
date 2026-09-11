@@ -454,11 +454,12 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             // to select. Adding it here asserted against a screen that cannot exist.
             //
             // `ArrEventsView` carries its own scope subtitle, so the detail bar is two
-            // strings rather than one. Title first, subtitle second - which is both the
-            // order the bar lists them in and, since `expectedBar[0]` is used to find
-            // the bar, the only order that identifies it. A run against the iPad
-            // reported `identifier=Events texts=[Events | All Servers]`; this entry had
-            // them the other way round and looked for a bar named "All Servers".
+            // strings rather than one. Title first, subtitle second: that is their
+            // top-to-bottom order on screen, and `expectedBar[0]` also has to be the
+            // title because it is what names the bar the assertion looks for. It is
+            // *not* the order the accessibility query returns them in - that varies
+            // run to run, which is why the assertion sorts by frame rather than
+            // trusting the query.
             ("logs", "Logs & Activity", "Arr Events", ["Events", "All Servers"]),
         ]
 
@@ -839,12 +840,26 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                           "Returning to Indexers must restore its selected indexer.")
         }
 
-        let actual = app.navigationBars[expectedBar[0]].staticTexts.allElementsBoundByIndex.map(\.label)
+        // Sorted by where the strings actually sit, not by the order the query hands
+        // them back. XCUITest query order is not screen order (see `TrawlChrome`'s
+        // `backButton`, which was bitten by the same thing), and this assertion was
+        // flaky proof of it: one run reported ["Events", "All Servers"] and the next
+        // ["All Servers", "Events"] for an unchanged screen. A title sits above its
+        // subtitle, so top-to-bottom - tie-broken left-to-right - is the real order
+        // and the one worth pinning.
+        let actual = app.navigationBars[expectedBar[0]].staticTexts
+            .allElementsBoundByIndex
+            .sorted {
+                $0.frame.minY == $1.frame.minY
+                    ? $0.frame.minX < $1.frame.minX
+                    : $0.frame.minY < $1.frame.minY
+            }
+            .map(\.label)
         XCTAssertEqual(
             actual, expectedBar,
-            "\(title): the column's bar reads \(actual) after selecting \(rowLabel), "
-                + "but the pane beside the list is \(expectedBar) - the bar's title "
-                + "belongs to whatever the detail is showing."
+            "\(title): the column's bar reads \(actual) top-to-bottom after selecting "
+                + "\(rowLabel), but the pane beside the list is \(expectedBar) - the "
+                + "bar's title belongs to whatever the detail is showing."
         )
     }
 

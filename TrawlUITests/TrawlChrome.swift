@@ -906,4 +906,29 @@ extension XCTestCase {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         return true
     }
+
+    /// Taps a hub row across all three shapes it takes, rather than assuming one.
+    ///
+    /// Where the row pushes it is a `Button`. Beside a detail pane it drives a
+    /// selection instead, and then it surfaces as a cell - or as nothing but its own
+    /// label, which is how `IPadSurfaceCaptureUITests` has always reached these rows.
+    /// It also reports itself *not hittable* there while being plainly on screen, so
+    /// the tap goes through `tapWhenPossible` and its coordinate fallback.
+    ///
+    /// This exists because `firstButton(labelContaining:)` is redefined privately in
+    /// around twenty suites and every copy is button-only, so each one is blind to any
+    /// row on a three-column screen. Two suites failed that way on iPad - the Logs
+    /// hub's Events row and the Subtitles hub's Language Profiles row - while the rows
+    /// were plainly listed.
+    @MainActor
+    @discardableResult
+    func tapHubRow(labelContaining text: String, in app: XCUIApplication) -> Bool {
+        let predicate = NSPredicate(format: "label CONTAINS[c] %@", text)
+        for query in [app.buttons, app.cells, app.staticTexts] {
+            let row = query.matching(predicate).firstMatch
+            guard row.waitForExistence(in: app, timeout: 6) else { continue }
+            if tapWhenPossible(row, timeout: 4) { return true }
+        }
+        return false
+    }
 }

@@ -752,14 +752,14 @@ struct MoreView: View {
                 .injectSyncService(appServices)
                 .moreDestinationTitleStyle()
         case .seerrAdmin:
-            seerrAdminDestination()
+            seerrAdminDestination(detailPlaceholder: .request)
                 .moreDestinationTitleStyle()
         case .seerrIssues:
             if let client = seerrServiceManager.activeClient {
                 SeerrIssueListView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                seerrAdminDestination(title: "Issues")
+                seerrAdminDestination(title: "Issues", detailPlaceholder: .issue)
                     .moreDestinationTitleStyle()
             }
         case .seerrLogs:
@@ -781,7 +781,7 @@ struct MoreView: View {
                 JellyfinLibrariesView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination(title: "Libraries")
+                jellyfinUnavailableDestination(title: "Libraries", detailPlaceholder: .library)
                     .moreDestinationTitleStyle()
             }
         case .jellyfinSessions:
@@ -789,7 +789,7 @@ struct MoreView: View {
                 JellyfinSessionsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination(title: "Sessions")
+                jellyfinUnavailableDestination(title: "Sessions", detailPlaceholder: .session)
                     .moreDestinationTitleStyle()
             }
         case .jellyfinActivityLog:
@@ -813,7 +813,7 @@ struct MoreView: View {
                 JellyfinPluginsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination(title: "Plugins")
+                jellyfinUnavailableDestination(title: "Plugins", detailPlaceholder: .plugin)
                     .moreDestinationTitleStyle()
             }
         case .jellyfinTranscoding:
@@ -1201,9 +1201,14 @@ struct MoreView: View {
     /// The Seerr fallback, titled with the screen that asked for it - Issues and Jobs
     /// share it with Requests, and all three used to arrive saying "Requests".
     @ViewBuilder
-    private func seerrAdminDestination(title: String = "Requests") -> some View {
-        if seerrServiceManager.isConnected || (title == "Requests" && sidebarColumn == .detail) {
+    private func seerrAdminDestination(
+        title: String = "Requests",
+        detailPlaceholder: DetailPanePlaceholder? = nil
+    ) -> some View {
+        if seerrServiceManager.isConnected {
             SeerrDashboardView()
+        } else if sidebarColumn == .detail, let detailPlaceholder {
+            listDetailPlaceholder(detailPlaceholder.title, systemImage: detailPlaceholder.systemImage)
         } else if let seerrProfile {
             ConnectionStatusCard(
                 identity: .seerr,
@@ -1239,7 +1244,7 @@ struct MoreView: View {
             .environment(seerrServiceManager)
             .environment(inAppNotificationCenter)
         } else {
-            jellyfinUnavailableDestination(title: "Users")
+            jellyfinUnavailableDestination(title: "Users", detailPlaceholder: .user)
         }
     }
 
@@ -1250,8 +1255,13 @@ struct MoreView: View {
     /// rather than the screen - the sidebar row and the title beside it disagreeing
     /// about where you were.
     @ViewBuilder
-    private func jellyfinUnavailableDestination(title: String = "Jellyfin") -> some View {
-        if let jellyfinProfile {
+    private func jellyfinUnavailableDestination(
+        title: String = "Jellyfin",
+        detailPlaceholder: DetailPanePlaceholder? = nil
+    ) -> some View {
+        if sidebarColumn == .detail, let detailPlaceholder {
+            listDetailPlaceholder(detailPlaceholder.title, systemImage: detailPlaceholder.systemImage)
+        } else if let jellyfinProfile {
             ConnectionStatusCard(
                 identity: .jellyfin,
                 title: jellyfinServiceManager.isConnecting ? "Connecting to Jellyfin" : "Jellyfin Unreachable",
