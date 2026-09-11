@@ -97,7 +97,6 @@ enum TrawlDestination: CaseIterable {
     case indexers
     case downloadClients
     case qbittorrent
-    case sabnzbd
     case linkedApplications
     case remotePaths
     case cleanuparr
@@ -139,7 +138,6 @@ enum TrawlDestination: CaseIterable {
         case .indexers: "Indexers"
         case .downloadClients: "Download Clients"
         case .qbittorrent: "qBittorrent"
-        case .sabnzbd: "SABnzbd"
         case .linkedApplications: "Linked Applications"
         case .remotePaths: "Remote Path Mappings"
         case .cleanuparr: "Cleanuparr"
@@ -185,7 +183,6 @@ enum TrawlDestination: CaseIterable {
         case .indexers: "nav.indexers"
         case .downloadClients: "nav.downloadClients"
         case .qbittorrent: "nav.qbittorrent"
-        case .sabnzbd: "nav.sabnzbd"
         case .linkedApplications: "nav.linkedApplications"
         case .remotePaths: "nav.remotePaths"
         case .cleanuparr: "nav.cleanuparr"
@@ -221,7 +218,7 @@ enum TrawlDestination: CaseIterable {
         case .jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding,
              .jellyfinPlugins, .jellyfinActivity:
             .mediaServer
-        case .indexers, .downloadClients, .qbittorrent, .sabnzbd,
+        case .indexers, .downloadClients, .qbittorrent,
              .linkedApplications, .remotePaths, .cleanuparr, .tasks:
             .automation
         case .rootFolders, .qualityProfiles, .libraryImport, .subtitles:

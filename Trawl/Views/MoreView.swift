@@ -57,11 +57,9 @@ enum MoreDestination: Hashable {
     case arrEvents
     case qbittorrentLog
     case tasksHub
-    /// The qBittorrent and SABnzbd hubs. These used to be reachable only by pushing
-    /// through Download Clients, which is right on a phone and wrong on a display
-    /// with a sidebar - a client you use every day should not be three clicks in.
+    /// qBittorrent's standalone hub. SABnzbd stays reachable through Download
+    /// Clients, alongside the rest of the download-client management flow.
     case qbittorrentHub
-    case sabnzbdHub
     case arrTasks
     case seerrJobs
     case updatesHub
@@ -870,15 +868,6 @@ struct MoreView: View {
                 .moreDestinationTitleStyle()
         case .qbittorrentHub:
             QBittorrentClientHubView()
-                .environment(syncService)
-                .environment(torrentService)
-                .moreDestinationTitleStyle()
-        case .sabnzbdHub:
-            SABnzbdClientHubView()
-                .environment(sabnzbdServiceManager)
-                // `SABnzbdManagerView` under this hub reads both of these; without
-                // them it traps with "No Observable object of type SyncService
-                // found", which crashes rather than merely failing to render.
                 .environment(syncService)
                 .environment(torrentService)
                 .moreDestinationTitleStyle()

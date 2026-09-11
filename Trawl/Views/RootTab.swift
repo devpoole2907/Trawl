@@ -40,7 +40,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
                 : [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
             #endif
         case .integrations:
-            [.indexers, .downloadClients, .newsServers, .qbittorrent, .sabnzbd, .linkedApplications, .remotePaths, .cleanuparr]
+            [.indexers, .downloadClients, .newsServers, .qbittorrent, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
             [.downloadOrganization, .rootFolders, .qualityProfiles, .libraryImport, .subtitles]
         case .system:
@@ -91,7 +91,6 @@ enum RootTab: Hashable, CaseIterable {
     case downloadClients
     case newsServers
     case qbittorrent
-    case sabnzbd
     case linkedApplications
     case remotePaths
     case cleanuparr
@@ -133,7 +132,6 @@ enum RootTab: Hashable, CaseIterable {
         case .downloadClients: "Download Clients"
         case .newsServers: "News Servers"
         case .qbittorrent: "qBittorrent"
-        case .sabnzbd: "SABnzbd"
         case .linkedApplications: "Linked Applications"
         case .remotePaths: "Remote Path Mappings"
         case .cleanuparr: "Cleanuparr"
@@ -183,7 +181,6 @@ enum RootTab: Hashable, CaseIterable {
         case .downloadClients: .downloadClientsManagement
         case .newsServers: .newsServers
         case .qbittorrent: .qbittorrentHub
-        case .sabnzbd: .sabnzbdHub
         case .linkedApplications: .linkedApplicationsManagement
         case .remotePaths: .remotePathMappings
         case .cleanuparr: .cleanuparrDashboard
@@ -292,7 +289,6 @@ enum RootTab: Hashable, CaseIterable {
         case .downloadClients: "arrow.down.circle"
         case .newsServers: "server.rack"
         case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
-        case .sabnzbd: ServiceIdentity.sabnzbd.systemImage
         case .linkedApplications: "link"
         case .remotePaths: "arrow.triangle.branch"
         case .cleanuparr: "sparkles"

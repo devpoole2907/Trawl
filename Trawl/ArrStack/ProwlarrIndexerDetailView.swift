@@ -27,8 +27,59 @@ struct ProwlarrIndexerDetailView: View {
         return currentIndexer.enable ? "Active" : "Disabled"
     }
 
+    private var indexerName: String {
+        currentIndexer.name ?? "Indexer"
+    }
+
+    private var headerSubtitle: String {
+        if let proto = currentIndexer.protocol {
+            "Prowlarr · \(proto.displayName)"
+        } else {
+            "Prowlarr"
+        }
+    }
+
+    private var headerBadges: [ArrDetailBadge] {
+        let stateBadge: ArrDetailBadge
+        if viewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
+            stateBadge = ArrDetailBadge(
+                icon: "exclamationmark.triangle.fill",
+                label: currentStateLabel,
+                color: .orange
+            )
+        } else if currentIndexer.enable {
+            stateBadge = ArrDetailBadge(
+                icon: "checkmark.circle.fill",
+                label: currentStateLabel,
+                color: .green
+            )
+        } else {
+            stateBadge = ArrDetailBadge(
+                icon: "pause.circle.fill",
+                label: currentStateLabel,
+                color: .secondary
+            )
+        }
+
+        return [stateBadge]
+    }
+
     var body: some View {
         Form {
+            // Every entity detail starts by naming the selected thing. This is
+            // particularly useful in a split view, where the navigation title is
+            // owned by the list column on macOS.
+            Section {
+                TrawlEntityHeader(
+                    title: indexerName,
+                    subtitle: headerSubtitle,
+                    systemImage: "magnifyingglass",
+                    tint: ServiceIdentity.prowlarr.brandColor,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
+
             // MARK: Status Section
             Section("Status") {
                 Toggle("Enabled in Prowlarr", isOn: Binding(
@@ -128,7 +179,10 @@ struct ProwlarrIndexerDetailView: View {
                         detailRow(label: "Failed Queries", value: String(failed))
                     }
                     if let rate = stats.successRate {
-                        detailRow(label: "Success Rate", value: String(format: "%.1f%%", rate * 100))
+                        detailRow(
+                            label: "Success Rate",
+                            value: rate.formatted(.percent.precision(.fractionLength(1)))
+                        )
                     }
                     if let avg = stats.avgResponseTimeFormatted {
                         detailRow(label: "Avg Response", value: avg)
@@ -168,7 +222,7 @@ struct ProwlarrIndexerDetailView: View {
             }
         }
         .serviceSettingsFormStyle()
-        .paneAwareNavigationTitle(indexer.name ?? "Indexer", subtitle: "Prowlarr")
+        .paneAwareNavigationTitle(indexerName, subtitle: "Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

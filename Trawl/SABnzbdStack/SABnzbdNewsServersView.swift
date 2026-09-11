@@ -330,113 +330,22 @@ struct SABnzbdNewsServerDetailPane: View {
     @State private var testErrorMessage: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                headerCard
-                connectionCard
-                credentialsCard
-                if let notes = server.notes, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    notesCard(notes)
-                }
-                testConnectionCard
-                actionsCard
-            }
-            .padding()
-            .frame(maxWidth: 700)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .paneAwareNavigationTitle(server.title, subtitle: "SABnzbd", whenPane: server.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            #if os(macOS)
-            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
-            #endif
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button(action: onEdit) {
-                    Label("Edit", systemImage: "pencil")
-                }
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-        }
-    }
-
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                HStack(spacing: 12) {
-                    Image(systemName: "server.rack")
-                        .font(.title2)
-                        .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-                        .frame(width: 44, height: 44)
-                        .background(ServiceIdentity.sabnzbd.brandColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(server.title)
-                            .font(.title2.weight(.bold))
-
-                        Text(server.hostLine)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-
-                Label(
-                    server.enabled ? "Enabled" : "Disabled",
-                    systemImage: server.enabled ? "checkmark.circle.fill" : "circle.slash"
+        Form {
+            // Match the other administration inspectors: establish the selected
+            // server's identity before presenting its grouped settings.
+            Section {
+                TrawlEntityHeader(
+                    title: server.title,
+                    subtitle: "SABnzbd · \(server.hostLine)",
+                    systemImage: "server.rack",
+                    tint: ServiceIdentity.sabnzbd.brandColor,
+                    badges: headerBadges
                 )
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(
-                    (server.enabled ? Color.green : Color.secondary).opacity(0.15),
-                    in: Capsule()
-                )
-                .foregroundStyle(server.enabled ? .green : .secondary)
             }
+            .listRowBackground(Color.clear)
 
-            HStack(spacing: 8) {
-                if let priority = server.priority {
-                    Label("Priority \(priority)", systemImage: "arrow.up.and.down.circle")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.quaternary, in: Capsule())
-                }
-                Label(server.ssl ? "SSL Encrypted" : "Plaintext", systemImage: server.ssl ? "lock.fill" : "lock.open")
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.quaternary, in: Capsule())
-
-                if server.optional {
-                    Label("Optional / Backup", systemImage: "shield")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.quaternary, in: Capsule())
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var connectionCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Connection & Transport", systemImage: "network")
-                .font(.headline)
-                .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-
-            Divider()
-
-            VStack(spacing: 10) {
-                detailRow("Host", value: server.host, textSelection: true)
+            Section("Connection") {
+                detailRow("Host", value: server.host)
                 detailRow("Port", value: String(server.port))
                 detailRow("SSL / TLS", value: server.ssl ? "Enabled" : "Disabled")
                 detailRow("Cert Verification", value: sslVerifyDescription)
@@ -448,164 +357,91 @@ struct SABnzbdNewsServerDetailPane: View {
                     detailRow("Priority", value: String(priority))
                 }
             }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
 
-    private var credentialsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Authentication", systemImage: "key.fill")
-                .font(.headline)
-                .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-
-            Divider()
-
-            VStack(spacing: 10) {
+            Section("Authentication") {
                 detailRow("Username", value: server.username.flatMap { $0.isEmpty ? nil : $0 } ?? "None")
                 detailRow("Password", value: (server.password?.isEmpty == false) ? "••••••••" : "None")
             }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
 
-    private func notesCard(_ notes: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Notes", systemImage: "note.text")
-                .font(.headline)
-                .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-
-            Divider()
-
-            Text(notes)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var testConnectionCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Connection Test", systemImage: "bolt.horizontal.circle")
-                .font(.headline)
-                .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-
-            Text("Verify that SABnzbd can connect and authenticate with this Usenet server.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button {
-                Task { await runConnectionTest() }
-            } label: {
-                HStack(spacing: 6) {
-                    if isTesting {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Testing Connection…")
-                    } else {
-                        Image(systemName: "play.fill")
-                        Text("Test Connection")
-                    }
+            if let notes = server.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+                Section("Notes") {
+                    Text(notes)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(ServiceIdentity.sabnzbd.brandColor)
-            .disabled(isTesting)
 
-            if let outcome = testOutcome {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: outcome.succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.headline)
-                        .foregroundStyle(outcome.succeeded ? .green : .red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(outcome.succeeded ? "Connection Succeeded" : "Connection Failed")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(outcome.succeeded ? .green : .red)
-                        if !outcome.message.isEmpty {
-                            Text(outcome.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+            Section("Connection Test") {
+                Text("Verify that SABnzbd can connect and authenticate with this Usenet server.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    Task { await runConnectionTest() }
+                } label: {
+                    Label(
+                        isTesting ? "Testing Connection…" : "Test Connection",
+                        systemImage: isTesting ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+                    )
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background((outcome.succeeded ? Color.green : Color.red).opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            } else if let error = testErrorMessage {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.headline)
-                        .foregroundStyle(.red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Test Error")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.red)
-                        Text(error)
-                            .font(.caption)
+                .disabled(isTesting)
+
+                if isTesting {
+                    HStack {
+                        ProgressView()
+                        Text("Testing…")
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                if let outcome = testOutcome {
+                    Label(
+                        outcome.message.isEmpty
+                            ? (outcome.succeeded ? "Connection Succeeded" : "Connection Failed")
+                            : "\(outcome.succeeded ? "Connection Succeeded" : "Connection Failed"): \(outcome.message)",
+                        systemImage: outcome.succeeded ? "checkmark.circle.fill" : "xmark.circle.fill"
+                    )
+                    .foregroundStyle(outcome.succeeded ? .green : .red)
+                } else if let error = testErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                Button("Edit Server", systemImage: "pencil", action: onEdit)
+            }
+
+            Section {
+                Button("Delete Server", systemImage: "trash", role: .destructive, action: onDelete)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private var actionsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Actions", systemImage: "slider.horizontal.3")
-                .font(.headline)
-                .foregroundStyle(ServiceIdentity.sabnzbd.brandColor)
-
-            Divider()
-
-            HStack(spacing: 12) {
-                Button(action: onEdit) {
-                    Label("Edit Server", systemImage: "pencil")
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete Server", systemImage: "trash")
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
+        .serviceSettingsFormStyle()
+        .paneAwareNavigationTitle(server.title, subtitle: "SABnzbd", whenPane: server.title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            #if os(macOS)
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            #endif
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func detailRow(_ label: String, value: String, textSelection: Bool = false) -> some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
-            if textSelection {
-                Text(value)
-                    .font(.subheadline.weight(.medium))
-                    .textSelection(.enabled)
-            } else {
-                Text(value)
-                    .font(.subheadline.weight(.medium))
-            }
+    private var headerBadges: [ArrDetailBadge] {
+        [
+            ArrDetailBadge(
+                icon: server.enabled ? "checkmark.circle.fill" : "pause.circle.fill",
+                label: server.enabled ? "Enabled" : "Disabled",
+                color: server.enabled ? .green : .secondary
+            )
+        ]
+    }
+
+    private func detailRow(_ label: String, value: String) -> some View {
+        LabeledContent(label) {
+            Text(value)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
         }
     }
 
