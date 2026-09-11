@@ -590,6 +590,7 @@ struct DirectIndexerEditorView: View {
             }
         }
         .serviceSettingsFormStyle()
+        .animation(.snappy, value: isEditingForm)
         .paneAwareNavigationTitle(mode.navigationTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -611,7 +612,9 @@ struct DirectIndexerEditorView: View {
                     .disabled(indexerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } else {
                     Button("Edit", systemImage: "pencil") {
-                        isEditingForm = true
+                        withAnimation(.snappy) {
+                            isEditingForm = true
+                        }
                     }
                 }
             }
@@ -711,7 +714,9 @@ struct DirectIndexerEditorView: View {
         }
 
         if saved {
-            isEditingForm = false
+            withAnimation(.snappy) {
+                isEditingForm = false
+            }
             onSaved?()
         }
     }

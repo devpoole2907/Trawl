@@ -44,13 +44,15 @@ enum DownloadDetailSelection: Hashable, Sendable {
 
 /// Everything in the Downloads tab that sits one push below the list: the toolbar
 /// overflow destinations, plus the qBittorrent tools that More's search links into.
-enum DownloadsManagementRoute: Hashable {
+enum DownloadsManagementRoute: Hashable, Identifiable {
     case clients
     case blocklist
     case torrents
     case transferStats
     case categoriesAndTags
     case rssFeeds
+
+    var id: Self { self }
 
     /// True for routes that need a configured qBittorrent server to render anything.
     var requiresQBittorrent: Bool {
@@ -86,6 +88,9 @@ struct DownloadsView: View {
     /// Drives the toolbar overflow menu's pushes. A menu can't hold a
     /// `NavigationLink`, so the selection travels through state instead.
     @State private var managementRoute: DownloadsManagementRoute?
+    /// Utilities open as sheets from the regular-width toolbar menu so they do
+    /// not replace the download detail column.
+    @State private var utilitySheetRoute: DownloadsManagementRoute?
     /// Which of the tab's three lists is showing. Switched from the title menu
     /// rather than by pushing: these are peers, not details of one another, and
     /// reaching a client's own queue by way of Client Management never made sense.
@@ -383,8 +388,19 @@ struct DownloadsView: View {
                     Divider()
 
                     // Download Clients and Blocklist are sidebar rows on regular iPad
-                    // and Mac, so their shortcuts only earn a place in compact chrome.
-                    if detailSelection == nil {
+                    // and Mac. The client utilities belong in this menu there, where
+                    // they can float above the detail column instead of navigating it.
+                    if detailSelection != nil {
+                        Button("Transfer Stats", systemImage: "chart.line.uptrend.xyaxis") {
+                            utilitySheetRoute = .transferStats
+                        }
+                        .disabled(!hasQBittorrentServer)
+
+                        Button("RSS Feeds", systemImage: "dot.radiowaves.left.and.right") {
+                            utilitySheetRoute = .rssFeeds
+                        }
+                        .disabled(!hasQBittorrentServer)
+                    } else {
                         Button("Client Management", systemImage: "server.rack") {
                             managementRoute = .clients
                         }
@@ -461,6 +477,17 @@ struct DownloadsView: View {
             }
             .navigationDestination(item: $managementRoute) { route in
                 managementDestination(route)
+            }
+            .sheet(item: $utilitySheetRoute) { route in
+                NavigationStack {
+                    managementDestination(route)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { utilitySheetRoute = nil }
+                            }
+                        }
+                }
+                .presentationDetents([.large])
             }
             .sheet(isPresented: $showAddTorrent) {
                 AddTorrentSheet()

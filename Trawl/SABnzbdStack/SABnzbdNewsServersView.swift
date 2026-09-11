@@ -161,7 +161,7 @@ struct SABnzbdNewsServersView: View {
                     browser.editorTarget = SABnzbdNewsServerBrowserState.EditorTarget(server: server)
                 },
                 onDelete: {
-                    browser.serverPendingDeletion = server
+                    Task { await delete(server) }
                 }
             )
             .id(server.id)
@@ -217,7 +217,7 @@ struct SABnzbdNewsServersView: View {
                                     browser.editorTarget = SABnzbdNewsServerBrowserState.EditorTarget(server: server)
                                 },
                                 onDelete: {
-                                    browser.serverPendingDeletion = server
+                                    Task { await delete(server) }
                                 }
                             )
                         } label: {
@@ -328,6 +328,7 @@ struct SABnzbdNewsServerDetailPane: View {
     @State private var isTesting = false
     @State private var testOutcome: (succeeded: Bool, message: String)?
     @State private var testErrorMessage: String?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         Form {
@@ -412,7 +413,19 @@ struct SABnzbdNewsServerDetailPane: View {
             }
 
             Section {
-                Button("Delete Server", systemImage: "trash", role: .destructive, action: onDelete)
+                Button("Delete Server", systemImage: "trash", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+                .confirmationDialog(
+                    "Delete Server?",
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive, action: onDelete)
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes the server from SABnzbd's configuration.")
+                }
             }
         }
         .serviceSettingsFormStyle()

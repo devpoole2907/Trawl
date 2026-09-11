@@ -76,19 +76,19 @@ struct ArrBlocklistDetailView: View {
                     showUnblockConfirmation = true
                 }
                 .disabled(isUnblocking)
+                .confirmationDialog(
+                    "Unblock Release?",
+                    isPresented: $showUnblockConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Unblock", role: .destructive) {
+                        Task { await unblock() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This release will be allowed to download again.")
+                }
             }
-        }
-        .confirmationDialog(
-            "Unblock Release?",
-            isPresented: $showUnblockConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Unblock", role: .destructive) {
-                Task { await unblock() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This release will be allowed to download again.")
         }
     }
 

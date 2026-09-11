@@ -114,29 +114,35 @@ struct DownloadOrganizationManagementView: View {
 }
 
 private struct DownloadOrganizationCategoriesView: View {
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+
     @State private var selectedClient = ServiceIdentity.qbittorrent
+    @State private var newQBittorrentCategoryName = ""
+    @State private var newQBittorrentCategoryPath = ""
+    @State private var showingNewQBittorrentCategory = false
+    @State private var qBittorrentCategoryPendingDeletion: String?
+    @State private var sabnzbdEditorTarget: SABnzbdCategoryEditorTarget?
+    @State private var sabnzbdCategoryPendingDeletion: SABnzbdCategory?
+    @State private var actionError: ErrorAlertItem?
+    @State private var isSubmitting = false
 
     var body: some View {
-        // Keep both category configurations mounted. Switching clients now changes
-        // the data shown by this one detail screen instead of replacing its view
-        // hierarchy, navigation state, and toolbar.
-        ZStack {
-            QBittorrentCategoriesAndTagsView(
-                section: .categories,
-                isPresented: selectedClient == .qbittorrent
-            )
-            .opacity(selectedClient == .qbittorrent ? 1 : 0)
-            .allowsHitTesting(selectedClient == .qbittorrent)
-            .accessibilityHidden(selectedClient != .qbittorrent)
-
-            SABnzbdCategoriesView(
-                section: .categories,
-                isPresented: selectedClient == .sabnzbd
-            )
-            .opacity(selectedClient == .sabnzbd ? 1 : 0)
-            .allowsHitTesting(selectedClient == .sabnzbd)
-            .accessibilityHidden(selectedClient != .sabnzbd)
+        List {
+            if selectedClient == .qbittorrent {
+                qbittorrentCategories
+            } else {
+                sabnzbdCategories
+            }
         }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .moreDestinationBackground(.categoriesAndTags)
         .navigationTitle("Categories")
         .navigationSubtitle(selectedClient.displayName)
         .safeAreaInset(edge: .top) {
@@ -150,5 +156,158 @@ private struct DownloadOrganizationCategoriesView: View {
                 alignment: .center
             )
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("New Category", systemImage: "plus", action: addCategory)
+                    .disabled(isSubmitting)
+            }
+        }
+        .task {
+            await refreshCategories()
+        }
+        .onChange(of: selectedClient) { _, _ in
+            Task { await refreshCategories() }
+        }
+        .refreshable {
+            await refreshCategories()
+        }
+        .alert("Add Category", isPresented: $showingNewQBittorrentCategory) {
+            TextField("Name", text: $newQBittorrentCategoryName)
+            TextField("Save Path (Optional)", text: $newQBittorrentCategoryPath)
+            Button("Add") { Task { await createQBittorrentCategory() } }
+                .disabled(newQBittorrentCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+            Button("Cancel", role: .cancel, action: resetQBittorrentCategoryInputs)
+        } message: {
+            Text("Leave the save path empty to use qBittorrent's default behavior.")
+        }
+        .alert("Delete Category?", isPresented: qBittorrentDeletionPresented) {
+            Button("Delete", role: .destructive) {
+                guard let name = qBittorrentCategoryPendingDeletion else { return }
+                Task { await deleteQBittorrentCategory(name) }
+            }
+            Button("Cancel", role: .cancel) { qBittorrentCategoryPendingDeletion = nil }
+        } message: {
+            Text("This removes the category from qBittorrent.")
+        }
+        .alert("Delete Category?", isPresented: sabnzbdDeletionPresented) {
+            Button("Delete", role: .destructive) {
+                guard let category = sabnzbdCategoryPendingDeletion else { return }
+                Task { await deleteSABnzbdCategory(category) }
+            }
+            Button("Cancel", role: .cancel) { sabnzbdCategoryPendingDeletion = nil }
+        } message: {
+            Text("This removes the category from SABnzbd. Existing downloads keep their folders.")
+        }
+        .sheet(item: $sabnzbdEditorTarget) { target in
+            SABnzbdCategoryEditorSheet(existingCategory: target.category) {
+                sabnzbdEditorTarget = nil
+            }
+            .environment(sabnzbdServiceManager)
+        }
+        .errorAlert(item: $actionError)
     }
+
+    @ViewBuilder private var qbittorrentCategories: some View {
+        if syncService.sortedCategoryNames.isEmpty {
+            ContentUnavailableView("No Categories", systemImage: "tag", description: Text("Create categories here, then assign them from torrent detail views."))
+                .listRowBackground(Color.clear)
+        } else {
+            Section {
+                ForEach(syncService.sortedCategoryNames, id: \.self) { name in
+                    categoryRow(name, path: syncService.categories[name]?.savePath ?? "Uses default save path")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", systemImage: "trash", role: .destructive) { qBittorrentCategoryPendingDeletion = name }
+                        }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var sabnzbdCategories: some View {
+        let categories = sabnzbdServiceManager.categoryConfigs.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        if categories.isEmpty {
+            ContentUnavailableView("No Categories", systemImage: "tag", description: Text("SABnzbd has no categories configured."))
+                .listRowBackground(Color.clear)
+        } else {
+            Section {
+                ForEach(categories) { category in
+                    Button { sabnzbdEditorTarget = .init(category: category) } label: {
+                        categoryRow(category.displayName, path: category.directory?.isEmpty == false ? category.directory! : "Uses default save path")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if !category.isDefault {
+                            Button("Delete", systemImage: "trash", role: .destructive) { sabnzbdCategoryPendingDeletion = category }
+                        }
+                    }
+                }
+            } footer: {
+                Text("Select a category to edit its folder, script, and priority.")
+            }
+        }
+    }
+
+    private func categoryRow(_ name: String, path: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "tag.fill").foregroundStyle(MoreDestinationAccent.categoriesAndTags.color).frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.body.weight(.medium))
+                Text(path).font(.footnote).foregroundStyle(path == "Uses default save path" ? .tertiary : .secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func addCategory() {
+        if selectedClient == .qbittorrent { showingNewQBittorrentCategory = true }
+        else { sabnzbdEditorTarget = .init(category: nil) }
+    }
+
+    private func refreshCategories() async {
+        if selectedClient == .qbittorrent { await syncService.refreshNow() }
+        else { await sabnzbdServiceManager.refreshCategoryConfigs() }
+    }
+
+    private func createQBittorrentCategory() async {
+        isSubmitting = true
+        defer { isSubmitting = false }
+        let name = newQBittorrentCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = newQBittorrentCategoryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await torrentService.createCategory(name: name, savePath: path.isEmpty ? nil : path)
+            syncService.addCategoryLocally(name: name, savePath: path.isEmpty ? nil : path)
+            await syncService.refreshNow()
+            resetQBittorrentCategoryInputs()
+        } catch { actionError = ErrorAlertItem(title: "Couldn't Create Category", message: error.localizedDescription) }
+    }
+
+    private func deleteQBittorrentCategory(_ name: String) async {
+        do {
+            try await torrentService.removeCategories(names: [name])
+            syncService.removeCategoriesLocally(names: [name])
+            await syncService.refreshNow()
+        } catch { actionError = ErrorAlertItem(title: "Couldn't Delete Category", message: error.localizedDescription) }
+        qBittorrentCategoryPendingDeletion = nil
+    }
+
+    private func deleteSABnzbdCategory(_ category: SABnzbdCategory) async {
+        do { try await sabnzbdServiceManager.deleteCategory(name: category.name) }
+        catch { actionError = ErrorAlertItem(title: "Couldn't Delete Category", message: error.localizedDescription) }
+        sabnzbdCategoryPendingDeletion = nil
+    }
+
+    private func resetQBittorrentCategoryInputs() {
+        newQBittorrentCategoryName = ""
+        newQBittorrentCategoryPath = ""
+        showingNewQBittorrentCategory = false
+    }
+
+    private var qBittorrentDeletionPresented: Binding<Bool> { Binding(get: { qBittorrentCategoryPendingDeletion != nil }, set: { if !$0 { qBittorrentCategoryPendingDeletion = nil } }) }
+    private var sabnzbdDeletionPresented: Binding<Bool> { Binding(get: { sabnzbdCategoryPendingDeletion != nil }, set: { if !$0 { sabnzbdCategoryPendingDeletion = nil } }) }
+}
+
+private struct SABnzbdCategoryEditorTarget: Identifiable {
+    let category: SABnzbdCategory?
+    var id: String { category?.id ?? "new-category" }
 }
