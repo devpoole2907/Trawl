@@ -186,7 +186,7 @@ enum RootTab: Hashable, CaseIterable {
         case .qualityProfiles: .qualityProfiles
         case .libraryImport: .libraryImport
         case .subtitles: .subtitleManagement
-        case .setupCheck: .systemHub
+        case .setupCheck: .setupCheck
         case .health: .health
         case .tasks: .tasksHub
         case .logs: .logsAndEvents
@@ -250,7 +250,7 @@ enum RootTab: Hashable, CaseIterable {
              .downloadClients, .linkedApplications, .qualityProfiles, .tasks,
              .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
              .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .subtitles, .logs, .settings, .health,
-             .diskSpace, .updates, .backups, .remotePaths, .cleanuparr: true
+             .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck: true
         default: false
         }
     }

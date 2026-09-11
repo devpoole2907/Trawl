@@ -66,6 +66,7 @@ enum MoreDestination: Hashable {
     case updatesHub
     case backupsHub
     case qualityDefinitions
+    case setupCheck
 }
 
 /// User-facing breadcrumbs for destinations referenced outside the More hierarchy.
@@ -127,6 +128,7 @@ enum MoreDestinationAccent {
     case backups
     case systemHub
     case automationClients
+    case setupCheck
 
     var color: Color {
         switch self {
@@ -164,6 +166,7 @@ enum MoreDestinationAccent {
         case .backups: return .indigo
         case .systemHub: return .gray
         case .automationClients: return .blue
+        case .setupCheck: return .teal
         }
     }
 }
@@ -669,6 +672,9 @@ struct MoreView: View {
                 .moreDestinationTitleStyle()
         case .systemHub:
             SystemHubView()
+                .moreDestinationTitleStyle()
+        case .setupCheck:
+            SetupCheckView()
                 .moreDestinationTitleStyle()
         case .automationClients:
             AutomationAndClientsHubView()
@@ -2077,6 +2083,16 @@ enum MoreSearchIndex {
                 keywords: ["backup", "restore", "system", "sonarr", "radarr", "prowlarr", "bazarr"]
             ),
             .init(
+                id: "setup-check",
+                destination: .setupCheck,
+                icon: "checklist",
+                color: MoreDestinationAccent.setupCheck.color,
+                title: "Setup Check",
+                subtitle: "Audit configuration and cross-service wiring",
+                category: "System",
+                keywords: ["audit", "check", "setup", "wizard", "configuration", "repair", "issues", "wiring"]
+            ),
+            .init(
                 id: "system-hub",
                 destination: .systemHub,
                 icon: "gearshape.arrow.trianglehead.2.clockwise.rotate.90",
@@ -3381,14 +3397,7 @@ private struct SystemHubView: View {
     /// modal, which is the same place they would land if the user had navigated to
     /// them by hand.
     private var setupCheckScreen: some View {
-        ConfigurationWizardView(
-            issues: auditStore.issues,
-            onDismissIssue: { auditStore.dismiss($0) },
-            onRecheck: { await refreshAudit() },
-            presentation: .screen
-        )
-        .environment(arrServiceManager)
-        .refreshesConfigurationAudit()
+        SetupCheckView()
     }
 
     private func refreshAudit() async {
