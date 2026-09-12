@@ -99,6 +99,7 @@ struct ContentView: View {
     /// the size class compact, which is the case where hiding it is correct.
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarSearch = ""
+    @State private var navigationSession = RootNavigationSession()
     /// Which title the library split views have open. Owned here rather than inside
     /// the lists because the content column and the detail column are two separate
     /// closures of one split view, and both need to read it.
@@ -579,7 +580,7 @@ struct ContentView: View {
 
             Tab("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage, value: RootTab.series) {
                 NavigationStack {
-                    SonarrSeriesListView()
+                    SonarrSeriesListView(session: navigationSession.series)
                 }
                 .environment(arrServiceManager)
                 .environment(services.syncService)
@@ -589,7 +590,7 @@ struct ContentView: View {
 
             Tab("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage, value: RootTab.movies) {
                 NavigationStack {
-                    RadarrMovieListView()
+                    RadarrMovieListView(session: navigationSession.movies)
                 }
                 .environment(arrServiceManager)
                 .environment(services.syncService)
@@ -986,13 +987,19 @@ struct ContentView: View {
                 .environment(\.sidebarNavigationColumn, NavigationSplitViewColumn.content)
                 .environment(\.hasDetailPane, true)
         case .series:
-            SonarrSeriesListView(detailSelection: $seriesSelection)
+            SonarrSeriesListView(
+                detailSelection: $seriesSelection,
+                session: navigationSession.series
+            )
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
         case .movies:
-            RadarrMovieListView(detailSelection: $moviesSelection)
+            RadarrMovieListView(
+                detailSelection: $moviesSelection,
+                session: navigationSession.movies
+            )
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
@@ -1228,7 +1235,10 @@ struct ContentView: View {
         services: AppServices,
         detailSelection: Binding<DownloadDetailSelection?>? = nil
     ) -> some View {
-        DownloadsView(detailSelection: detailSelection)
+        DownloadsView(
+            detailSelection: detailSelection,
+            session: navigationSession.downloads
+        )
             .environment(services)
             .environment(services.syncService)
             .environment(services.torrentService)
@@ -1244,7 +1254,11 @@ struct ContentView: View {
         services: AppServices,
         presentation: SearchView.Presentation = .stack
     ) -> some View {
-        SearchView(presentation: presentation, programmaticDestination: $searchDetailDestination)
+        SearchView(
+            presentation: presentation,
+            programmaticDestination: $searchDetailDestination,
+            session: navigationSession.search
+        )
             .environment(arrServiceManager)
             .environment(services.syncService)
             .environment(services.torrentService)

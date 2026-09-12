@@ -17,29 +17,45 @@ struct RadarrMovieListView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
-    @State private var viewModel: RadarrViewModel?
-    @State private var viewModelLifecycleKey: String?
+    private let session: ArrLibraryRootSession<RadarrViewModel>
     @State private var showSetupSheet = false
+
+    init(
+        detailSelection: Binding<ArrMergeKey?>? = nil,
+        session: ArrLibraryRootSession<RadarrViewModel>? = nil
+    ) {
+        self.detailSelection = detailSelection
+        self.session = session ?? ArrLibraryRootSession()
+        #if DEBUG
+        previewPresentation = nil
+        #endif
+    }
+
     #if DEBUG
     private var previewPresentation: RadarrMovieListPreviewPresentation?
 
-    init(detailSelection: Binding<ArrMergeKey?>? = nil) {
-        self.detailSelection = detailSelection
-        previewPresentation = nil
-    }
-
     init(previewViewModel: RadarrViewModel) {
-        _viewModel = State(initialValue: previewViewModel)
-        _viewModelLifecycleKey = State(initialValue: nil)
+        session = ArrLibraryRootSession(viewModel: previewViewModel)
+        detailSelection = nil
         previewPresentation = nil
     }
 
     fileprivate init(previewPresentation: RadarrMovieListPreviewPresentation) {
-        _viewModel = State(initialValue: nil)
-        _viewModelLifecycleKey = State(initialValue: nil)
+        session = ArrLibraryRootSession()
+        detailSelection = nil
         self.previewPresentation = previewPresentation
     }
     #endif
+
+    private var viewModel: RadarrViewModel? {
+        get { session.viewModel }
+        nonmutating set { session.viewModel = newValue }
+    }
+
+    private var viewModelLifecycleKey: String? {
+        get { session.lifecycleKey }
+        nonmutating set { session.lifecycleKey = newValue }
+    }
 
     var body: some View {
         Group {
@@ -110,7 +126,8 @@ struct RadarrMovieListView: View {
                 detailSelection: detailSelection,
                 detailDestination: { key in
                     RadarrMovieDetailView(mergeKey: key, viewModel: vm)
-                }
+                },
+                session: session.list
             )
         } else {
             radarrUnavailableContent

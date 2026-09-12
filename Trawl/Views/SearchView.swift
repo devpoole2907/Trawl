@@ -10,10 +10,10 @@ struct SearchView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
-    @State private var viewModel = SearchViewModel()
+    private let session: SearchViewSession
+    @Bindable private var viewModel: SearchViewModel
     @State private var showClearConfirmation = false
     @State private var showArrSetupSheet = false
-    @State private var navigationPath = NavigationPath()
     @State private var trendingLookupTask: Task<Void, Never>? = nil
     /// A quick-add waiting on the user to say which server it lands on. Only ever
     /// set when the service actually has two - with one server the add stays one
@@ -75,9 +75,21 @@ struct SearchView: View {
     #if os(macOS)
     #endif
 
-    init(presentation: Presentation = .stack, programmaticDestination: Binding<ArrMediaDestination?> = .constant(nil)) {
+    init(
+        presentation: Presentation = .stack,
+        programmaticDestination: Binding<ArrMediaDestination?> = .constant(nil),
+        session: SearchViewSession? = nil
+    ) {
         self.presentation = presentation
         self._programmaticDestination = programmaticDestination
+        let resolvedSession = session ?? SearchViewSession()
+        self.session = resolvedSession
+        self._viewModel = Bindable(wrappedValue: resolvedSession.viewModel)
+    }
+
+    private var navigationPathBinding: Binding<NavigationPath> {
+        @Bindable var session = session
+        return $session.navigationPath
     }
 
 
@@ -88,7 +100,7 @@ struct SearchView: View {
         switch presentation {
         case .stack:
             searchChrome {
-                NavigationStack(path: $navigationPath) { searchScreen }
+                NavigationStack(path: navigationPathBinding) { searchScreen }
             }
         case .contentColumn:
             // Deliberately bare - the split view is the navigation container, and its
@@ -503,10 +515,10 @@ struct SearchView: View {
                     let resolver = ArrMediaLookupResolver(serviceManager: arrServiceManager)
                     if item.isMovie, let movie = await resolver.resolveMovie(tmdbId: item.id) {
                         guard !Task.isCancelled else { return }
-                        navigationPath.append(ArrMediaDestination.movieLookup(movie))
+                        session.navigationPath.append(ArrMediaDestination.movieLookup(movie))
                     } else if !item.isMovie, let series = await resolver.resolveSeries(tmdbId: item.id) {
                         guard !Task.isCancelled else { return }
-                        navigationPath.append(ArrMediaDestination.seriesLookup(series))
+                        session.navigationPath.append(ArrMediaDestination.seriesLookup(series))
                     } else if !Task.isCancelled {
                         // Arr not configured or lookup failed - fall back to text search
                         viewModel.searchText = item.year.map { "\(item.displayTitle) \($0)" } ?? item.displayTitle
@@ -1260,8 +1272,7 @@ fileprivate enum SearchResultEntry: Identifiable {
 #if DEBUG
 extension SearchView {
     init(previewViewModel: SearchViewModel) {
-        self.init()
-        self._viewModel = State(initialValue: previewViewModel)
+        self.init(session: SearchViewSession(viewModel: previewViewModel))
         self.skipsAutomaticLoading = true
     }
 }

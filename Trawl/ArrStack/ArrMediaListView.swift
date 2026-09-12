@@ -42,8 +42,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// that order at every call site.
     var detailSelection: Binding<ArrMergeKey?>?
     let detailDestination: (ArrMergeKey) -> Detail
+    var session: ArrMediaListSession? = nil
 
-    @State private var listScrollPosition: ArrMergeKey?
+    @State private var localListScrollPosition: ArrMergeKey?
     @Namespace private var namespace
     @State private var showSettings = false
     @State private var showAddSheet = false
@@ -65,7 +66,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @State private var showWantedMissing = false
     @State private var pendingDeleteItem: Entry?
     @State private var isRunningCommand = false
-    @State private var editMode: SelectionMode = .inactive
+    @State private var localEditMode: SelectionMode = .inactive
 
     /// The library list has one inline slot for a tip, and two tips want it.
     ///
@@ -77,12 +78,54 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         ArrBlendedLibraryTip()
         ArrLibraryQuickActionsTip()
     }
-    @State private var selectedIDs: Set<ArrMergeKey> = []
+    @State private var localSelectedIDs: Set<ArrMergeKey> = []
     @State private var showBulkDeleteAlert = false
-    @State private var isFilterSearchExpanded = false
+    @State private var localIsFilterSearchExpanded = false
     /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
     /// this stands in for the large-title collapse the system would do for us.
     @State private var isTitleCompact = false
+
+    private var listScrollPosition: ArrMergeKey? {
+        get { session?.scrollPosition ?? localListScrollPosition }
+        nonmutating set {
+            if let session { session.scrollPosition = newValue }
+            else { localListScrollPosition = newValue }
+        }
+    }
+
+    private var editMode: SelectionMode {
+        get { session?.editMode ?? localEditMode }
+        nonmutating set {
+            if let session { session.editMode = newValue }
+            else { localEditMode = newValue }
+        }
+    }
+
+    private var selectedIDs: Set<ArrMergeKey> {
+        get { session?.selectedIDs ?? localSelectedIDs }
+        nonmutating set {
+            if let session { session.selectedIDs = newValue }
+            else { localSelectedIDs = newValue }
+        }
+    }
+
+    private var selectedIDsBinding: Binding<Set<ArrMergeKey>> {
+        Binding(get: { selectedIDs }, set: { selectedIDs = $0 })
+    }
+
+    private var listScrollPositionBinding: Binding<ArrMergeKey?> {
+        Binding(get: { listScrollPosition }, set: { listScrollPosition = $0 })
+    }
+
+    private var filterSearchExpandedBinding: Binding<Bool> {
+        Binding(
+            get: { session?.isFilterSearchExpanded ?? localIsFilterSearchExpanded },
+            set: {
+                if let session { session.isFilterSearchExpanded = $0 }
+                else { localIsFilterSearchExpanded = $0 }
+            }
+        )
+    }
 
     #if os(iOS)
     private var swiftUIEditMode: Binding<EditMode> {
@@ -130,7 +173,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 namespace: namespace,
                 pendingDeleteItem: $pendingDeleteItem,
                 showBulkDeleteAlert: $showBulkDeleteAlert,
-                selectedIDs: $selectedIDs,
+                selectedIDs: selectedIDsBinding,
                 showSettings: $showSettings,
                 showAddSheet: $showAddSheet,
                 showCalendar: $showCalendar,
@@ -154,7 +197,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         items: VM.Filter.allCases.map { TrawlSegmentBarItem($0.rawValue, value: $0) },
                         searchText: $viewModel.searchText,
                         searchHint: "Search \(nounPlural.lowercased())",
-                        isSearchExpanded: $isFilterSearchExpanded,
+                        isSearchExpanded: filterSearchExpandedBinding,
                         searchPlacement: .leading,
                         alignment: .leading
                     )
@@ -276,12 +319,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 return item.sortTitle ?? item.title
             },
             usesTitleSections: viewModel.sortOrder.rawValue == "Title",
-            selection: $selectedIDs,
+            selection: selectedIDsBinding,
             navigationSelection: detailSelection,
             row: { entry, _ in itemRow(entry) },
             retry: nil
         )
-        .scrollPosition(id: $listScrollPosition)
+        .scrollPosition(id: listScrollPositionBinding)
         .animation(.default, value: viewModel.filteredItems)
         .onChange(of: viewModel.filteredItems) { _, items in
             reconcileSelection(with: items)

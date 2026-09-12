@@ -234,6 +234,37 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         )
     }
 
+    /// Sidebar destinations are switch branches, so view-local state disappears when
+    /// a branch is removed. The Downloads session must retain which peer list was open
+    /// and hand it to the reconstructed view on return.
+    @MainActor
+    func testDownloadsBrowsingContextSurvivesSidebarRoundTrip() async throws {
+        let app = try await launchOnIPad()
+
+        XCTAssertTrue(select(app, "Downloads"))
+        let titleMenu = app.buttons
+            .matching(NSPredicate(format: "label ENDSWITH %@", ", change view"))
+            .firstMatch
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 15))
+        titleMenu.tap()
+
+        let sabnzbd = app.buttons["SABnzbd"].firstMatch
+        XCTAssertTrue(sabnzbd.waitForExistence(timeout: 5))
+        sabnzbd.tap()
+        let sabnzbdTitleMenu = app.buttons
+            .matching(NSPredicate(format: "label == %@", "SABnzbd, change view"))
+            .firstMatch
+        XCTAssertTrue(sabnzbdTitleMenu.waitForExistence(timeout: 10))
+
+        XCTAssertTrue(select(app, "Series"))
+        XCTAssertTrue(app.navigationBars[Self.headlineSeries].waitForExistence(timeout: 20))
+        XCTAssertTrue(select(app, "Downloads"))
+        XCTAssertTrue(
+            sabnzbdTitleMenu.waitForExistence(timeout: 10),
+            "Returning to Downloads should restore its selected peer list instead of resetting to Downloads."
+        )
+    }
+
     /// A live Arr queue row is a shortcut to the Downloads tab on iPad, because
     /// that tab and its detail column remain visible in the sidebar chrome. The
     /// earlier link pushed the torrent over the movie detail itself, trapping the

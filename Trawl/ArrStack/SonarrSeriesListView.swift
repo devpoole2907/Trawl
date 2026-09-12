@@ -10,9 +10,26 @@ struct SonarrSeriesListView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
-    @State private var viewModel: SonarrViewModel?
-    @State private var viewModelLifecycleKey: String?
+    private let session: ArrLibraryRootSession<SonarrViewModel>
     @State private var showSetupSheet = false
+
+    init(
+        detailSelection: Binding<ArrMergeKey?>? = nil,
+        session: ArrLibraryRootSession<SonarrViewModel>? = nil
+    ) {
+        self.detailSelection = detailSelection
+        self.session = session ?? ArrLibraryRootSession()
+    }
+
+    private var viewModel: SonarrViewModel? {
+        get { session.viewModel }
+        nonmutating set { session.viewModel = newValue }
+    }
+
+    private var viewModelLifecycleKey: String? {
+        get { session.lifecycleKey }
+        nonmutating set { session.lifecycleKey = newValue }
+    }
 
     var body: some View {
         Group {
@@ -42,7 +59,8 @@ struct SonarrSeriesListView: View {
                     detailSelection: detailSelection,
                     detailDestination: { key in
                         SonarrSeriesDetailView(mergeKey: key, viewModel: vm)
-                    }
+                    },
+                    session: session.list
                 )
             } else {
                 sonarrUnavailableContent
@@ -266,9 +284,7 @@ private struct SeriesRowMetadataItem {
 #if DEBUG
 extension SonarrSeriesListView {
     init(previewViewModel: SonarrViewModel) {
-        self.init()
-        _viewModel = State(initialValue: previewViewModel)
-        _viewModelLifecycleKey = State(initialValue: nil)
+        self.init(session: ArrLibraryRootSession(viewModel: previewViewModel))
     }
 }
 

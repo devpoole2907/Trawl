@@ -215,7 +215,7 @@ enum TrawlDestination: CaseIterable {
         case .jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding,
              .jellyfinPlugins, .jellyfinActivity:
             .mediaServer
-        case .indexers, .downloadClients, .qbittorrent,
+        case .indexers, .downloadClients,
              .linkedApplications, .remotePaths, .cleanuparr, .tasks:
             .automation
         case .rootFolders, .qualityProfiles, .libraryImport, .subtitles:

@@ -74,27 +74,15 @@ struct DownloadsView: View {
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
-    @State private var viewModel = DownloadsViewModel()
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
-    @State private var selectedSection: DownloadSection
-    @State private var sortOrder: DownloadSortCriterion = .date
-    @State private var isSearchExpanded = false
+    private let session: DownloadsViewSession
+    @Bindable private var viewModel: DownloadsViewModel
     @State private var showAddTorrent = false
     @State private var torrentPendingDeletion: Torrent?
     @State private var sabJobPendingDeletion: SABnzbdJob?
     @State private var queueActionTarget: ArrQueueActionTarget?
     /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
     @State private var queueActionInFlightIDs: Set<String> = []
-    /// Drives the toolbar overflow menu's pushes. A menu can't hold a
-    /// `NavigationLink`, so the selection travels through state instead.
-    @State private var managementRoute: DownloadsManagementRoute?
-    /// Utilities open as sheets from the regular-width toolbar menu so they do
-    /// not replace the download detail column.
-    @State private var utilitySheetRoute: DownloadsManagementRoute?
-    /// Which of the tab's three lists is showing. Switched from the title menu
-    /// rather than by pushing: these are peers, not details of one another, and
-    /// reaching a client's own queue by way of Client Management never made sense.
-    @State private var titleDestination: DownloadsTitleDestination = .downloads
     private let queueSwitchTip = DownloadsQueueSwitchTip()
     /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
     /// this stands in for the large-title collapse the system would do for us.
@@ -111,17 +99,75 @@ struct DownloadsView: View {
     /// piece of chrome the system already provides - and getting one of them wrong
     /// (a row background that stayed opaque over the gradient) was invisible until
     /// someone looked at it in dark mode.
-    @State private var editMode: SelectionMode = .inactive
-    @State private var selectedRowIDs: Set<String> = []
     @State private var showBatchDeleteConfirm = false
 
     /// Set by the split view's content column, so a tap selects instead of pushing.
     /// Nil in the tab chrome, where the row keeps its `NavigationLink`.
     var detailSelection: Binding<DownloadDetailSelection?>?
 
-    init(initialSection: DownloadSection = .active, detailSelection: Binding<DownloadDetailSelection?>? = nil) {
+    init(
+        initialSection: DownloadSection = .active,
+        detailSelection: Binding<DownloadDetailSelection?>? = nil,
+        session: DownloadsViewSession? = nil
+    ) {
         self.detailSelection = detailSelection
-        _selectedSection = State(initialValue: initialSection)
+        let resolvedSession = session ?? DownloadsViewSession(initialSection: initialSection)
+        self.session = resolvedSession
+        self._viewModel = Bindable(wrappedValue: resolvedSession.viewModel)
+    }
+
+    private var selectedSection: DownloadSection {
+        get { session.selectedSection }
+        nonmutating set { session.selectedSection = newValue }
+    }
+    private var sortOrder: DownloadSortCriterion {
+        get { session.sortOrder }
+        nonmutating set { session.sortOrder = newValue }
+    }
+    private var managementRoute: DownloadsManagementRoute? {
+        get { session.managementRoute }
+        nonmutating set { session.managementRoute = newValue }
+    }
+    private var utilitySheetRoute: DownloadsManagementRoute? {
+        get { session.utilitySheetRoute }
+        nonmutating set { session.utilitySheetRoute = newValue }
+    }
+    private var titleDestination: DownloadsTitleDestination {
+        get { session.titleDestination }
+        nonmutating set { session.titleDestination = newValue }
+    }
+    private var editMode: SelectionMode {
+        get { session.editMode }
+        nonmutating set { session.editMode = newValue }
+    }
+    private var selectedRowIDs: Set<String> {
+        get { session.selectedRowIDs }
+        nonmutating set { session.selectedRowIDs = newValue }
+    }
+
+    private var sortOrderBinding: Binding<DownloadSortCriterion> {
+        @Bindable var session = session
+        return $session.sortOrder
+    }
+
+    private var isSearchExpandedBinding: Binding<Bool> {
+        @Bindable var session = session
+        return $session.isSearchExpanded
+    }
+
+    private var managementRouteBinding: Binding<DownloadsManagementRoute?> {
+        @Bindable var session = session
+        return $session.managementRoute
+    }
+
+    private var utilitySheetRouteBinding: Binding<DownloadsManagementRoute?> {
+        @Bindable var session = session
+        return $session.utilitySheetRoute
+    }
+
+    private var selectedRowIDsBinding: Binding<Set<String>> {
+        @Bindable var session = session
+        return $session.selectedRowIDs
     }
 
     #if os(iOS)
@@ -202,7 +248,7 @@ struct DownloadsView: View {
                         items: visibleSections.map(\.segmentBarItem),
                         searchText: $viewModel.searchText,
                         searchHint: "Search downloads",
-                        isSearchExpanded: $isSearchExpanded,
+                        isSearchExpanded: isSearchExpandedBinding,
                         searchPlacement: .leading,
                         alignment: .leading
                     )
@@ -355,7 +401,7 @@ struct DownloadsView: View {
             }
 
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
+                DownloadSortMenu(selection: sortOrderBinding, defaultSelection: .date)
 
                 Menu {
                     // Selection acts on what is on screen, where the two routes at
@@ -475,10 +521,10 @@ struct DownloadsView: View {
                     withAnimation { selectedSection = .active }
                 }
             }
-            .navigationDestination(item: $managementRoute) { route in
+            .navigationDestination(item: managementRouteBinding) { route in
                 managementDestination(route)
             }
-            .sheet(item: $utilitySheetRoute) { route in
+            .sheet(item: utilitySheetRouteBinding) { route in
                 NavigationStack {
                     managementDestination(route)
                         .toolbar {
@@ -774,7 +820,7 @@ struct DownloadsView: View {
         if let detailSelection, !editMode.isEditing {
             List(selection: detailSelection) { content() }
         } else {
-            List(selection: $selectedRowIDs) { content() }
+            List(selection: selectedRowIDsBinding) { content() }
         }
     }
 
