@@ -120,6 +120,40 @@ struct ProwlarrIndexerStateTests {
         }
     }
 
+    @Test("A view model built before Prowlarr was configured loads once Prowlarr connects")
+    func viewModelBuiltBeforeConfigurationRecoversWithoutRelaunch() async throws {
+        let server = try await ProwlarrFixtureServer(label: "connect-after-init", handler: Self.loadedHandler())
+        defer { server.stop() }
+
+        let profile = ArrServiceProfile(displayName: "Prowlarr", hostURL: server.baseURL, serviceType: .prowlarr)
+        let manager = ArrServiceManager()
+
+        // The order that matters: `ProwlarrIndexerBrowserState` builds this view
+        // model on the first visit to Indexers and caches it for the life of the
+        // process, so it is routinely born before Prowlarr exists.
+        let viewModel = ProwlarrViewModel(serviceManager: manager)
+        #expect(manager.prowlarrClient == nil)
+        await viewModel.loadIndexers()
+        #expect(viewModel.indexerError == "Prowlarr not connected.")
+        #expect(viewModel.indexers.isEmpty)
+
+        // Prowlarr is configured in Settings, then the screen's Retry is tapped -
+        // which is this same `loadIndexers()`, on that same cached view model.
+        try await withProwlarrAPIKey(for: profile) {
+            await manager.connectService(profile)
+            guard manager.prowlarrConnected, manager.prowlarrClient != nil else {
+                throw ProwlarrFixtureFailure.notConnected(manager.prowlarrConnectionError ?? "no error recorded")
+            }
+            await viewModel.loadIndexers()
+        }
+
+        // Bound to the client it was born with, the retry re-failed the same
+        // `guard let client` without issuing a request and only an app relaunch
+        // cleared it. Resolving live, the retry is enough.
+        #expect(viewModel.indexerError == nil)
+        #expect(viewModel.indexers.map { $0.name ?? "" } == ["Alpha", "Beta", "Gamma"])
+    }
+
     @Test("A failing indexer list still lets tags and stats load")
     func indexerListFailureDoesNotBlockTagsOrStats() async throws {
         let handler = Self.loadedHandler { request in

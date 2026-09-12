@@ -65,7 +65,20 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
     private(set) var isLoadingStats = false
 
     init(serviceManager: ArrServiceManager) {
-        super.init(serviceManager: serviceManager, client: serviceManager.prowlarrClient)
+        // `clientProvider`, not just `client`: this view model is created once and
+        // cached on `ProwlarrIndexerBrowserState`, so it outlives any number of
+        // Prowlarr configuration changes. Bound to the client it was born with, a
+        // view model built while Prowlarr was unconfigured holds `nil` for the rest
+        // of the process - `serviceManager.prowlarrConnected` flips true, the screen
+        // shows its "Prowlarr Unavailable" section, and Retry re-enters
+        // `loadIndexers()` only to fail the same `guard let client` without issuing a
+        // request. It took an app relaunch to clear. Sonarr, Radarr and Bazarr all
+        // resolve live; Prowlarr was the one that did not.
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.prowlarrClient,
+            clientProvider: { [weak serviceManager] in serviceManager?.prowlarrClient }
+        )
     }
 
     // MARK: - Indexer Operations
