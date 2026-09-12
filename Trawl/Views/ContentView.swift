@@ -61,28 +61,6 @@ private struct SidebarListChrome: ViewModifier {
     }
 }
 
-#if os(iOS)
-private struct SidebarRowRestorationModifier: ViewModifier {
-    let row: RootTab
-    let detailColumn: Bool
-    let state: SidebarScrollState
-    let proxy: ScrollViewProxy
-
-    func body(content: Content) -> some View {
-        content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            state.rowFrames[row] = frame
-            if let anchor = state.takeRestoration(for: row, detailColumn: detailColumn) {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    proxy.scrollTo(row, anchor: anchor)
-                }
-            }
-        }
-    }
-}
-#endif
-
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -121,7 +99,6 @@ struct ContentView: View {
     /// the size class compact, which is the case where hiding it is correct.
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarSearch = ""
-    @State private var sidebarScroll = SidebarScrollState()
     /// Which title the library split views have open. Owned here rather than inside
     /// the lists because the content column and the detail column are two separate
     /// closures of one split view, and both need to read it.
@@ -705,13 +682,7 @@ struct ContentView: View {
     /// columns to keep the sidebar pinned; that is gone, and the button is fine.
     @ViewBuilder
     private func regularSidebar(services: AppServices, downloadBadge: Int) -> some View {
-        Group {
-            if selectedTab.wantsDetailColumn {
-                threeColumnLayout(services: services, downloadBadge: downloadBadge)
-            } else {
-                twoColumnLayout(services: services, downloadBadge: downloadBadge)
-            }
-        }
+        threeColumnLayout(services: services, downloadBadge: downloadBadge)
         // Leaving Search drops whatever it had open in the detail pane.
         //
         // In the content column `SearchView` is deliberately bare and pushes through
@@ -723,11 +694,8 @@ struct ContentView: View {
         // resolve and paints its placeholder: a lone warning triangle, stuck over
         // every destination you visit next until Search is opened again.
         //
-        // Attached here, on the `Group` that spans both layouts, rather than inside
-        // `threeColumnLayout` - switching to a hub swaps the layout out, and a
-        // modifier on the branch being removed is not one to rely on firing. Every
-        // route that assigns `selectedTab` is covered, not just the sidebar's own
-        // binding.
+        // Attached here so every route that assigns `selectedTab` is covered, not
+        // just the sidebar's own binding.
         .onChange(of: selectedTab) { _, newValue in
             if newValue != .search { searchDetailDestination = nil }
         }
@@ -755,32 +723,6 @@ struct ContentView: View {
         .environment(\.selectLibraryTitle, selectLibraryTitle)
         .environment(\.openMediaInSearch, openMediaInSearch)
         .environment(\.selectDownload, selectDownload)
-        .environment(\.showsSidebarAttentionBanner, true)
-    }
-
-    /// Two columns, for the hubs.
-    ///
-    /// There is no way to hide a split view's detail column - `NavigationSplitView
-    /// Visibility` only ever trims from the leading edge (`.all`, `.doubleColumn`,
-    /// `.detailOnly`). So a destination that does not want a third column has to be
-    /// a two-column split view rather than a three-column one with the third emptied.
-    ///
-    /// The hubs are that case. Settings, System and the rest are a screen you read,
-    /// not a list you pick from, so a permanent "Nothing Selected" panel next to them
-    /// is space spent on nothing. Here the hub gets the whole width and its pushes
-    /// cover it, which is also where `path` keeps working: the stack is rooted at the
-    /// hub itself, so `path.append(...)` from a deep link still lands somewhere real.
-    private func twoColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            sidebarColumn(services: services, downloadBadge: downloadBadge)
-        } detail: {
-            moreStack(
-                rootedAt: selectedTab.moreRoot,
-                path: pathBinding(for: selectedTab),
-                services: services
-            )
-        }
-        .navigationSplitViewStyle(.balanced)
         .environment(\.showsSidebarAttentionBanner, true)
     }
 
@@ -883,47 +825,16 @@ struct ContentView: View {
         // nothing" state the rest of the app has no representation for.
         let selection = Binding<RootTab?>(
             get: { selectedTab },
-            set: {
-                if let newValue = $0 {
-                    sidebarScroll.capture(newValue, replacingColumns: selectedTab.wantsDetailColumn != newValue.wantsDetailColumn)
-                    selectedTab = newValue
-                }
-            }
+            set: { if let newValue = $0 { selectedTab = newValue } }
         )
 
-        #if os(macOS)
-        // A Mac sidebar is already a native, continuously scrollable outline-style
-        // list. Wrapping it in ScrollViewReader makes SwiftUI install a second
-        // scrolling coordinator around the NSScrollView; after clicking a row that
-        // coordinator can retain the wheel/trackpad gesture and the list appears
-        // frozen. Mac never needs the restoration below because changing a
-        // destination does not replace its split-view shape the way iPad does.
         return sidebarListContent(selection: selection, downloadBadge: downloadBadge)
             .modifier(SidebarListChrome(search: $sidebarSearch, placement: sidebarSearchPlacement))
-        #else
-        let detailColumn = selectedTab.wantsDetailColumn
-        return ScrollViewReader { proxy in
-            sidebarListContent(selection: selection, downloadBadge: downloadBadge) { row in
-                SidebarRowRestorationModifier(
-                    row: row,
-                    detailColumn: detailColumn,
-                    state: sidebarScroll,
-                    proxy: proxy
-                )
-            }
-            .modifier(SidebarListChrome(search: $sidebarSearch, placement: sidebarSearchPlacement))
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-                sidebarScroll.viewportFrame = $0
-            }
-        }
-        #endif
     }
 
-    @ViewBuilder
-    private func sidebarListContent<RowModifier: ViewModifier>(
+    private func sidebarListContent(
         selection: Binding<RootTab?>,
-        downloadBadge: Int,
-        rowModifier: @escaping (RootTab) -> RowModifier
+        downloadBadge: Int
     ) -> some View {
         List(selection: selection) {
             if isSearchingSidebar {
@@ -933,7 +844,6 @@ struct ContentView: View {
                     Section(isExpanded: expansionBinding(for: section)) {
                         ForEach(section.rows, id: \.self) { row in
                             sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
-                                .modifier(rowModifier(row))
                         }
                     } header: {
                         Text(section.title)
@@ -941,17 +851,6 @@ struct ContentView: View {
                 }
             }
         }
-    }
-
-    private func sidebarListContent(
-        selection: Binding<RootTab?>,
-        downloadBadge: Int
-    ) -> some View {
-        sidebarListContent(
-            selection: selection,
-            downloadBadge: downloadBadge,
-            rowModifier: { _ in EmptyModifier() }
-        )
     }
 
     private var sidebarSearchPlacement: SearchFieldPlacement {

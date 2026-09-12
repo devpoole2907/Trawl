@@ -57,9 +57,6 @@ enum MoreDestination: Hashable {
     case arrEvents
     case qbittorrentLog
     case tasksHub
-    /// qBittorrent's standalone hub. SABnzbd stays reachable through Download
-    /// Clients, alongside the rest of the download-client management flow.
-    case qbittorrentHub
     case arrTasks
     case seerrJobs
     case updatesHub
@@ -865,11 +862,6 @@ struct MoreView: View {
                 .moreDestinationTitleStyle()
         case .tasksHub:
             TasksHubView(jellyfinProfile: jellyfinProfile)
-                .moreDestinationTitleStyle()
-        case .qbittorrentHub:
-            QBittorrentClientHubView()
-                .environment(syncService)
-                .environment(torrentService)
                 .moreDestinationTitleStyle()
         case .arrTasks:
             ArrScheduledTasksView()

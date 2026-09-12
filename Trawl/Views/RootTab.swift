@@ -40,7 +40,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
                 : [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
             #endif
         case .integrations:
-            [.indexers, .downloadClients, .newsServers, .qbittorrent, .linkedApplications, .remotePaths, .cleanuparr]
+            [.indexers, .downloadClients, .newsServers, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
             [.downloadOrganization, .rootFolders, .qualityProfiles, .libraryImport, .subtitles]
         case .system:
@@ -90,7 +90,6 @@ enum RootTab: Hashable, CaseIterable {
     case indexers
     case downloadClients
     case newsServers
-    case qbittorrent
     case linkedApplications
     case remotePaths
     case cleanuparr
@@ -131,7 +130,6 @@ enum RootTab: Hashable, CaseIterable {
         case .indexers: "Indexers"
         case .downloadClients: "Download Clients"
         case .newsServers: "News Servers"
-        case .qbittorrent: "qBittorrent"
         case .linkedApplications: "Linked Applications"
         case .remotePaths: "Remote Path Mappings"
         case .cleanuparr: "Cleanuparr"
@@ -180,7 +178,6 @@ enum RootTab: Hashable, CaseIterable {
         case .indexers: .prowlarrIndexers
         case .downloadClients: .downloadClientsManagement
         case .newsServers: .newsServers
-        case .qbittorrent: .qbittorrentHub
         case .linkedApplications: .linkedApplicationsManagement
         case .remotePaths: .remotePathMappings
         case .cleanuparr: .cleanuparrDashboard
@@ -235,29 +232,6 @@ enum RootTab: Hashable, CaseIterable {
         }
     }
 
-    /// Whether this destination earns a third column.
-    ///
-    /// True for the ones that are a *list you pick from*, where a detail beside the
-    /// list is the whole point. False for the ones that are a screen you read: giving
-    /// Disk Space a permanent "Nothing Selected" panel spends half the display on
-    /// nothing.
-    ///
-    /// This is a property of the destination rather than of the current selection
-    /// because a split view's detail column cannot be hidden on the fly -
-    /// `NavigationSplitViewVisibility` only trims from the leading edge - so the
-    /// choice is which *shape* of split view to build, and that has to be decidable
-    /// before anything is selected.
-    var wantsDetailColumn: Bool {
-        switch self {
-        case .downloads, .blocklist, .series, .movies, .search, .indexers,
-             .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks,
-             .requests, .issues, .calendar, .missing, .users, .jellyfinLibraries,
-             .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .subtitles, .logs, .settings, .health,
-             .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck: true
-        default: false
-        }
-    }
-
     /// A stable identifier for this destination's sidebar row.
     ///
     /// Exists so a UI test can select a destination without matching on its label.
@@ -288,7 +262,6 @@ enum RootTab: Hashable, CaseIterable {
         case .indexers: "magnifyingglass.circle"
         case .downloadClients: "arrow.down.circle"
         case .newsServers: "server.rack"
-        case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
         case .linkedApplications: "link"
         case .remotePaths: "arrow.triangle.branch"
         case .cleanuparr: "sparkles"

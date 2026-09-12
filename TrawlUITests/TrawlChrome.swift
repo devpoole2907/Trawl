@@ -96,7 +96,6 @@ enum TrawlDestination: CaseIterable {
     case jellyfinActivity
     case indexers
     case downloadClients
-    case qbittorrent
     case linkedApplications
     case remotePaths
     case cleanuparr
@@ -137,7 +136,6 @@ enum TrawlDestination: CaseIterable {
         case .jellyfinActivity: "Activity"
         case .indexers: "Indexers"
         case .downloadClients: "Download Clients"
-        case .qbittorrent: "qBittorrent"
         case .linkedApplications: "Linked Applications"
         case .remotePaths: "Remote Path Mappings"
         case .cleanuparr: "Cleanuparr"
@@ -182,7 +180,6 @@ enum TrawlDestination: CaseIterable {
         case .jellyfinActivity: "nav.jellyfinActivity"
         case .indexers: "nav.indexers"
         case .downloadClients: "nav.downloadClients"
-        case .qbittorrent: "nav.qbittorrent"
         case .linkedApplications: "nav.linkedApplications"
         case .remotePaths: "nav.remotePaths"
         case .cleanuparr: "nav.cleanuparr"

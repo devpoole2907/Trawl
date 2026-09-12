@@ -562,7 +562,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     }
 
     @MainActor
-    func testSidebarPositionSurvivesColumnCountChanges() async throws {
+    func testSidebarPositionSurvivesDestinationChanges() async throws {
         try requireSidebarChrome()
         continueAfterFailure = false
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
@@ -586,7 +586,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             let restored = app.cells.containing(.any, identifier: "nav.\(target)").firstMatch
             XCTAssertTrue(restored.exists)
             capture(app, "sidebar-\(source)-to-\(target)")
-            XCTAssertEqual(restored.frame.minY, before.minY, accuracy: 12, "The sidebar must keep the tapped row in place when changing column count.")
+            XCTAssertEqual(restored.frame.minY, before.minY, accuracy: 12, "The sidebar must keep the tapped row in place when changing destinations.")
         }
     }
 
