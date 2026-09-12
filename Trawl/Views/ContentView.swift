@@ -712,6 +712,25 @@ struct ContentView: View {
                 twoColumnLayout(services: services, downloadBadge: downloadBadge)
             }
         }
+        // Leaving Search drops whatever it had open in the detail pane.
+        //
+        // In the content column `SearchView` is deliberately bare and pushes through
+        // `.navigationDestination(item:)`, so a tapped result is a push into the
+        // split view's detail column. Change sidebar destination and the content
+        // column stops rendering `searchRoot` - which takes that
+        // `navigationDestination` out of the hierarchy while the item driving it is
+        // still set and the pane is still pushed. SwiftUI then has a push it cannot
+        // resolve and paints its placeholder: a lone warning triangle, stuck over
+        // every destination you visit next until Search is opened again.
+        //
+        // Attached here, on the `Group` that spans both layouts, rather than inside
+        // `threeColumnLayout` - switching to a hub swaps the layout out, and a
+        // modifier on the branch being removed is not one to rely on firing. Every
+        // route that assigns `selectedTab` is covered, not just the sidebar's own
+        // binding.
+        .onChange(of: selectedTab) { _, newValue in
+            if newValue != .search { searchDetailDestination = nil }
+        }
         #if os(iOS)
         .environment(\.setTabChromeHidden) { isHidden in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
