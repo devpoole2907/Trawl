@@ -4181,21 +4181,24 @@ struct NotificationSettingsHubView: View {
     var body: some View {
         List {
             Section {
+                // One row per configured server, not per app. A webhook is a record
+                // *on* a server, so a single Sonarr row could only ever configure one
+                // half of an HD/4K pair - the other server's grabs and imports would
+                // never reach the device, with nothing on screen to say why, and no
+                // way in from here. This matches the per-server list the app's own
+                // settings screen offers.
                 ForEach(ArrServiceType.webhookNotificationServices) { serviceType in
-                    let profile = profile(for: serviceType)
-                    NavigationLink {
-                        ArrWebhookNotificationConfigView(
-                            serviceType: serviceType,
-                            profile: profile,
-                            isConnected: isConnected(serviceType)
-                        )
-                    } label: {
-                        ArrWebhookNotificationHubRow(
-                            serviceType: serviceType,
-                            profile: profile,
-                            isConnected: isConnected(serviceType),
-                            showsProfileSubtitle: false
-                        )
+                    let profiles = profiles(for: serviceType)
+                    if profiles.isEmpty {
+                        webhookRow(serviceType: serviceType, profile: nil, namesServer: false)
+                    } else {
+                        ForEach(profiles) { profile in
+                            webhookRow(
+                                serviceType: serviceType,
+                                profile: profile,
+                                namesServer: profiles.count > 1
+                            )
+                        }
                     }
                 }
 
@@ -4239,12 +4242,40 @@ struct NotificationSettingsHubView: View {
         .navigationTitle("Notification Settings")
     }
 
-    private func profile(for serviceType: ArrServiceType) -> ArrServiceProfile? {
-        arrServiceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
+    @ViewBuilder
+    private func webhookRow(
+        serviceType: ArrServiceType,
+        profile: ArrServiceProfile?,
+        namesServer: Bool
+    ) -> some View {
+        let isConnected = isConnected(profile, of: serviceType)
+        NavigationLink {
+            ArrWebhookNotificationConfigView(
+                serviceType: serviceType,
+                profile: profile,
+                isConnected: isConnected
+            )
+        } label: {
+            ArrWebhookNotificationHubRow(
+                serviceType: serviceType,
+                profile: profile,
+                isConnected: isConnected,
+                showsProfileSubtitle: namesServer
+            )
+        }
     }
 
-    private func isConnected(_ serviceType: ArrServiceType) -> Bool {
-        guard let profile = profile(for: serviceType) else { return false }
+    /// Every enabled server of this type, including ones that are currently down.
+    /// A disconnected server still has a webhook to fix, and the row has a state
+    /// that says so - filtering by connection would make it vanish instead.
+    private func profiles(for serviceType: ArrServiceType) -> [ArrServiceProfile] {
+        allProfiles
+            .filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    private func isConnected(_ profile: ArrServiceProfile?, of serviceType: ArrServiceType) -> Bool {
+        guard let profile else { return false }
         return arrServiceManager.isConnected(serviceType, profileID: profile.id)
     }
 
