@@ -113,87 +113,99 @@ struct SetupCheckView: View {
 
     @ViewBuilder
     private var issueList: some View {
+        issueListContent
+            // All of this column's header chrome in one top inset, the way Series,
+            // Movies and Downloads do it. Stacked in a `VStack` instead, the bar sat
+            // on the window background rather than on the list's, which on macOS drew
+            // a panel behind it that none of those screens has.
+            //
+            // Still attached to the container and not to the `List`: a filter that
+            // matches nothing swaps the list for a placeholder, and a bar attached to
+            // the list would leave with it - stranding the user on a filter they
+            // could no longer change. `SeerrIssueListView` can inset its own list
+            // because its list is always there to inset.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !allIssues.isEmpty {
+                    filterBar
+                        .padding(.vertical, 4)
+                }
+            }
+            .moreDestinationBackground(.systemHub)
+            .toolbar {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button {
+                        Task { await refreshAudit() }
+                    } label: {
+                        if auditStore.isAuditing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Check Again", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(auditStore.isAuditing)
+                    .accessibilityIdentifier("configuration-wizard-recheck")
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var issueListContent: some View {
         @Bindable var browser = self.browser
-        VStack(spacing: 0) {
-            if !allIssues.isEmpty {
-                filterBar
-                    .padding(.vertical, 4)
-            }
 
-            if coverage == .nothingConfigured {
-                nothingToCheck
-            } else if auditStore.isAuditing && allIssues.isEmpty {
-                ProgressView("Auditing configuration…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if allIssues.isEmpty && auditStore.hasCompletedAnAudit {
-                allClearListSummary
-            } else if filteredIssues.isEmpty {
-                ContentUnavailableView(
-                    "No Findings",
-                    systemImage: "checkmark.circle",
-                    description: Text("No items match the '\(browser.filter.rawValue)' filter.")
-                )
+        if coverage == .nothingConfigured {
+            nothingToCheck
+        } else if auditStore.isAuditing && allIssues.isEmpty {
+            ProgressView("Auditing configuration…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(selection: $browser.selectedIssueID) {
-                    let problems = filteredIssues.filter { $0.severity == .problem }
-                    if !problems.isEmpty {
-                        Section("Problems (\(problems.count))") {
-                            ForEach(problems) { issue in
-                                issueRow(issue)
-                                    .tag(issue.id)
-                            }
-                        }
-                    }
-
-                    let unknowns = filteredIssues.filter { $0.severity == .unknown }
-                    if !unknowns.isEmpty {
-                        Section("Could Not Verify (\(unknowns.count))") {
-                            ForEach(unknowns) { issue in
-                                issueRow(issue)
-                                    .tag(issue.id)
-                            }
-                        }
-                    }
-
-                    let notes = filteredIssues.filter { $0.severity == .note }
-                    if !notes.isEmpty {
-                        Section("Worth Knowing (\(notes.count))") {
-                            ForEach(notes) { issue in
-                                issueRow(issue)
-                                    .tag(issue.id)
-                            }
+        } else if allIssues.isEmpty && auditStore.hasCompletedAnAudit {
+            allClearListSummary
+        } else if filteredIssues.isEmpty {
+            ContentUnavailableView(
+                "No Findings",
+                systemImage: "checkmark.circle",
+                description: Text("No items match the '\(browser.filter.rawValue)' filter.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            List(selection: $browser.selectedIssueID) {
+                let problems = filteredIssues.filter { $0.severity == .problem }
+                if !problems.isEmpty {
+                    Section("Problems (\(problems.count))") {
+                        ForEach(problems) { issue in
+                            issueRow(issue)
+                                .tag(issue.id)
                         }
                     }
                 }
-                #if os(iOS)
-                .scrollContentBackground(.hidden)
-                #endif
-            }
-        }
-        .moreDestinationBackground(.systemHub)
-        .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                Button {
-                    Task { await refreshAudit() }
-                } label: {
-                    if auditStore.isAuditing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Check Again", systemImage: "arrow.clockwise")
+
+                let unknowns = filteredIssues.filter { $0.severity == .unknown }
+                if !unknowns.isEmpty {
+                    Section("Could Not Verify (\(unknowns.count))") {
+                        ForEach(unknowns) { issue in
+                            issueRow(issue)
+                                .tag(issue.id)
+                        }
                     }
                 }
-                .disabled(auditStore.isAuditing)
-                .accessibilityIdentifier("configuration-wizard-recheck")
+
+                let notes = filteredIssues.filter { $0.severity == .note }
+                if !notes.isEmpty {
+                    Section("Worth Knowing (\(notes.count))") {
+                        ForEach(notes) { issue in
+                            issueRow(issue)
+                                .tag(issue.id)
+                        }
+                    }
+                }
             }
+            #if os(iOS)
+            .scrollContentBackground(.hidden)
+            #endif
         }
     }
 
-    /// Sits above whatever the list shows - "No Findings" included - rather than
-    /// riding on the list itself. `SeerrIssueListView` insets its bar on the `List`,
-    /// but a filter that matches nothing here swaps the list for a placeholder, and a
-    /// bar attached to the list would leave with it: the user stranded on a filter
-    /// they could no longer change.
+    /// Sits above whatever the column shows - "No Findings" included. See the inset
+    /// in `issueList` for why it is attached to the container rather than the `List`.
     private var filterBar: some View {
         TrawlSegmentBar(
             "Filter",
