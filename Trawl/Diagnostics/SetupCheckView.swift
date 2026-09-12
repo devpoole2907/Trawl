@@ -474,20 +474,70 @@ private struct SetupCheckDetailPane: View {
 
     @State private var isApplyingAction = false
 
+    /// The same `Form` + `TrawlEntityHeader` + `serviceSettingsFormStyle()` shape as
+    /// `ArrQualityProfileDetailView`, which is what the other detail panes in the app
+    /// are built on. This screen used to hand-roll four `ultraThinMaterial` cards in a
+    /// `ScrollView`, so it read as a different app from every pane beside it and got
+    /// none of the Mac grouping - `formStyle` reaches `Form` only.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                headerCard
-                descriptionCard
-                recommendedActionCard
-                actionsCard
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: issue.title,
+                    subtitle: issue.subject.displayName,
+                    systemImage: issue.systemImage,
+                    tint: severityColor,
+                    badges: headerBadges
+                )
             }
-            .padding()
-            .frame(maxWidth: 700)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .listRowBackground(Color.clear)
+
+            Section {
+                Text(issue.detail)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let discriminator = issue.discriminator {
+                    LabeledContent("Target") {
+                        Text(discriminator)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Diagnostic Information")
+            }
+
+            if hasRecommendedResolution {
+                Section {
+                    resolutionControls
+                } header: {
+                    Text("Recommended Resolution")
+                } footer: {
+                    if !issue.fix.guidance.isEmpty {
+                        Text(issue.fix.guidance)
+                    }
+                }
+            }
+
+            Section {
+                Button(role: .destructive, action: onDismiss) {
+                    Label("Ignore This Finding", systemImage: "eye.slash")
+                }
+
+                Button {
+                    Task { await onRecheck() }
+                } label: {
+                    Label("Check Again", systemImage: "arrow.clockwise")
+                }
+                .accessibilityIdentifier("configuration-wizard-recheck")
+            } header: {
+                Text("Triage")
+            } footer: {
+                Text("Ignoring hides this finding until Trawl is restarted. It does not alter server settings.")
+            }
         }
-        .moreDestinationBackground(.systemHub)
-        .navigationTitle("Finding Details")
+        .serviceSettingsFormStyle()
+        .paneAwareNavigationTitle("Finding Details", subtitle: issue.subject.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -505,176 +555,67 @@ private struct SetupCheckDetailPane: View {
         }
     }
 
-    private var headerCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                HStack(spacing: 12) {
-                    Image(systemName: issue.systemImage)
-                        .font(.title)
-                        .foregroundStyle(severityColor)
-                        .frame(width: 48, height: 48)
-                        .background(severityColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text(severityLabel)
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(severityColor.opacity(0.18), in: Capsule())
-                                .foregroundStyle(severityColor)
-
-                            if let serviceType = issue.subject.serviceType {
-                                Text(serviceType.displayName)
-                                    .font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(serviceType.serviceIdentity.brandColor.opacity(0.18), in: Capsule())
-                                    .foregroundStyle(serviceType.serviceIdentity.brandColor)
-                            }
-                        }
-
-                        Text(issue.subject.displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-            }
-
-            Text(issue.title)
-                .font(.title3.weight(.bold))
-                .fixedSize(horizontal: false, vertical: true)
+    private var headerBadges: [ArrDetailBadge] {
+        var badges = [ArrDetailBadge(icon: issue.systemImage, label: severityLabel, color: severityColor)]
+        if let serviceType = issue.subject.serviceType {
+            badges.append(
+                ArrDetailBadge(
+                    icon: serviceType.systemImage,
+                    label: serviceType.displayName,
+                    color: serviceType.serviceIdentity.brandColor
+                )
+            )
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        return badges
     }
 
-    private var descriptionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Diagnostic Information", systemImage: "doc.text.magnifyingglass")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            Text(issue.detail)
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let discriminator = issue.discriminator {
-                HStack(spacing: 4) {
-                    Text("Target:")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Text(discriminator)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.primary)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    private var hasRecommendedResolution: Bool {
+        issue.fix.actionTitle != nil && (issue.fix.guidedRepair != nil || issue.fix.destination != nil)
     }
 
-    private var recommendedActionCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("Recommended Resolution", systemImage: "wand.and.sparkles")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            if let repair = issue.fix.guidedRepair, let actionTitle = issue.fix.actionTitle {
-                NavigationLink {
-                    ConfigurationCategoryRepairView(repair: repair, onApplied: onRecheck)
-                        .environment(serviceManager)
-                        .environment(sabnzbdServiceManager)
-                } label: {
-                    HStack {
-                        Image(systemName: "wand.and.sparkles")
-                        Text(actionTitle)
-                    }
+    /// Both fix routes keep their explicit button styles and accessibility
+    /// identifiers: `ConfigurationAuditJourneyUITests` reaches the manual fix by
+    /// `configuration-wizard-fix` and needs it to still be a button.
+    @ViewBuilder
+    private var resolutionControls: some View {
+        if let repair = issue.fix.guidedRepair, let actionTitle = issue.fix.actionTitle {
+            NavigationLink {
+                ConfigurationCategoryRepairView(repair: repair, onApplied: onRecheck)
+                    .environment(serviceManager)
+                    .environment(sabnzbdServiceManager)
+            } label: {
+                Label(actionTitle, systemImage: "wand.and.sparkles")
                     .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.indigo)
-                .controlSize(.large)
-                .accessibilityIdentifier("configuration-wizard-guided-fix")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.indigo)
+            .controlSize(.large)
+            .accessibilityIdentifier("configuration-wizard-guided-fix")
 
-                if let destination = issue.fix.destination {
-                    NavigationLink {
-                        fixDestination(destination)
-                    } label: {
-                        HStack {
-                            Image(systemName: "wrench.and.screwdriver")
-                            Text("Change It Myself")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .accessibilityIdentifier("configuration-wizard-fix")
-                }
-            } else if let destination = issue.fix.destination, let actionTitle = issue.fix.actionTitle {
+            if let destination = issue.fix.destination {
                 NavigationLink {
                     fixDestination(destination)
                 } label: {
-                    HStack {
-                        Image(systemName: "wrench.and.screwdriver")
-                        Text(actionTitle)
-                    }
-                    .frame(maxWidth: .infinity)
+                    Label("Change It Myself", systemImage: "wrench.and.screwdriver")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
                 .accessibilityIdentifier("configuration-wizard-fix")
             }
-
-            if !issue.fix.guidance.isEmpty {
-                Text(issue.fix.guidance)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        } else if let destination = issue.fix.destination, let actionTitle = issue.fix.actionTitle {
+            NavigationLink {
+                fixDestination(destination)
+            } label: {
+                Label(actionTitle, systemImage: "wrench.and.screwdriver")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityIdentifier("configuration-wizard-fix")
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var actionsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Triage", systemImage: "slider.horizontal.3")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            HStack(spacing: 12) {
-                Button(role: .destructive, action: onDismiss) {
-                    Label("Ignore This Finding", systemImage: "eye.slash")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    Task { await onRecheck() }
-                } label: {
-                    Label("Check Again", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("configuration-wizard-recheck")
-            }
-
-            Text("Ignoring hides this finding until Trawl is restarted. It does not alter server settings.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
 
     private var severityColor: Color {
         switch issue.severity {

@@ -1041,87 +1041,84 @@ private struct ArrBackupDetailPane: View {
 
     @Environment(ArrServiceManager.self) private var serviceManager
 
+    /// `Form` + `TrawlEntityHeader` + `serviceSettingsFormStyle()`, matching
+    /// `ArrQualityProfileDetailView` and the rest of the detail panes. Was two
+    /// hand-rolled `ultraThinMaterial` cards in a `ScrollView`, outside the Mac
+    /// grouping entirely - `formStyle` reaches `Form` only.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header Card
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(backup.name)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(.primary)
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: backup.name,
+                    subtitle: serviceManager.scopeLabel(for: instance),
+                    systemImage: "externaldrive",
+                    tint: typeColor,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
 
-                            Text(serviceManager.scopeLabel(for: instance))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        badge(typeLabel, color: typeColor)
-                    }
-
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let date = formattedDate {
-                            LabeledContent("Created", value: date)
-                        }
-                        if let size = backup.size {
-                            LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                        }
-                        LabeledContent("Type", value: typeLabel)
-                    }
-                    .font(.subheadline)
+            Section {
+                LabeledContent("Server") {
+                    ArrInstanceBadge(label: instance.qualifiedLabel, ordinal: instance.ordinal)
                 }
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                if let date = formattedDate {
+                    LabeledContent("Created", value: date)
+                }
+                if let size = backup.size {
+                    LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                }
+                LabeledContent("Type", value: typeLabel)
+            } header: {
+                Text("Backup")
+            }
 
-                // Actions Card
-                VStack(spacing: 12) {
-                    Button(action: onRestore) {
-                        Label("Restore Backup…", systemImage: "arrow.counterclockwise")
-                            .frame(maxWidth: .infinity)
+            Section {
+                Button(action: onRestore) {
+                    Label("Restore Backup…", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+
+                if let client {
+                    let shareItem = ArrBackupShareItem(backup: backup, instance: instance, client: client) { isPreparing in
+                        setPreparingShare(isPreparing)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-
-                    if let client {
-                        let shareItem = ArrBackupShareItem(backup: backup, instance: instance, client: client) { isPreparing in
-                            setPreparingShare(isPreparing)
-                        }
-                        ShareLink(
-                            item: shareItem,
-                            preview: SharePreview(backup.name, icon: Image(systemName: "externaldrive"))
-                        ) {
-                            HStack {
-                                if isPreparingShare {
-                                    ProgressView().controlSize(.small).padding(.trailing, 4)
-                                }
-                                Label("Export / Save Archive…", systemImage: "square.and.arrow.up")
+                    ShareLink(
+                        item: shareItem,
+                        preview: SharePreview(backup.name, icon: Image(systemName: "externaldrive"))
+                    ) {
+                        HStack {
+                            if isPreparingShare {
+                                ProgressView().controlSize(.small).padding(.trailing, 4)
                             }
-                            .frame(maxWidth: .infinity)
+                            Label("Export / Save Archive…", systemImage: "square.and.arrow.up")
                         }
-                        .buttonStyle(.bordered)
-                        .simultaneousGesture(TapGesture().onEnded {
-                            setPreparingShare(true)
-                        })
-                    }
-
-                    Button(role: .destructive, action: onDelete) {
-                        Label("Delete Backup", systemImage: "trash")
-                            .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        setPreparingShare(true)
+                    })
                 }
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Backup", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } header: {
+                Text("Actions")
+            } footer: {
+                Text("Restoring replaces the server's current configuration with this archive.")
             }
-            .padding(20)
         }
-        .moreDestinationBackground(.backups)
-        .navigationTitle(backup.name)
+        .serviceSettingsFormStyle()
+        .paneAwareNavigationTitle(backup.name, subtitle: serviceManager.scopeLabel(for: instance))
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             #if os(macOS)
             // macOS shares one toolbar between the split view's list and detail
@@ -1134,6 +1131,15 @@ private struct ArrBackupDetailPane: View {
             #endif
         }
     }
+
+    private var headerBadges: [ArrDetailBadge] {
+        [
+            ArrDetailBadge(icon: instance.serviceType.systemImage, label: instance.qualifiedLabel,
+                           color: instance.serviceType.serviceIdentity.brandColor),
+            ArrDetailBadge(icon: "clock.arrow.circlepath", label: typeLabel, color: typeColor)
+        ]
+    }
+
 
     private var typeLabel: String {
         switch backup.type.lowercased() {
@@ -1158,14 +1164,6 @@ private struct ArrBackupDetailPane: View {
         return date.formatted(date: .long, time: .shortened)
     }
 
-    private func badge(_ label: String, color: Color) -> some View {
-        Text(label.uppercased())
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color, in: .capsule)
-    }
 }
 
 private struct JellyfinBackupDetailPane: View {

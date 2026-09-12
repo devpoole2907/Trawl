@@ -379,83 +379,80 @@ private struct UpdateDetailPane: View {
     let isInstalling: Bool
     let onInstall: () -> Void
 
+    /// `Form` + `TrawlEntityHeader` + `serviceSettingsFormStyle()`, matching
+    /// `ArrQualityProfileDetailView` and the other detail panes. Was two hand-rolled
+    /// `ultraThinMaterial` cards in a `ScrollView`, which took no part in the Mac
+    /// grouping - `formStyle` reaches `Form` only.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header Card
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("v\(update.version ?? "Unknown")")
-                                .font(.title2.weight(.bold))
-
-                            if let date = formattedDate(update.releaseDate) {
-                                Text("Released \(date)")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        if update.installed == true {
-                            badge("Current Version", color: service.serviceIdentity.brandColor)
-                        } else if update.installable == true {
-                            badge("Update Available", color: .green)
-                        }
-                    }
-
-                    if update.installable == true && update.installed != true {
-                        Divider().padding(.vertical, 4)
-
-                        Button(action: onInstall) {
-                            HStack {
-                                if isInstalling {
-                                    ProgressView().controlSize(.small).tint(.white)
-                                }
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.down.circle.fill")
-                                    Text(isInstalling ? "Installing Update…" : "Install Update Now")
-                                }
-                                .frame(maxWidth: .infinity)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isInstalling)
-                    }
-                }
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-
-                // Changelog Card
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Release Notes")
-                        .font(.headline)
-
-                    let newItems = update.changes?.new ?? []
-                    let fixedItems = update.changes?.fixed ?? []
-
-                    if newItems.isEmpty && fixedItems.isEmpty {
-                        Text("No change notes provided for this release.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        if !newItems.isEmpty {
-                            changeSection(title: "New Features", icon: "sparkles", color: .blue, items: newItems)
-                        }
-
-                        if !fixedItems.isEmpty {
-                            changeSection(title: "Bug Fixes", icon: "wrench.and.screwdriver.fill", color: .orange, items: fixedItems)
-                        }
-                    }
-                }
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: "v\(update.version ?? "Unknown")",
+                    subtitle: service.displayName,
+                    systemImage: "arrow.down.circle",
+                    tint: service.serviceIdentity.brandColor,
+                    badges: headerBadges
+                )
             }
-            .padding(20)
+            .listRowBackground(Color.clear)
+
+            Section {
+                LabeledContent("Server") {
+                    ArrInstanceBadge(label: instance.qualifiedLabel, ordinal: instance.ordinal)
+                }
+                if let date = formattedDate(update.releaseDate) {
+                    LabeledContent("Released") {
+                        Text(date).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Release")
+            }
+
+            if update.installable == true && update.installed != true {
+                Section {
+                    Button(action: onInstall) {
+                        HStack {
+                            if isInstalling {
+                                ProgressView().controlSize(.small).tint(.white)
+                            }
+                            Label(
+                                isInstalling ? "Installing Update…" : "Install Update Now",
+                                systemImage: "arrow.down.circle.fill"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isInstalling)
+                }
+            }
+
+            Section {
+                let newItems = update.changes?.new ?? []
+                let fixedItems = update.changes?.fixed ?? []
+
+                if newItems.isEmpty && fixedItems.isEmpty {
+                    Text("No change notes provided for this release.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    if !newItems.isEmpty {
+                        changeSection(title: "New Features", icon: "sparkles", color: .blue, items: newItems)
+                    }
+                    if !fixedItems.isEmpty {
+                        changeSection(title: "Bug Fixes", icon: "wrench.and.screwdriver.fill", color: .orange, items: fixedItems)
+                    }
+                }
+            } header: {
+                Text("Release Notes")
+            }
         }
-        .moreDestinationBackground(.updates)
-        .navigationTitle("v\(update.version ?? "Unknown")")
+        .serviceSettingsFormStyle()
+        .paneAwareNavigationTitle("v\(update.version ?? "Unknown")", subtitle: service.displayName)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             #if os(macOS)
             // macOS shares one toolbar between the split view's list and detail
@@ -495,14 +492,28 @@ private struct UpdateDetailPane: View {
         }
     }
 
-    private func badge(_ label: String, color: Color) -> some View {
-        Text(label.uppercased())
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color, in: .capsule)
+    private var headerBadges: [ArrDetailBadge] {
+        var badges = [
+            ArrDetailBadge(
+                icon: service.systemImage,
+                label: instance.qualifiedLabel,
+                color: service.serviceIdentity.brandColor
+            )
+        ]
+        if update.installed == true {
+            badges.append(
+                ArrDetailBadge(
+                    icon: "checkmark.circle.fill",
+                    label: "Current Version",
+                    color: service.serviceIdentity.brandColor
+                )
+            )
+        } else if update.installable == true {
+            badges.append(ArrDetailBadge(icon: "arrow.down.circle.fill", label: "Update Available", color: .green))
+        }
+        return badges
     }
+
 
     private func changeSection(title: String, icon: String, color: Color, items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
