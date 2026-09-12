@@ -7,6 +7,32 @@ struct ArrDetailBadge: Identifiable {
     let color: Color
 }
 
+/// The inside of a badge pill: glyph, then label, `DesignConstants.Spacing.iconText`
+/// apart.
+///
+/// Deliberately an `HStack` and not a `Label`. `Label` owns the gap between icon and
+/// title and hands it out only through a `LabelStyle`, so every pill that wanted this
+/// spacing had to remember to apply one - and the two pill styles in the app are
+/// otherwise unrelated views. Owning the arrangement here means the next badge pill
+/// gets it by using this, and a change to the spacing is one edit rather than a search
+/// for every pill in the project.
+///
+/// Only the arrangement, the font and the truncation live here. The pill's background
+/// belongs to whoever draws it: `TrawlEntityHeader` tints a capsule with the badge's
+/// own colour, while `ArrDetailBadgeSection` sits over artwork and needs glass.
+struct ArrDetailBadgeLabel: View {
+    let badge: ArrDetailBadge
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.iconText) {
+            Image(systemName: badge.icon)
+            Text(badge.label)
+        }
+        .font(.caption.weight(.semibold))
+        .lineLimit(1)
+    }
+}
+
 struct ArrDetailPendingQueueAction: Identifiable {
     let itemID: Int
     /// Queue IDs are local to each Arr server. Keep the source server with every

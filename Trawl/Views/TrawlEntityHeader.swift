@@ -71,8 +71,7 @@ struct TrawlEntityHeader: View {
     private var badgeRow: some View {
         HStack(spacing: 8) {
             ForEach(badges) { badge in
-                Label(badge.label, systemImage: badge.icon)
-                    .font(.caption.weight(.semibold))
+                ArrDetailBadgeLabel(badge: badge)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(badge.color.opacity(0.15), in: Capsule())

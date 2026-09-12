@@ -17,11 +17,8 @@ struct ArrDetailBadgeSection: View {
     }
 
     private func pill(_ badge: ArrDetailBadge) -> some View {
-        Label(badge.label, systemImage: badge.icon)
-            .labelStyle(.tightIcon)
-            .font(.caption.weight(.semibold))
+        ArrDetailBadgeLabel(badge: badge)
             .foregroundStyle(badge.color)
-            .lineLimit(1)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .glassEffect(.regular, in: Capsule())
