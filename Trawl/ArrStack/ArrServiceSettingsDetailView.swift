@@ -8,17 +8,18 @@ struct ArrServiceSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var allProfiles: [ArrServiceProfile]
-    @State private var editorContext: ArrServiceEditorContext?
+    @State private var activeSheet: ArrSettingsSheetTarget?
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
-    /// Each configured server's status, when this service has more than one. The
-    /// pair share a row rather than a section each - two full status cards is a lot
-    /// of screen for what is usually the same version twice.
+    /// Each configured server's status, when this service has more than one. Each
+    /// one gets its own section: a shared collapsible row with the second server
+    /// indented under the first read as one fact about the pair, so the version and
+    /// OS of the server on top looked like they described both.
     @State private var pairedStatuses: [(ref: ArrInstanceRef, status: ArrSystemStatus)] = []
-    @State private var isStatusExpanded = false
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
+    @Environment(\.hasTabBarChrome) private var hasTabBarChrome
     #if DEBUG
     private let previewNotificationStatus: ArrNotificationSetupStatus?
     #endif
@@ -46,10 +47,6 @@ struct ArrServiceSettingsView: View {
     }
     #endif
 
-    /// System Status describes one server, not the pair - it is read from the
-    /// default server chosen in the Servers section above. With two configured,
-    /// the header has to say which one, or the version and OS on screen look like
-    /// facts about both.
     /// Every connected server of this service, each of which needs its own webhook.
     private var notifiableProfiles: [ArrServiceProfile] {
         serviceProfiles.filter { isProfileConnected($0.id) }
@@ -60,6 +57,9 @@ struct ArrServiceSettingsView: View {
         serviceProfiles.count < (ArrSetupViewModel.instanceLimit(for: serviceType) ?? .max)
     }
 
+    /// With one server configured the status describes it and needs no qualifier.
+    /// With two, the header has to say which one, or the version and OS on screen
+    /// look like facts about both.
     private var systemStatusTitle: String {
         guard let profile,
               let instance = serviceManager.instanceRef(serviceType, id: profile.id),
@@ -111,7 +111,7 @@ struct ArrServiceSettingsView: View {
                 Section {
                     if let profile {
                         Button {
-                            editorContext = .edit(profile)
+                            activeSheet = .editor(.edit(profile))
                         } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -160,12 +160,12 @@ struct ArrServiceSettingsView: View {
                         }
                         if serviceProfiles.count <= 1, canAddAnotherServer {
                             Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
-                                editorContext = .create(serviceType)
+                                activeSheet = .editor(.create(serviceType))
                             }
                         }
                     } else {
                         Button {
-                            editorContext = .create(serviceType)
+                            activeSheet = .editor(.create(serviceType))
                         } label: {
                             Label("Add \(serviceType.displayName) Server", systemImage: "plus")
                         }
@@ -184,7 +184,7 @@ struct ArrServiceSettingsView: View {
                     Section {
                         ForEach(serviceProfiles) { serviceProfile in
                             Button {
-                                editorContext = .edit(serviceProfile)
+                                activeSheet = .editor(.edit(serviceProfile))
                             } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -224,7 +224,7 @@ struct ArrServiceSettingsView: View {
                             .buttonStyle(.plain)
                             .contextMenu {
                                 Button("Edit", systemImage: "pencil") {
-                                    editorContext = .edit(serviceProfile)
+                                    activeSheet = .editor(.edit(serviceProfile))
                                 }
 
                                 Button("Remove", systemImage: "trash", role: .destructive) {
@@ -235,7 +235,7 @@ struct ArrServiceSettingsView: View {
 
                         if canAddAnotherServer {
                             Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
-                                editorContext = .create(serviceType)
+                                activeSheet = .editor(.create(serviceType))
                             }
                         }
                     } header: {
@@ -245,73 +245,25 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if pairedStatuses.count > 1 {
-                    Section("System Status") {
-                        Button {
-                            withAnimation(.snappy) { isStatusExpanded.toggle() }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(pairedStatuses.enumerated()), id: \.element.ref.id) { index, entry in
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack(spacing: 6) {
-                                            Text(serviceManager.scopeLabel(for: entry.ref))
-                                                .font(.subheadline.weight(index == 0 ? .medium : .regular))
-                                                .foregroundStyle(index == 0 ? .primary : .secondary)
-                                            ArrInstanceBadge(label: entry.ref.shortLabel, ordinal: entry.ref.ordinal)
-                                            Spacer()
-                                            if let version = entry.status.version {
-                                                Text("v\(version)")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            if index == 0 {
-                                                Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.tertiary)
-                                            }
-                                        }
-                                        if isStatusExpanded {
-                                            ForEach(statusDetailLines(for: entry.status), id: \.label) { line in
-                                                HStack {
-                                                    Text(line.label)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                    Spacer()
-                                                    Text(line.value)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.secondary)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    // The second server sits indented under the first:
-                                    // one row describing a pair, not two rows that look
-                                    // like two unrelated servers.
-                                    .padding(.leading, index == 0 ? 0 : 16)
-                                }
+                // A section each, in configured order. Anything that stacks the pair
+                // into one row has to pick a server to show on top, and whichever one
+                // that is reads as the status of the service. Populated only when two
+                // servers are configured, so one entry here means the other server
+                // failed to answer - still a section, under its own heading.
+                if !pairedStatuses.isEmpty {
+                    ForEach(pairedStatuses, id: \.ref.id) { entry in
+                        Section {
+                            statusRows(for: entry.status)
+                        } header: {
+                            HStack(spacing: 6) {
+                                Text("System Status · \(serviceManager.scopeLabel(for: entry.ref))")
+                                ArrInstanceBadge(label: entry.ref.shortLabel, ordinal: entry.ref.ordinal)
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 } else if let systemStatus {
                     Section(systemStatusTitle) {
-                        if let instanceName = systemStatus.instanceName ?? systemStatus.appName {
-                            serviceInfoRow(label: "Instance", value: instanceName)
-                        }
-                        if let version = systemStatus.version {
-                            serviceInfoRow(label: "Version", value: version)
-                        }
-                        if let osName = systemStatus.osName {
-                            let osValue = [osName, systemStatus.osVersion].compactMap { $0 }.joined(separator: " ")
-                            serviceInfoRow(label: "OS", value: osValue)
-                        }
-                        if let runtimeName = systemStatus.runtimeName {
-                            let runtimeValue = [runtimeName, systemStatus.runtimeVersion].compactMap { $0 }.joined(separator: " ")
-                            serviceInfoRow(label: "Runtime", value: runtimeValue)
-                        }
-                        if let urlBase = systemStatus.urlBase, !urlBase.isEmpty {
-                            serviceInfoRow(label: "URL Base", value: urlBase)
-                        }
+                        statusRows(for: systemStatus)
                     }
                 } else if isLoadingStatus {
                     Section(systemStatusTitle) {
@@ -340,27 +292,24 @@ struct ArrServiceSettingsView: View {
                 if serviceType.supportsWebhookNotifications, !notifiableProfiles.isEmpty {
                     Section("Notifications") {
                         ForEach(notifiableProfiles) { notifiableProfile in
-                            NavigationLink {
-                                ArrWebhookNotificationConfigView(
-                                    serviceType: serviceType,
-                                    profile: notifiableProfile,
-                                    isConnected: isProfileConnected(notifiableProfile.id)
-                                )
-                            } label: {
-                                #if DEBUG
-                                ArrWebhookNotificationHubRow(
-                                    serviceType: serviceType,
-                                    profile: notifiableProfile,
-                                    isConnected: isProfileConnected(notifiableProfile.id),
-                                    previewStatus: previewNotificationStatus
-                                )
-                                #else
-                                ArrWebhookNotificationHubRow(
-                                    serviceType: serviceType,
-                                    profile: notifiableProfile,
-                                    isConnected: isProfileConnected(notifiableProfile.id)
-                                )
-                                #endif
+                            if presentsNotificationConfigAsSheet {
+                                Button {
+                                    activeSheet = .notifications(notifiableProfile)
+                                } label: {
+                                    notificationRow(for: notifiableProfile)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink {
+                                    ArrWebhookNotificationConfigView(
+                                        serviceType: serviceType,
+                                        profile: notifiableProfile,
+                                        isConnected: isProfileConnected(notifiableProfile.id)
+                                    )
+                                } label: {
+                                    notificationRow(for: notifiableProfile)
+                                }
                             }
                         }
                     }
@@ -431,11 +380,36 @@ struct ArrServiceSettingsView: View {
         // again anyway, and it looked exactly as that comment describes.
         #endif
         .tint(serviceType.serviceIdentity.brandColor)
-        .sheet(item: $editorContext) { context in
-            ArrSetupSheet(initialServiceType: context.initialServiceType, existingProfile: context.profile, onComplete: {
-                Task { await serviceManager.refreshConfiguration() }
-            })
-            .environment(serviceManager)
+        // One `.sheet` over one enum, deliberately - this screen presents both a
+        // server editor and a webhook configuration, and two `.sheet` modifiers on
+        // one view is the trap recorded against `QBittorrentSettingsView` in
+        // `TRAWL_TEST_COVERAGE_MAP.md`: only the last is reliably honoured, and
+        // presenting through the earlier one opened a sheet and dismissed it a beat
+        // later, which reads as a tap that did nothing. Here the earlier one was the
+        // server editor - the only way in to a host URL or API key on this screen.
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .editor(let context):
+                ArrSetupSheet(initialServiceType: context.initialServiceType, existingProfile: context.profile, onComplete: {
+                    Task { await serviceManager.refreshConfiguration() }
+                })
+                .environment(serviceManager)
+            case .notifications(let notifiableProfile):
+                NavigationStack {
+                    ArrWebhookNotificationConfigView(
+                        serviceType: serviceType,
+                        profile: notifiableProfile,
+                        isConnected: isProfileConnected(notifiableProfile.id)
+                    )
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { activeSheet = nil }
+                        }
+                    }
+                }
+                .macSheetSizing()
+            }
         }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             #if DEBUG
@@ -450,6 +424,40 @@ struct ArrServiceSettingsView: View {
 
     private func isProfileConnected(_ profileID: UUID) -> Bool {
         serviceManager.isConnected(serviceType, profileID: profileID)
+    }
+
+    /// Pushed on the phone, presented as a sheet on macOS and on the iPad sidebar
+    /// chrome. Configuring a webhook is a modal errand that returns to the screen it
+    /// started from, and a push in a wide pane covers the server list whose triggers
+    /// are being chosen.
+    ///
+    /// Asked of the chrome rather than of the size class. `horizontalSizeClass ==
+    /// .regular` looks equivalent and is wrong here: this screen is pushed inside a
+    /// `NavigationSplitView` column, and a column that narrow reports itself compact
+    /// on iPad however wide the window is - so the check was false in exactly the
+    /// chrome meant to get the sheet. `hasTabBarChrome` is set by `ContentView`'s
+    /// compact tab bar and by nothing else, which also retires the macOS special
+    /// case: no Mac window has a tab bar. Same gate as
+    /// `BazarrLanguageProfilesView.presentsEditorsAsSheets`.
+    private var presentsNotificationConfigAsSheet: Bool { !hasTabBarChrome }
+
+    /// One row shape for both routes, so the push and the sheet cannot drift apart.
+    @ViewBuilder
+    private func notificationRow(for notifiableProfile: ArrServiceProfile) -> some View {
+        #if DEBUG
+        ArrWebhookNotificationHubRow(
+            serviceType: serviceType,
+            profile: notifiableProfile,
+            isConnected: isProfileConnected(notifiableProfile.id),
+            previewStatus: previewNotificationStatus
+        )
+        #else
+        ArrWebhookNotificationHubRow(
+            serviceType: serviceType,
+            profile: notifiableProfile,
+            isConnected: isProfileConnected(notifiableProfile.id)
+        )
+        #endif
     }
 
     private func deleteProfile(_ profile: ArrServiceProfile) async {
@@ -511,9 +519,9 @@ struct ArrServiceSettingsView: View {
             return
         }
 
-        // Sonarr and Radarr can have two servers, and the status row describes both.
-        // Asking only the fallback server would put one server's version and OS under
-        // a heading that sits above a list of two.
+        // Sonarr and Radarr can have two servers, and each gets its own status
+        // section. Asking only the fallback server would put one server's version and
+        // OS under a heading that sits above a list of two.
         if serviceType == .sonarr || serviceType == .radarr {
             let refs = serviceManager.refs(for: serviceType)
             if refs.count > 1 {
@@ -571,23 +579,28 @@ struct ArrServiceSettingsView: View {
 
     // MARK: - Actions
 
-    /// The rows under a server once the status row is expanded. Version is already
-    /// on the collapsed line, so it is not repeated here.
-    private func statusDetailLines(for status: ArrSystemStatus) -> [(label: String, value: String)] {
-        var lines: [(label: String, value: String)] = []
+    /// The body of a System Status section. One builder, so a paired service's
+    /// sections and a single server's cannot drift apart.
+    @ViewBuilder
+    private func statusRows(for status: ArrSystemStatus) -> some View {
         if let instanceName = status.instanceName ?? status.appName {
-            lines.append(("Instance", instanceName))
+            serviceInfoRow(label: "Instance", value: instanceName)
+        }
+        if let version = status.version {
+            serviceInfoRow(label: "Version", value: version)
         }
         if let osName = status.osName {
-            lines.append(("OS", [osName, status.osVersion].compactMap { $0 }.joined(separator: " ")))
+            serviceInfoRow(label: "OS", value: [osName, status.osVersion].compactMap { $0 }.joined(separator: " "))
         }
         if let runtimeName = status.runtimeName {
-            lines.append(("Runtime", [runtimeName, status.runtimeVersion].compactMap { $0 }.joined(separator: " ")))
+            serviceInfoRow(
+                label: "Runtime",
+                value: [runtimeName, status.runtimeVersion].compactMap { $0 }.joined(separator: " ")
+            )
         }
         if let urlBase = status.urlBase, !urlBase.isEmpty {
-            lines.append(("URL Base", urlBase))
+            serviceInfoRow(label: "URL Base", value: urlBase)
         }
-        return lines
     }
 
     private func serviceInfoRow(label: String, value: String) -> some View {
@@ -1314,6 +1327,29 @@ struct WebhookStatusInlineRow: View {
             Text(text)
         }
         .foregroundStyle(color)
+    }
+}
+
+/// Which sheet this screen has open, so there is only ever one `.sheet` modifier
+/// on it. Not `ArrServiceSettingsSheet` - that name is already a `View` in
+/// `ArrConnectionStatusViews.swift`, and reusing it here is ambiguous for type
+/// lookup across the module. `ArrServiceEditorContext` stays a type of its own rather than gaining a
+/// third case: `ArrAddInstanceJourneyUITests` documents that its `create` carries a
+/// non-optional `ArrServiceType`, which is what keeps `ArrSetupSheet`'s service-type
+/// picker unreachable, and a webhook target has no service type to carry.
+private enum ArrSettingsSheetTarget: Identifiable {
+    /// Add one of this service's servers, or edit an existing one.
+    case editor(ArrServiceEditorContext)
+    /// Configure one server's webhook notifications.
+    case notifications(ArrServiceProfile)
+
+    var id: String {
+        switch self {
+        case .editor(let context):
+            "editor-\(context.id)"
+        case .notifications(let profile):
+            "notifications-\(profile.id.uuidString)"
+        }
     }
 }
 
