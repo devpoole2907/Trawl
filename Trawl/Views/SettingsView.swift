@@ -15,9 +15,7 @@ struct SettingsView: View {
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
     @AppStorage("startupTab") private var startupTab: String = RootTab.downloads.displayName
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
+    @Environment(\.hasTabBarChrome) private var hasTabBarChrome
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     let showsDoneButton: Bool
@@ -390,17 +388,21 @@ struct SettingsView: View {
                 // Only where there are tabs to start on. The sidebar chrome - iPad at
                 // regular width, and every Mac window - has no tab bar at all, so the
                 // setting was offering a choice that could not be honoured. An iPad
-                // in a narrow multitasking slot is compact and does get the tab bar,
-                // which is why this follows the size class rather than the idiom.
-                #if os(iOS)
-                if hSizeClass == .compact {
+                // in a narrow multitasking slot does get the tab bar, which is why
+                // this follows the chrome rather than the idiom.
+                //
+                // The chrome reports itself through `hasTabBarChrome`. Reading
+                // `horizontalSizeClass` here looked equivalent and was not: Settings
+                // is a column of the iPad split view, and a column that narrow is
+                // compact no matter how wide the window around it is - so the picker
+                // appeared in exactly the chrome it was meant to be hidden from.
+                if hasTabBarChrome {
                     Picker("Startup Tab", selection: $startupTab) {
                         ForEach(RootTab.startupChoices, id: \.self) { tab in
                             Text(tab.displayName).tag(tab.displayName)
                         }
                     }
                 }
-                #endif
 
                 Picker("Theme", selection: $themeOverride) {
                     ForEach(ThemeOverride.allCases, id: \.self) { theme in

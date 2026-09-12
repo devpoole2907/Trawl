@@ -321,3 +321,14 @@ enum RootTab: Hashable, CaseIterable {
         SidebarSection.allCases.flatMap(\.rows)
     }
 }
+
+extension EnvironmentValues {
+    /// Whether the chrome around this screen is the tab bar.
+    ///
+    /// Set by `ContentView.compactTabs` and by nothing else, so it is false in the
+    /// iPad sidebar and in every Mac window. Screens ask this rather than reading
+    /// `horizontalSizeClass`, because inside a `NavigationSplitView` the size class
+    /// describes the *column* - a sidebar or content column is narrow, and reports
+    /// compact, in a window that is showing no tab bar at all.
+    @Entry var hasTabBarChrome: Bool = false
+}

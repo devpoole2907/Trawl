@@ -666,6 +666,14 @@ struct ContentView: View {
             }
         }
         #endif
+        // Outermost on purpose, for the same reason `setTabChromeHidden` is: the
+        // bottom accessory's content is resolved by a modifier applied further out
+        // than the `TabView` itself, and it opens the Notifications sheet, the
+        // Notification Settings hub and the configuration wizard - which route to
+        // the two screens that read this value. Set inside the chain it would be a
+        // coin toss whether those saw it, and a screen that wrongly believes it has
+        // no tab bar presents a sheet where it should push.
+        .environment(\.hasTabBarChrome, true)
     }
 
     // MARK: - Regular chrome (iPad)

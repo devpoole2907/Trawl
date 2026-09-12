@@ -237,6 +237,42 @@ remain visible, the sidebar must stay independently scrollable, and AppKit must 
 the declarative 452pt frame minimum. This journey reproduced both failures before the
 fix and passed after rebuilding.
 
+**A screen inside a split-view column reads its *column's* size class, not the
+window's.** A sidebar or content column is narrow, so `horizontalSizeClass` is
+`.compact` there in a full-screen iPad window that is showing no tab bar at all.
+Three separate pieces of work reached for `horizontalSizeClass == .regular` to mean
+"this window has room / has no tab bar", and it was false in exactly the chrome each
+was written for: the Startup Tab picker appeared on the iPad Settings pane it was
+meant to be hidden from, and Bazarr language-profile rows and the Arr notification
+rows pushed a detail screen where they were supposed to open a sheet. `ContentView`
+itself may read the size class — it *is* the window, and the `compactTabs` vs
+`regularSidebar` split above is correct. Screens below it must not.
+
+The answer is `EnvironmentValues.hasTabBarChrome` (`Trawl/Views/RootTab.swift`), set
+`true` by `ContentView.compactTabs` and by nothing else, so it is false in the iPad
+sidebar and in every Mac window. It also retires the `#if os(macOS) true` special
+case these gates used to carry: no Mac window has a tab bar. Current readers are
+`SettingsView`'s Startup Tab picker, `BazarrLanguageProfilesView
+.presentsEditorsAsSheets` and `ArrServiceSettingsView
+.presentsNotificationConfigAsSheet` — all three now spell the same test, and a fourth
+gate should reuse it rather than rediscover the size class.
+
+**Set it outermost in `compactTabs`, after the `#if os(iOS)` block.** The bottom
+accessory's content is resolved by a modifier applied further out than the `TabView`,
+and that accessory is the way in to the Notifications sheet, the Notification
+Settings hub and `ConfigurationWizardView` — which route to two of the three readers
+above. Placed mid-chain it is a coin toss whether they see it, and a screen that
+wrongly believes it has no tab bar presents a sheet where it should push.
+`setTabChromeHidden` sits at the end of that chain for the same reason.
+
+**No test asserts any of this**, on either chrome: `MoreSettingsBreadthUITests
+.testLibraryManagementReachesBazarrLanguageProfilesWithServerData` reaches the Bazarr
+screen but stops at asserting a profile name renders — it never taps a row, so it
+passes whichever way the row behaves. The gate is currently protected only by the
+three comments naming it. A journey that chooses a row and asserts *which*
+presentation happened would close it, and is the natural home for the iPad half of
+`SplitViewDetailRouteUITests`' "one question, two chromes" pattern.
+
 ## Feature-discovery tips (TipKit)
 
 | Production surface | Owning tests | What the tests pin, and why it matters |

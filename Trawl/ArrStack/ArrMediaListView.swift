@@ -51,16 +51,17 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSizeClass
     #endif
+    @Environment(\.hasTabBarChrome) private var hasTabBarChrome
 
     /// True where the app draws a sidebar, which is where these toolbar shortcuts
     /// have a row of their own and stop earning their place.
-    private var hasSidebarChrome: Bool {
-        #if os(iOS)
-        hSizeClass == .regular
-        #else
-        true
-        #endif
-    }
+    ///
+    /// Asked of the chrome, not the size class. This screen is the *content column*
+    /// of the iPad split view, and a column that narrow reports itself compact
+    /// however wide the window is - so `hSizeClass == .regular` was false on the one
+    /// chrome this is meant to detect, and the shortcuts it hides were showing in
+    /// the sidebar anyway. See **iPad chrome** in `TRAWL_TEST_COVERAGE_MAP.md`.
+    private var hasSidebarChrome: Bool { !hasTabBarChrome }
     @State private var showWantedMissing = false
     @State private var pendingDeleteItem: Entry?
     @State private var isRunningCommand = false
@@ -483,8 +484,15 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 }
 
                 Menu {
-                    Button("Missing", systemImage: "exclamationmark.triangle") {
-                        showWantedMissing = true
+                    // Same rule as the Calendar shortcut above, for the same reason:
+                    // `RootTab.missing` is a sidebar destination of its own on iPad
+                    // and Mac, so here the item is a second door to a screen already
+                    // one click away - and the worse of the two, being a sheet over
+                    // the list it came from. The compact chrome has no such row.
+                    if !hasSidebarChrome {
+                        Button("Missing", systemImage: "exclamationmark.triangle") {
+                            showWantedMissing = true
+                        }
                     }
                     if !viewModel.filteredItems.isEmpty {
                         Button("Select", systemImage: "checkmark.circle") {

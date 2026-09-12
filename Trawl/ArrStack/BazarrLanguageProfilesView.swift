@@ -34,15 +34,17 @@ struct BazarrLanguageProfilesView: View {
         return profiles.filter { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
-    private var presentsEditorsAsSheets: Bool {
-        #if os(macOS)
-        true
-        #else
-        horizontalSizeClass == .regular
-        #endif
-    }
+    /// Whether a row opens its profile in a sheet rather than pushing a detail screen.
+    ///
+    /// Asked of the chrome rather than of the size class. The obvious test -
+    /// `horizontalSizeClass == .regular` - is wrong here: this screen is pushed inside a
+    /// `NavigationSplitView` column, and a column that narrow reports itself compact on
+    /// iPad no matter how wide the window is, so every row pushed a detail screen on the
+    /// chrome that was meant to get the sheet. The tab bar is the compact chrome and
+    /// nothing else sets it, so it is false in the iPad sidebar and in every Mac window.
+    private var presentsEditorsAsSheets: Bool { !hasTabBarChrome }
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.hasTabBarChrome) private var hasTabBarChrome
 
     var body: some View {
         availabilityContent
@@ -75,16 +77,17 @@ struct BazarrLanguageProfilesView: View {
             }
         }
         .sheet(item: $editTarget) { profile in
-            NavigationStack {
-                LanguageProfileEditorView(
-                    mode: .edit(profile),
-                    availableLanguages: availableLanguages
-                ) { draft in
-                    await save(draft: draft, existing: profile)
-                    editTarget = nil
-                }
+            // No `NavigationStack` and no `macSheetSizing` around this: `AppSheetShell`
+            // already supplies both, and wrapping it again stacked a second title bar
+            // over the editor and left the shell's own Mac frame sized against a
+            // wrapper instead of the sheet.
+            LanguageProfileEditorView(
+                mode: .edit(profile),
+                availableLanguages: availableLanguages
+            ) { draft in
+                await save(draft: draft, existing: profile)
+                editTarget = nil
             }
-            .macSheetSizing()
         }
         .alert(
             "Delete Profile?",
@@ -810,7 +813,8 @@ private struct LanguageProfileEditorView: View {
             confirmTitle: mode.saveLabel,
             isConfirmDisabled: draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving,
             isConfirmLoading: isSaving,
-            onConfirm: { Task { await save() } }
+            onConfirm: { Task { await save() } },
+            minContentHeight: 520
         ) {
             editorContent
         }
