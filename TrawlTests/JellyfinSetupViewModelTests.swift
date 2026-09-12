@@ -268,7 +268,7 @@ struct JellyfinSetupViewModelTests {
         }
     }
 
-    @Test("A user/password connect stores the returned access token and the Jellyfin user id")
+    @Test("A user/password connect stores the returned access token, the Jellyfin user id and the account name")
     func userPassConnectStoresAccessTokenAndUserID() async throws {
         let server = try await JellyfinFixtureServer(label: "persist-userpass") { request in
             switch request.path {
@@ -298,6 +298,9 @@ struct JellyfinSetupViewModelTests {
             let saved = try #require(profiles.first)
             #expect(saved.authMode == .userPass)
             #expect(saved.userID == "admin-uuid")
+            // Kept - trimmed, and without the password - so the Seerr sheet can
+            // prefill the account Seerr signs in as on a later launch.
+            #expect(saved.username == "sam")
             let stored = try await KeychainHelper.shared.read(key: saved.accessTokenKey)
             #expect(stored == "session-token")
 
@@ -307,6 +310,41 @@ struct JellyfinSetupViewModelTests {
             #expect(body["Username"] as? String == "sam")
             #expect(body["Pw"] as? String == "hunter2")
             #expect(server.requests.map(\.path) == ["/System/Info/Public", "/Users/AuthenticateByName", "/System/Info"])
+        }
+    }
+
+    @Test("Reconnecting an existing profile with an API key clears the account name it used to sign in with")
+    func apiKeyReconnectClearsStoredUsername() async throws {
+        let server = try await Self.makeAdminServer(label: "username-cleared")
+        defer { server.stop() }
+
+        let context = try Self.makeInMemoryContext()
+        let existing = JellyfinServiceProfile(
+            displayName: "Basement",
+            hostURL: server.baseURL,
+            authMode: .userPass,
+            userID: "admin-uuid",
+            username: "sam"
+        )
+        context.insert(existing)
+        try context.save()
+
+        let viewModel = JellyfinSetupViewModel()
+        viewModel.seed(from: existing)
+        viewModel.authMode = .apiKey
+        viewModel.apiKey = "abc123"
+
+        try await Self.cleaningUpKeychain(in: context) {
+            let connected = await viewModel.connect(modelContext: context)
+            #expect(connected == true)
+
+            let profiles = try context.fetch(FetchDescriptor<JellyfinServiceProfile>())
+            let saved = try #require(profiles.first)
+            #expect(saved.authMode == .apiKey)
+            // An API-key profile has no account name, so a stale one must not be
+            // left behind to prefill the Seerr sheet with the wrong user.
+            #expect(saved.username == nil)
+            #expect(saved.userID == nil)
         }
     }
 

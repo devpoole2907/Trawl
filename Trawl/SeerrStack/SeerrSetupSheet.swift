@@ -6,6 +6,7 @@ struct SeerrSetupSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(JellyfinCredentialHandoff.self) private var credentialHandoff: JellyfinCredentialHandoff?
     @State private var viewModel = SeerrSetupViewModel()
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     /// Whether to sign in with the Jellyfin account entered earlier in this run.
     @State private var usesJellyfinCredentials = false
     #if DEBUG
@@ -25,6 +26,16 @@ struct SeerrSetupSheet: View {
     /// nothing is carried across launches - see `JellyfinCredentialHandoff`.
     private var canReuseJellyfinCredentials: Bool {
         credentialHandoff?.isAvailable == true
+    }
+
+    /// The account name the configured Jellyfin server signed in with. Unlike the
+    /// handoff this survives launches, because a username is not a secret - so on
+    /// every later visit the sheet can fill in half of the sign-in. `nil` for
+    /// API-key Jellyfin profiles, which have no account name to offer.
+    private var storedJellyfinUsername: String? {
+        let profile = jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
+        guard let username = profile?.username, !username.isEmpty else { return nil }
+        return username
     }
 
     var body: some View {
@@ -97,6 +108,11 @@ struct SeerrSetupSheet: View {
             if canReuseJellyfinCredentials, viewModel.username.isEmpty, viewModel.password.isEmpty {
                 usesJellyfinCredentials = true
                 applyJellyfinCredentials(true)
+            } else if viewModel.username.isEmpty, let storedJellyfinUsername {
+                // No handoff on a later launch - the password is deliberately never
+                // stored - but Seerr signs in as this same Jellyfin account, so the
+                // name is worth offering rather than asking for it again.
+                viewModel.username = storedJellyfinUsername
             }
         }
     }

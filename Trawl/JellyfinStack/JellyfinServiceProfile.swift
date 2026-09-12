@@ -24,6 +24,13 @@ public final class JellyfinServiceProfile {
     /// `nil` for API-key profiles, which authenticate without a user binding.
     public var userID: String?
 
+    /// The account name this profile signed in with. Kept so the Seerr sheet can
+    /// prefill it - Seerr authenticates against this same Jellyfin account, and
+    /// asking for it again on every launch is half of a sign-in the app already
+    /// knows. The password is still never stored; see `JellyfinCredentialHandoff`.
+    /// `nil` for API-key profiles, which have no account name.
+    public var username: String?
+
     /// Cached from `/System/Info` on connect so the settings screen can show
     /// version info without an extra round trip.
     public var serverName: String?
@@ -34,6 +41,7 @@ public final class JellyfinServiceProfile {
         hostURL: String,
         authMode: JellyfinAuthMode,
         userID: String? = nil,
+        username: String? = nil,
         allowsUntrustedTLS: Bool = false
     ) {
         self.id = UUID()
@@ -44,6 +52,7 @@ public final class JellyfinServiceProfile {
         self.dateAdded = .now
         self.authModeRaw = authMode.rawValue
         self.userID = userID
+        self.username = username
     }
 
     public var allowsUntrustedTLS: Bool {

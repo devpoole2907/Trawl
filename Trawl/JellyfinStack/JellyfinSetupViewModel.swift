@@ -134,6 +134,7 @@ final class JellyfinSetupViewModel {
                 token: token,
                 authMode: .apiKey,
                 userID: nil,
+                username: nil,
                 publicInfo: publicInfo,
                 systemInfo: systemInfo
             )
@@ -153,6 +154,7 @@ final class JellyfinSetupViewModel {
                 token: authResponse.accessToken,
                 authMode: .userPass,
                 userID: authResponse.user.id,
+                username: trimmed(username),
                 publicInfo: publicInfo,
                 systemInfo: systemInfo
             )
@@ -168,6 +170,7 @@ final class JellyfinSetupViewModel {
             hostURL: result.hostURL,
             authMode: result.authMode,
             userID: result.userID,
+            username: result.username,
             allowsUntrustedTLS: allowsUntrustedTLS
         )
 
@@ -180,6 +183,9 @@ final class JellyfinSetupViewModel {
         savedProfile.hostURL = result.hostURL
         savedProfile.authMode = result.authMode
         savedProfile.userID = result.userID
+        // Cleared on an API-key reconnect so a stale name never prefills the Seerr
+        // sheet for an account this profile no longer signs in as.
+        savedProfile.username = result.username
         savedProfile.allowsUntrustedTLS = allowsUntrustedTLS
         savedProfile.isEnabled = true
         savedProfile.serverName = result.systemInfo.serverName ?? result.publicInfo.serverName
@@ -292,6 +298,7 @@ private struct JellyfinSetupResult {
     let token: String
     let authMode: JellyfinAuthMode
     let userID: String?
+    let username: String?
     let publicInfo: JellyfinSystemPublicInfo
     let systemInfo: JellyfinSystemInfo
 }
@@ -303,6 +310,7 @@ private struct JellyfinProfileSnapshot {
     let isEnabled: Bool
     let authMode: JellyfinAuthMode
     let userID: String?
+    let username: String?
     let serverName: String?
     let serverVersion: String?
 
@@ -313,6 +321,7 @@ private struct JellyfinProfileSnapshot {
         isEnabled = profile.isEnabled
         authMode = profile.authMode
         userID = profile.userID
+        username = profile.username
         serverName = profile.serverName
         serverVersion = profile.serverVersion
     }
@@ -324,6 +333,7 @@ private struct JellyfinProfileSnapshot {
         profile.isEnabled = isEnabled
         profile.authMode = authMode
         profile.userID = userID
+        profile.username = username
         profile.serverName = serverName
         profile.serverVersion = serverVersion
     }

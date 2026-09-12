@@ -710,6 +710,7 @@ struct TrawlApp: App {
                     hostURL: jellyfinProfile.hostURL,
                     authMode: jellyfinProfile.authMode,
                     userID: jellyfinProfile.userID,
+                    username: jellyfinProfile.username,
                     allowsUntrustedTLS: jellyfinProfile.allowsUntrustedTLS
                 )
                 copy.id = jellyfinProfile.id

@@ -7,12 +7,14 @@ extension JellyfinServiceProfile {
     static func preview(
         displayName: String = "My Jellyfin",
         hostURL: String = "http://192.168.1.50:8096",
-        authMode: JellyfinAuthMode = .apiKey
+        authMode: JellyfinAuthMode = .apiKey,
+        username: String? = nil
     ) -> JellyfinServiceProfile {
         JellyfinServiceProfile(
             displayName: displayName,
             hostURL: hostURL,
-            authMode: authMode
+            authMode: authMode,
+            username: username
         )
     }
 }
