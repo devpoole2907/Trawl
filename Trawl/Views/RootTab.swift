@@ -42,7 +42,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
         case .integrations:
             [.indexers, .downloadClients, .newsServers, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
-            [.downloadOrganization, .rootFolders, .qualityProfiles, .libraryImport, .subtitles]
+            [.downloadOrganization, .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .subtitles]
         case .system:
             // Settings sits at the bottom of System rather than in a section of its
             // own: it is one row, and a heading over a single row is a heading that
@@ -97,6 +97,8 @@ enum RootTab: Hashable, CaseIterable {
     case rootFolders
     case downloadOrganization
     case qualityProfiles
+    case qualityDefinitions
+    case naming
     case libraryImport
     case subtitles
 
@@ -136,6 +138,8 @@ enum RootTab: Hashable, CaseIterable {
         case .rootFolders: "Root Folders"
         case .downloadOrganization: "Categories, Tags & Scripts"
         case .qualityProfiles: "Quality Profiles"
+        case .qualityDefinitions: "Quality Definitions"
+        case .naming: "Naming"
         case .libraryImport: "Library Import"
         case .subtitles: "Subtitles"
         case .setupCheck: "Setup Check"
@@ -184,6 +188,8 @@ enum RootTab: Hashable, CaseIterable {
         case .rootFolders: .rootFolders
         case .downloadOrganization: .downloadOrganization
         case .qualityProfiles: .qualityProfiles
+        case .qualityDefinitions: .qualityDefinitions
+        case .naming: .arrNaming
         case .libraryImport: .libraryImport
         case .subtitles: .subtitleManagement
         case .setupCheck: .setupCheck
@@ -201,9 +207,9 @@ enum RootTab: Hashable, CaseIterable {
     ///
     /// Matched on the destination first, because most index entries now *are* a
     /// sidebar row and selecting it is both the shortest route and the one with an
-    /// obvious way back. Only a leaf that has no row of its own - Naming, Quality
-    /// Definitions, a per-service settings screen - falls through to its section's
-    /// first row and is pushed onto that stack.
+    /// obvious way back. Only a leaf that has no row of its own - such as a
+    /// per-service settings screen - falls through to its section's
+    /// first row and is shown in its detail column.
     static func owningSidebarDestination(
         for destination: MoreDestination?,
         category: String
@@ -211,6 +217,9 @@ enum RootTab: Hashable, CaseIterable {
         if let destination, let exact = allCases.first(where: { $0.moreRoot == destination }) {
             return exact
         }
+        // Manual Import shares Library Import's location browser. Root Folders
+        // auto-selects a server, which replaces a search push in its detail stack.
+        if destination == .manualImport { return .libraryImport }
         // Downloads' own sub-routes ("Downloads › Client Management") belong to the
         // Downloads tab, hence the prefix match rather than equality.
         if category.hasPrefix("Downloads") { return .downloads }
@@ -268,6 +277,8 @@ enum RootTab: Hashable, CaseIterable {
         case .rootFolders: "folder"
         case .downloadOrganization: "tag"
         case .qualityProfiles: "slider.horizontal.3"
+        case .qualityDefinitions: "chart.bar"
+        case .naming: "character.cursor.ibeam"
         case .libraryImport: "square.and.arrow.down.on.square"
         case .subtitles: "captions.bubble"
         case .setupCheck: "checklist"

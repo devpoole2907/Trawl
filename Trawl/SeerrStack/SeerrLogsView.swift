@@ -70,7 +70,7 @@ struct SeerrLogsView: View {
         .navigationSubtitle("Seerr")
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: exportText, preview: SharePreview("Seerr Logs")) {
+                ShareLink(item: LogExportFile(title: "Seerr Logs", text: exportText), preview: SharePreview("Seerr Logs")) {
                     Label("Share Logs", systemImage: "square.and.arrow.up")
                 }
                 .disabled(entries.isEmpty)

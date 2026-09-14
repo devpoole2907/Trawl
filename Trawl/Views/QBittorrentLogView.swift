@@ -104,7 +104,7 @@ struct QBittorrentLogView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: exportText, preview: SharePreview("qBittorrent Log")) {
+                ShareLink(item: LogExportFile(title: "qBittorrent Log", text: exportText), preview: SharePreview("qBittorrent Log")) {
                     Label("Share Log", systemImage: "square.and.arrow.up")
                 }
                 .disabled(displayed.isEmpty)

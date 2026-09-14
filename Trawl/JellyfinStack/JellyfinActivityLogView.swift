@@ -32,7 +32,7 @@ struct JellyfinActivityLogView: View {
         .navigationSubtitle("Jellyfin")
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: exportText, preview: SharePreview("Jellyfin Activity Log")) {
+                ShareLink(item: LogExportFile(title: "Jellyfin Activity Log", text: exportText), preview: SharePreview("Jellyfin Activity Log")) {
                     Label("Share Activity Log", systemImage: "square.and.arrow.up")
                 }
                 .disabled(exportEntries.isEmpty)

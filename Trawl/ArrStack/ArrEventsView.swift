@@ -337,7 +337,7 @@ struct ArrEventsView: View {
     private var eventsToolbar: some ToolbarContent {
         if !availableServices.isEmpty {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: exportText, preview: SharePreview("Arr Events")) {
+                ShareLink(item: LogExportFile(title: "Arr Events", text: exportText), preview: SharePreview("Arr Events")) {
                     Label("Share Events", systemImage: "square.and.arrow.up")
                 }
                 .disabled(displayedEntries.isEmpty)

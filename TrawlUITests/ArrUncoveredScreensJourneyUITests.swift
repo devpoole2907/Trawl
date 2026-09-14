@@ -71,6 +71,19 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
             sonarr.hasReceivedRequest(method: "GET", path: "/api/v3/log"),
             "The screen must have fetched the log over real HTTP."
         )
+
+        // Share is the screen's only export. A toolbar button that renders but
+        // never presents looks identical to a working one until someone needs it.
+        let share = app.buttons["Share Events"]
+        XCTAssertTrue(share.waitForExistence(in: app, timeout: 10), "Events should offer a share action once it has records.")
+        XCTAssertTrue(share.isEnabled, "Share should be enabled while the log has records.")
+        share.tap()
+        let shareSheet = app.otherElements["ActivityListView"]
+        let copyAction = app.buttons["Copy"]
+        XCTAssertTrue(
+            shareSheet.waitForExistence(in: app, timeout: 10) || copyAction.waitForExistence(in: app, timeout: 5),
+            "Tapping Share should present the system share sheet."
+        )
     }
 
     @MainActor

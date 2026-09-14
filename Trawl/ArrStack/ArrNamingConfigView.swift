@@ -3,21 +3,56 @@ import SwiftUI
 struct ArrNamingConfigView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrNamingBrowserState.self) private var sharedBrowser: ArrNamingBrowserState?
 
     /// Which *server* this screen is editing. Naming formats are per-server
     /// configuration and an HD/4K pair usually differs - the 4K server writes into
     /// a different folder tree - so "the Sonarr naming config" was never a single
     /// thing once a pair was configured.
-    @State private var selectedInstanceID: UUID?
-    @State private var selectedService: ArrServiceType = .sonarr
-    @State private var sonarrConfig: SonarrNamingConfig?
-    @State private var radarrConfig: RadarrNamingConfig?
-    @State private var isLoading = true
-    @State private var editingFormatTarget: ArrNamingFormatEditorTarget?
-    @State private var errorMessage: String?
-    @State private var isSaving = false
+    @State private var localBrowser = ArrNamingBrowserState()
+    @State private var sheetFormatTarget: ArrNamingFormatEditorTarget?
     @State private var saveTask: Task<Void, Never>?
     @State private var showSettings = false
+
+    private var browser: ArrNamingBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
+    private var selectedInstanceID: UUID? {
+        get { browser.selectedInstanceID }
+        nonmutating set { browser.selectedInstanceID = newValue }
+    }
+
+    private var selectedService: ArrServiceType {
+        get { browser.selectedService }
+        nonmutating set { browser.selectedService = newValue }
+    }
+
+    private var sonarrConfig: SonarrNamingConfig? {
+        get { browser.sonarrConfig }
+        nonmutating set { browser.sonarrConfig = newValue }
+    }
+
+    private var radarrConfig: RadarrNamingConfig? {
+        get { browser.radarrConfig }
+        nonmutating set { browser.radarrConfig = newValue }
+    }
+
+    private var isLoading: Bool {
+        get { browser.isLoading }
+        nonmutating set { browser.isLoading = newValue }
+    }
+
+    private var errorMessage: String? {
+        get { browser.errorMessage }
+        nonmutating set { browser.errorMessage = newValue }
+    }
+
+    private var isSaving: Bool {
+        get { browser.isSaving }
+        nonmutating set { browser.isSaving = newValue }
+    }
 
     #if DEBUG
     init(
@@ -27,11 +62,13 @@ struct ArrNamingConfigView: View {
         isLoading: Bool = false,
         errorMessage: String? = nil
     ) {
-        _sonarrConfig = State(initialValue: previewSonarrConfig)
-        _radarrConfig = State(initialValue: previewRadarrConfig)
-        _selectedService = State(initialValue: selectedService)
-        _isLoading = State(initialValue: isLoading)
-        _errorMessage = State(initialValue: errorMessage)
+        let browser = ArrNamingBrowserState()
+        browser.sonarrConfig = previewSonarrConfig
+        browser.radarrConfig = previewRadarrConfig
+        browser.selectedService = selectedService
+        browser.isLoading = isLoading
+        browser.errorMessage = errorMessage
+        _localBrowser = State(initialValue: browser)
     }
     #endif
 
@@ -60,7 +97,26 @@ struct ArrNamingConfigView: View {
         !isConnected && (serviceManager.isInitializing || serviceManager.isConnecting(selectedService))
     }
 
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
     var body: some View {
+        TrawlListDetailPanes(title: "Naming") {
+            namingScreen
+        } detail: {
+            selectedFormatDetail
+        }
+        .sheet(item: $sheetFormatTarget) { target in
+            ArrNamingFormatEditorSheet(
+                target: target,
+                initialFormat: currentFormat(for: target),
+                onSave: { newFormat in applyFormat(newFormat, for: target) }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var namingScreen: some View {
+        @Bindable var browser = browser
         Group {
             if isSelectedConnecting || !isConnected {
                 ArrServiceConnectionStatusView(
@@ -79,17 +135,9 @@ struct ArrNamingConfigView: View {
                 radarrForm(config: config)
             }
         }
-        .navigationTitle("Naming")
         .moreDestinationBackground(selectedService == .sonarr ? .sonarrNaming : .radarrNaming)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
-        }
-        .sheet(item: $editingFormatTarget) { target in
-            ArrNamingFormatEditorSheet(
-                target: target,
-                initialFormat: currentFormat(for: target),
-                onSave: { newFormat in applyFormat(newFormat, for: target) }
-            )
+            ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
         }
         .task(id: selectedInstance?.id) {
             #if DEBUG
@@ -105,6 +153,10 @@ struct ArrNamingConfigView: View {
             // cross from Sonarr to Radarr.
             if let newValue { selectedService = newValue }
         }
+        .onChange(of: selectedInstanceID) {
+            browser.selectedFormatTarget = nil
+            sheetFormatTarget = nil
+        }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: selectedService)
@@ -116,6 +168,20 @@ struct ArrNamingConfigView: View {
                     }
             }
             .macSheetSizing()
+        }
+    }
+
+    @ViewBuilder
+    private var selectedFormatDetail: some View {
+        if let target = browser.selectedFormatTarget {
+            ArrNamingFormatEditorSheet(
+                target: target,
+                initialFormat: currentFormat(for: target),
+                onSave: { newFormat in applyFormat(newFormat, for: target) }
+            )
+            .id(target.id)
+        } else {
+            listDetailPlaceholder("Select a Naming Format", systemImage: "character.cursor.ibeam")
         }
     }
 
@@ -220,7 +286,11 @@ struct ArrNamingConfigView: View {
 
     private func formatEditorRow(_ label: String, value: String, target: ArrNamingFormatEditorTarget) -> some View {
         Button {
-            editingFormatTarget = target
+            if showsDetailPane {
+                browser.selectedFormatTarget = target
+            } else {
+                sheetFormatTarget = target
+            }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
@@ -250,7 +320,7 @@ struct ArrNamingConfigView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the token editor")
+        .accessibilityHint(showsDetailPane ? "Shows the token editor in the detail column" : "Opens the token editor")
     }
 
     @ViewBuilder

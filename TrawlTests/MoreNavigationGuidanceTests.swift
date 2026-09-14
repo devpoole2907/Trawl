@@ -4,6 +4,13 @@ import Testing
 @Suite("More navigation guidance")
 @MainActor
 struct MoreNavigationGuidanceTests {
+    @Test("Manual Import search belongs to its import browser rather than Root Folders")
+    func manualImportSidebarOwner() {
+        #expect(RootTab.owningSidebarDestination(for: .manualImport, category: "Library Management") == .libraryImport)
+        #expect(RootTab.owningSidebarDestination(for: .libraryImport, category: "Library Management") == .libraryImport)
+        #expect(RootTab.owningSidebarDestination(for: .rootFolders, category: "Library Management") == .rootFolders)
+    }
+
     @Test("SABnzbd guidance names the destination, not the container it sits in")
     func sabnzbdSettingsPath() {
         #expect(MoreDestination.sabnzbdSettings.userFacingPath == "Settings → SABnzbd")

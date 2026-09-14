@@ -93,6 +93,9 @@ struct ContentView: View {
     /// System to Settings and back should find System where you left it, exactly as
     /// switching between Series and Movies does.
     @State private var sidebarPaths: [RootTab: [MoreDestination]] = [:]
+    /// Search-only leaves are detail roots, not pushes that can outlive the
+    /// destination supplying their navigationDestination registration.
+    @State private var sidebarSearchLeaves: [RootTab: MoreDestination] = [:]
     /// Pinned open. The iPad sidebar is the app's primary navigation, not a panel to
     /// be dismissed - and a collapsed one used to take the promoted destinations with
     /// it. It still yields automatically when the window gets narrow enough to turn
@@ -125,6 +128,8 @@ struct ContentView: View {
     @State private var calendarSelection = TrawlColumnSelection<ArrMediaDestination>()
     @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
     @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
+    @State private var qualityDefinitionBrowser = ArrQualityDefinitionBrowserState()
+    @State private var namingBrowser = ArrNamingBrowserState()
     @State private var importLocationBrowser = ArrImportLocationBrowserState()
     @State private var requestBrowser = SeerrRequestBrowserState()
     @State private var issueBrowser = SeerrIssueBrowserState()
@@ -922,9 +927,8 @@ struct ContentView: View {
 
     /// Opens a search result on the hub that owns it.
     ///
-    /// The push goes onto that hub's own stack, so the screen arrives with the hub
-    /// behind it and a working way back - the same place it would have been reached
-    /// from by hand.
+    /// A leaf with no sidebar row becomes its owner's detail root. A push here can
+    /// survive removal of the owner and cover the next destination's detail pane.
     /// Clearing the text is not the same as leaving search. `dismissSearch` is what
     /// puts the sidebar's own rows back, and `SidebarSearchResultButton` is where it
     /// is called from - see that type for why it cannot be called from here.
@@ -948,9 +952,8 @@ struct ContentView: View {
 
         let owner = RootTab.owningSidebarDestination(for: destination, category: entry.category)
         selectedTab = owner
-        // A row that *is* the destination roots its own stack at it, so pushing it
-        // again would show the same screen twice with a Back button between them.
-        pathBinding(for: owner).wrappedValue = owner.moreRoot == destination ? [] : [destination]
+        sidebarSearchLeaves[owner] = owner.moreRoot == destination ? nil : destination
+        pathBinding(for: owner).wrappedValue = []
     }
 
     /// A sidebar row, or nothing when the search field excludes it.
@@ -1012,7 +1015,7 @@ struct ContentView: View {
                 presentation: .contentColumn
             )
             .environment(indexerBrowser)
-        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks, .requests,
+        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .qualityDefinitions, .naming, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .content)
@@ -1081,6 +1084,9 @@ struct ContentView: View {
     /// arrives somewhere if a stack is driving that path.
     @ViewBuilder
     private func detailColumn(for destination: RootTab, services: AppServices) -> some View {
+        if let leaf = sidebarSearchLeaves[destination] {
+            sidebarSearchDetail(for: destination, leaf: leaf, services: services)
+        } else {
         switch destination {
         case .downloads:
             // Rendered as this column's *root*, keyed by the selection - never pushed
@@ -1158,7 +1164,7 @@ struct ContentView: View {
             ProwlarrIndexerListView(showsSelectedIndexer: true)
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
-        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .tasks, .requests,
+        case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .qualityDefinitions, .naming, .tasks, .requests,
              .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
@@ -1172,6 +1178,23 @@ struct ContentView: View {
                 presentation: .detailColumn
             )
         }
+        }
+    }
+
+    private func sidebarSearchDetail(for owner: RootTab, leaf: MoreDestination, services: AppServices) -> some View {
+        moreStack(rootedAt: leaf, path: pathBinding(for: owner), services: services)
+            .environment(\.sidebarNavigationColumn, nil)
+            .environment(\.hasDetailPane, false)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        sidebarSearchLeaves[owner] = nil
+                        pathBinding(for: owner).wrappedValue = []
+                    } label: {
+                        Label("Back", systemImage: "chevron.backward")
+                    }
+                }
+            }
     }
 
     /// Each affected screen is instantiated once per native column, with only its
@@ -1194,6 +1217,8 @@ struct ContentView: View {
         .environment(calendarSelection)
         .environment(missingSelection)
         .environment(qualityProfileBrowser)
+        .environment(qualityDefinitionBrowser)
+        .environment(namingBrowser)
         .environment(importLocationBrowser)
         .environment(healthBrowser)
         .environment(updatesBrowser)

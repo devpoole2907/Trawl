@@ -41,7 +41,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// replaced, and failed against the one that shipped.
     private static let promotedDestinations = [
         "Missing", "Blocklist", "Calendar", "Requests", "Indexers",
-        "Download Clients", "Quality Profiles", "Setup Check", "Settings"
+        "Download Clients", "Quality Profiles", "Quality Definitions", "Naming",
+        "Setup Check", "Settings"
     ]
 
     private static let headlineSeries = "Aurora Reach"
@@ -115,6 +116,191 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             app.staticTexts["Select a blocked release"].waitForExistence(timeout: 5),
             "Blocklist should reserve its native detail column until a release is selected."
         )
+    }
+
+    /// These editors remain sheets in the compact More hierarchy, but the native
+    /// sidebar has a real detail column available. Selecting a row there must fill
+    /// that column with the same editor instead of presenting over the whole window.
+    @MainActor
+    func testQualityDefinitionsAndNamingUseTheDetailColumn() async throws {
+        let app = try await launchOnIPad()
+
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let definitionRow = app.cells
+            .containing(.staticText, identifier: "Fixture WEBDL-1080p")
+            .firstMatch
+        XCTAssertTrue(definitionRow.waitForExistence(timeout: 15))
+        definitionRow.tap()
+        XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.sheets.count, 0, "The quality definition editor belongs in the native detail column on iPad.")
+
+        XCTAssertTrue(open(app, "Naming"))
+        let namingRow = app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,"))
+            .firstMatch
+        XCTAssertTrue(namingRow.waitForExistence(timeout: 15))
+        namingRow.tap()
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.sheets.count, 0, "The naming editor belongs in the native detail column on iPad.")
+    }
+
+    /// A successful first selection does not prove the browser is owned above the
+    /// sidebar destination. Returning must restore both selections without another
+    /// row tap, and each destination must remove the other's inspector.
+    @MainActor
+    func testQualityAndNamingSelectionsSurviveSidebarRoundTrips() async throws {
+        let app = try await launchOnIPad()
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let definition = app.cells.containing(.staticText, identifier: "Fixture WEBDL-1080p").firstMatch
+        XCTAssertTrue(definition.waitForExistence(timeout: 15))
+        definition.tap()
+        XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10))
+
+        XCTAssertTrue(open(app, "Naming"))
+        XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)
+        let daily = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Daily,")).firstMatch
+        XCTAssertTrue(daily.waitForExistence(timeout: 15))
+        daily.tap()
+        XCTAssertTrue(app.navigationBars["Daily Episode Format"].waitForExistence(timeout: 10))
+
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10), "Returning must restore the selected definition without tapping its row again.")
+        XCTAssertFalse(app.navigationBars["Daily Episode Format"].exists)
+        XCTAssertTrue(open(app, "Naming"))
+        XCTAssertTrue(app.navigationBars["Daily Episode Format"].waitForExistence(timeout: 10), "Returning must restore the chosen format, not default to Standard.")
+        XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)
+        XCTAssertEqual(app.sheets.count, 0)
+    }
+
+    @MainActor
+    func testQualityDefinitionSaveUpdatesTheListFromTheServerResponseWithoutClosingTheInspector() async throws {
+        let response = #"[{"id":1,"quality":{"id":7,"name":"WEBDL-1080p"},"title":"Server Accepted Quality","weight":70,"minSize":20,"maxSize":180,"preferredSize":90}]"#
+        let app = try await launchOnIPad(qualityDefinitionsSaveJSON: response)
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let row = app.cells.containing(.staticText, identifier: "Fixture WEBDL-1080p").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        let inspector = app.navigationBars["Fixture WEBDL-1080p"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        inspector.buttons["Save"].tap()
+
+        let updatedRow = app.cells.containing(.staticText, identifier: "Server Accepted Quality").firstMatch
+        XCTAssertTrue(updatedRow.waitForExistence(timeout: 15), "The content column must render the server's saved response, not retain its old list copy.")
+        XCTAssertTrue(inspector.exists, "Saving in the detail column must not dismiss its editor.")
+        XCTAssertEqual(app.sheets.count, 0)
+        let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" })
+        let definitions = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [[String: Any]])
+        XCTAssertEqual(definitions.count, 1)
+        XCTAssertEqual(definitions.first?["id"] as? Int, 1)
+        XCTAssertEqual(definitions.first?["minSize"] as? Double, 15)
+        XCTAssertEqual(definitions.first?["preferredSize"] as? Double, 90)
+        XCTAssertEqual(definitions.first?["maxSize"] as? Double, 180)
+    }
+
+    @MainActor
+    func testNamingSaveConfirmationAndServerResponseUpdateTheContentColumn() async throws {
+        let response = #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"standardEpisodeFormat":"Server Accepted Format","dailyEpisodeFormat":"{Series TitleYear} - {Air-Date}"}"#
+        let app = try await launchOnIPad(namingSaveJSON: response)
+        XCTAssertTrue(open(app, "Naming"))
+        let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,")).firstMatch
+        XCTAssertTrue(standard.waitForExistence(timeout: 15))
+        standard.tap()
+        let inspector = app.navigationBars["Standard Episode Format"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        let clear = app.buttons["Clear Format"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.tap()
+        let format = app.textFields["Naming format"]
+        XCTAssertTrue(format.waitForExistence(timeout: 5))
+        format.tap()
+        format.typeText("Requested Format")
+        inspector.buttons["Save"].tap()
+        let confirmation = app.alerts["Save Format?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Cancel"].tap()
+        XCTAssertFalse(sonarr?.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1") ?? true, "Cancelling the confirmation must not write.")
+        XCTAssertTrue(inspector.exists)
+
+        inspector.buttons["Save"].tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Save"].tap()
+        let acceptedRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Server Accepted Format")).firstMatch
+        XCTAssertTrue(acceptedRow.waitForExistence(timeout: 15), "The row must show the server response rather than just its optimistic requested format.")
+        XCTAssertTrue(inspector.exists)
+        XCTAssertEqual(app.sheets.count, 0)
+        let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" })
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
+        XCTAssertEqual(config["id"] as? Int, 1)
+        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "Requested Format")
+        XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date}", "Changing Standard must preserve unrelated naming formats.")
+    }
+
+    @MainActor
+    func testRejectedQualitySaveKeepsTheInspectorAndCanBeRetried() async throws {
+        let response = #"[{"id":1,"quality":{"id":7,"name":"WEBDL-1080p"},"title":"Retried Quality","weight":70,"minSize":15,"maxSize":180,"preferredSize":90}]"#
+        let app = try await launchOnIPad(qualityDefinitionsSaveJSON: response, rejectFirstEditorSave: true)
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let original = app.cells.containing(.staticText, identifier: "Fixture WEBDL-1080p").firstMatch
+        XCTAssertTrue(original.waitForExistence(timeout: 15))
+        original.tap()
+        let inspector = app.navigationBars["Fixture WEBDL-1080p"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        inspector.buttons["Save"].tap()
+        XCTAssertTrue(app.staticTexts["Save Failed"].waitForExistence(timeout: 15))
+        XCTAssertTrue(original.exists, "A rejected save must not replace the loaded definition.")
+        XCTAssertTrue(inspector.exists, "Failure must leave the inspector available for retry.")
+        XCTAssertEqual(sonarr?.requests.filter { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" }.count, 1)
+
+        inspector.buttons["Save"].tap()
+        XCTAssertTrue(app.cells.containing(.staticText, identifier: "Retried Quality").firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(inspector.exists)
+        XCTAssertEqual(app.sheets.count, 0)
+        let saves = try XCTUnwrap(sonarr).requests.filter { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" }
+        XCTAssertEqual(saves.count, 2)
+        // Parsed, not raw bytes: JSONEncoder's key order differs between the two
+        // encodes, so identical definitions arrived as different byte strings.
+        let bodies = try saves.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0.body) as? NSArray) }
+        XCTAssertEqual(bodies.first, bodies.last, "Retry must resubmit the original definition rather than an error response.")
+    }
+
+    @MainActor
+    func testRejectedNamingSaveRestoresTheServerRowAndCanBeRetried() async throws {
+        let response = #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"standardEpisodeFormat":"Retried Format","dailyEpisodeFormat":"{Series TitleYear} - {Air-Date}"}"#
+        let app = try await launchOnIPad(namingSaveJSON: response, rejectFirstEditorSave: true)
+        XCTAssertTrue(open(app, "Naming"))
+        let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,")).firstMatch
+        XCTAssertTrue(standard.waitForExistence(timeout: 15))
+        standard.tap()
+        let inspector = app.navigationBars["Standard Episode Format"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        app.buttons["Clear Format"].tap()
+        let format = app.textFields["Naming format"]
+        format.tap()
+        format.typeText("Retry Requested Format")
+        let confirmation = app.alerts["Save Format?"]
+        inspector.buttons["Save"].tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Save"].tap()
+        XCTAssertTrue(app.staticTexts["Save Failed"].waitForExistence(timeout: 15))
+        let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "{Series TitleYear} - S{season:00}E{episode:00}")).firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 15), "Failure must reload the server value instead of leaving the optimistic edit in the list.")
+        XCTAssertTrue(inspector.exists)
+        XCTAssertEqual(format.value as? String, "Retry Requested Format", "Reloading the list must not discard the inspector's retry draft.")
+
+        inspector.buttons["Save"].tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Save"].tap()
+        let accepted = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Retried Format")).firstMatch
+        XCTAssertTrue(accepted.waitForExistence(timeout: 15))
+        XCTAssertTrue(inspector.exists)
+        XCTAssertEqual(app.sheets.count, 0)
+        let saves = try XCTUnwrap(sonarr).requests.filter { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }
+        XCTAssertEqual(saves.count, 2)
+        for save in saves {
+            let config = try XCTUnwrap(JSONSerialization.jsonObject(with: save.body) as? [String: Any])
+            XCTAssertEqual(config["standardEpisodeFormat"] as? String, "Retry Requested Format")
+            XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date}")
+        }
     }
 
     // MARK: - An unconfigured service says so once, not twice
@@ -332,8 +518,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// is not in this chrome. So it has to reach screens that are *not* sidebar rows,
     /// which is exactly what a filter over the eleven destination names could not do.
     ///
-    /// Quality Profiles is the case that matters: it lives two levels down under
-    /// Library Management and appears nowhere in the sidebar.
+    /// Manual Import is the case that matters: it remains a leaf under Library
+    /// Management rather than becoming a sidebar destination of its own.
     @MainActor
     func testSidebarSearchReachesAScreenThatIsNotASidebarRow() async throws {
         let app = try await launchOnIPad()
@@ -345,19 +531,19 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let field = sidebarSearchField(app)
         XCTAssertTrue(field.waitForExistence(timeout: 10), "The sidebar should offer a search field.")
         field.tap()
-        field.typeText("quality")
+        field.typeText("manual import")
 
         let result = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Quality Profiles"))
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Manual Import"))
             .firstMatch
         XCTAssertTrue(
             result.waitForExistence(timeout: 10),
-            "Searching the sidebar should find Quality Profiles, which is not a sidebar row."
+            "Searching the sidebar should find Manual Import, which is not a sidebar row."
         )
         result.tap()
 
         XCTAssertTrue(
-            app.showsScreen(named: "Quality Profiles", timeout: 15),
+            app.showsScreen(named: "Manual Import", timeout: 15),
             "Choosing a search result should open that screen."
         )
         // Choosing a result has to *leave* search, not merely clear its text. iOS keeps
@@ -365,9 +551,27 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         // empty results container - the screen opens and there is no way back to
         // anything else. The row being here is how that is detected from the outside.
         XCTAssertNotNil(
-            sidebarRow(app, "Quality Profiles"),
-            "The result should leave its own sidebar row on screen, so there is a way back."
+            sidebarRow(app, "Library Import"),
+            "The result should leave its owning Library Management row on screen, so there is a way back."
         )
+        let back = app.navigationBars["Manual Import"].buttons["Back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertFalse(app.navigationBars["Manual Import"].exists)
+        XCTAssertTrue(app.showsScreen(named: "Library Import"))
+
+        // Repeat from the already-selected owner: this must not depend on a sidebar
+        // selection change, and leaving the result must remove its pushed screen.
+        let repeatedField = sidebarSearchField(app)
+        XCTAssertTrue(repeatedField.waitForExistence(timeout: 5))
+        repeatedField.tap()
+        repeatedField.typeText("manual import")
+        XCTAssertTrue(result.waitForExistence(timeout: 10))
+        result.tap()
+        XCTAssertTrue(app.showsScreen(named: "Manual Import"))
+        XCTAssertTrue(select(app, "Downloads"))
+        XCTAssertTrue(app.buttons["Downloads, change view"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Manual Import"].exists)
     }
 
     // MARK: - Helpers
@@ -445,6 +649,21 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         return true
     }
 
+    /// `select`, then proves the destination arrived. A sidebar tap synthesised while
+    /// the split view is still settling - a scroll, or a detail column that has just
+    /// changed - is dropped without error, so the evidence is the content column's own
+    /// navigation bar, with one retry if it never shows. The retry goes back through
+    /// `select` rather than waiting on the old element's hittability: the cell can be
+    /// re-laid-out in between, and asking XCTest to hit-test a cell whose frame has
+    /// gone to infinity is a hard failure that took the whole runner down with it.
+    @MainActor
+    private func open(_ app: XCUIApplication, _ displayName: String) -> Bool {
+        guard select(app, displayName) else { return false }
+        if app.showsScreen(named: displayName, timeout: 5) { return true }
+        guard select(app, displayName) else { return false }
+        return app.showsScreen(named: displayName, timeout: 10)
+    }
+
     private static func identifierSuffix(for displayName: String) -> String? {
         switch displayName {
         case "Downloads": "downloads"
@@ -459,6 +678,10 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         case "Indexers": "indexers"
         case "Download Clients": "downloadClients"
         case "Quality Profiles": "qualityProfiles"
+        case "Quality Definitions": "qualityDefinitions"
+        case "Naming": "naming"
+        case "Root Folders": "rootFolders"
+        case "Library Import": "libraryImport"
         case "Setup Check": "setupCheck"
         case "Settings": "settings"
         case "Libraries": "jellyfinLibraries"
@@ -473,10 +696,15 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// badly enough that no destination resolved at all, which is worth not
     /// rediscovering.
     @MainActor
-    private func launchOnIPad() async throws -> XCUIApplication {
+    private func launchOnIPad(qualityDefinitionsSaveJSON: String? = nil, namingSaveJSON: String? = nil, rejectFirstEditorSave: Bool = false) async throws -> XCUIApplication {
         let sonarrServer = try await SonarrFixtureServer(
             seriesJSON: Self.seriesJSON,
-            statusJSON: #"{"instanceName":"Fixture Sonarr"}"#
+            statusJSON: #"{"instanceName":"Fixture Sonarr"}"#,
+            qualityDefinitionsJSON: #"[{"id":1,"quality":{"id":7,"name":"Fixture WEBDL-1080p","source":"web","resolution":1080},"title":"Fixture WEBDL-1080p","weight":70,"minSize":15,"maxSize":180,"preferredSize":90}]"#,
+            namingJSON: #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"colonReplacementFormat":4,"standardEpisodeFormat":"{Series TitleYear} - S{season:00}E{episode:00}","dailyEpisodeFormat":"{Series TitleYear} - {Air-Date}","animeEpisodeFormat":"{Series TitleYear} - {absolute:000}","seriesFolderFormat":"{Series TitleYear}","seasonFolderFormat":"Season {season:00}","specialsFolderFormat":"Specials"}"#,
+            qualityDefinitionsSaveJSON: qualityDefinitionsSaveJSON,
+            namingSaveJSON: namingSaveJSON,
+            rejectFirstEditorSave: rejectFirstEditorSave
         )
         sonarr = sonarrServer
         let radarrServer = try await RadarrFixtureServer()

@@ -101,6 +101,8 @@ enum TrawlDestination: CaseIterable {
     case cleanuparr
     case rootFolders
     case qualityProfiles
+    case qualityDefinitions
+    case naming
     case libraryImport
     case subtitles
     case setupCheck
@@ -141,6 +143,8 @@ enum TrawlDestination: CaseIterable {
         case .cleanuparr: "Cleanuparr"
         case .rootFolders: "Root Folders"
         case .qualityProfiles: "Quality Profiles"
+        case .qualityDefinitions: "Quality Definitions"
+        case .naming: "Naming"
         case .libraryImport: "Library Import"
         case .subtitles: "Subtitles"
         case .setupCheck: "Setup Check"
@@ -185,6 +189,8 @@ enum TrawlDestination: CaseIterable {
         case .cleanuparr: "nav.cleanuparr"
         case .rootFolders: "nav.rootFolders"
         case .qualityProfiles: "nav.qualityProfiles"
+        case .qualityDefinitions: "nav.qualityDefinitions"
+        case .naming: "nav.naming"
         case .libraryImport: "nav.libraryImport"
         case .subtitles: "nav.subtitles"
         case .setupCheck: "nav.setupCheck"
@@ -218,7 +224,7 @@ enum TrawlDestination: CaseIterable {
         case .indexers, .downloadClients,
              .linkedApplications, .remotePaths, .cleanuparr, .tasks:
             .automation
-        case .rootFolders, .qualityProfiles, .libraryImport, .subtitles:
+        case .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .subtitles:
             .libraryManagement
         case .setupCheck, .health, .logs, .diskSpace, .updates, .backups:
             .system

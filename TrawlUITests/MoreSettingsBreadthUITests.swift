@@ -255,6 +255,41 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         )
     }
 
+    /// The native editor columns must not accidentally replace the compact route.
+    /// Cancel exercises the real sheet dismissal and must return to the list.
+    @MainActor
+    func testCompactQualityAndNamingEditorsRemainCancellableSheets() async throws {
+        try XCTSkipIf(TrawlChrome.isSidebar, "Compact editor presentation is covered on the iPhone destination.")
+        let sonarr = try await SonarrFixtureServer(
+            seriesJSON: "[]",
+            qualityDefinitionsJSON: #"[{"id":1,"quality":{"id":7,"name":"Fixture WEBDL-1080p","source":"web","resolution":1080},"title":"Fixture WEBDL-1080p","weight":70,"minSize":15,"maxSize":180,"preferredSize":90}]"#,
+            namingJSON: #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"standardEpisodeFormat":"{Series TitleYear} - S{season:00}E{episode:00}"}"#
+        )
+        sonarrServer = sonarr
+        let app = launchApp(sonarr: sonarr)
+        XCTAssertTrue(openDestination(.qualityDefinitions, in: app))
+        let definition = firstButton(labelContaining: "Fixture WEBDL-1080p", in: app)
+        XCTAssertTrue(tapWhenHittable(definition, in: app, timeout: 15))
+        XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10))
+        let cancelDefinition = app.navigationBars["Fixture WEBDL-1080p"].buttons["Cancel"]
+        XCTAssertTrue(cancelDefinition.waitForExistence(timeout: 5), "The compact editor must retain its sheet-only Cancel action.")
+        cancelDefinition.tap()
+        XCTAssertTrue(app.navigationBars["Quality Definitions"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)
+
+        XCTAssertTrue(openDestination(.naming, in: app))
+        let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,")).firstMatch
+        XCTAssertTrue(tapWhenHittable(standard, in: app, timeout: 15))
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
+        let cancelNaming = app.navigationBars["Standard Episode Format"].buttons["Cancel"]
+        XCTAssertTrue(cancelNaming.waitForExistence(timeout: 5), "The naming editor must retain its sheet dismissal affordance.")
+        cancelNaming.tap()
+        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Standard Episode Format"].exists)
+        XCTAssertFalse(sonarr.hasReceivedRequest(method: "PUT", path: "/api/v3/qualitydefinition/update"))
+        XCTAssertFalse(sonarr.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"), "Cancelling must not save the naming configuration.")
+    }
+
     // MARK: - Launch and navigation helpers
 
     @MainActor

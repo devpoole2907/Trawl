@@ -26,6 +26,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
         /// The `X-Api-Key` header this request carried, so a journey can assert *which*
         /// key reached the socket rather than only that some request arrived.
         let apiKey: String?
+        let body: Data
     }
 
     private let listener: NWListener
@@ -36,6 +37,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
     /// Body for `GET /api/v3/episode`. Defaults to an empty array, so every suite
     /// that predates episode coverage keeps exactly the behaviour it had.
     private let qualityProfilesJSON: String
+    private let qualityDefinitionsJSON: String
+    private let namingJSON: String
+    private let qualityDefinitionsSaveJSON: String?
+    private let namingSaveJSON: String?
     private let queueJSON: String
     private let wantedJSON: String
     private let calendarJSON: String
@@ -52,6 +57,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
+    private var editorSaveFailuresRemaining: [String: Int]
 
     /// - Parameters:
     ///   - seriesJSON: raw JSON array body returned for `GET /api/v3/series`.
@@ -71,6 +77,11 @@ final class SonarrFixtureServer: @unchecked Sendable {
         episodesJSON: String = "[]",
         calendarJSON: String = "[]",
         qualityProfilesJSON: String = "[]",
+        qualityDefinitionsJSON: String = "[]",
+        namingJSON: String = "{}",
+        qualityDefinitionsSaveJSON: String? = nil,
+        namingSaveJSON: String? = nil,
+        rejectFirstEditorSave: Bool = false,
         wantedJSON: String = "[]",
         queueJSON: String = #"{"page":1,"pageSize":20,"totalRecords":0,"records":[]}"#,
         episodeFilesJSON: String = "[]",
@@ -100,10 +111,18 @@ final class SonarrFixtureServer: @unchecked Sendable {
         self.remotePathMappingsJSON = remotePathMappingsJSON
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
+        self.editorSaveFailuresRemaining = rejectFirstEditorSave ? [
+            "/api/v3/qualitydefinition/update": 1,
+            "/api/v3/config/naming/1": 1
+        ] : [:]
         self.seriesResponseBody = seriesJSON
         self.acceptedAPIKey = acceptedAPIKey
         self.statusResponseBody = statusJSON
         self.qualityProfilesJSON = qualityProfilesJSON
+        self.qualityDefinitionsJSON = qualityDefinitionsJSON
+        self.namingJSON = namingJSON
+        self.qualityDefinitionsSaveJSON = qualityDefinitionsSaveJSON
+        self.namingSaveJSON = namingSaveJSON
         self.wantedJSON = wantedJSON
         self.queueJSON = queueJSON
         self.calendarJSON = calendarJSON
@@ -169,20 +188,33 @@ final class SonarrFixtureServer: @unchecked Sendable {
     /// request per endpoint.
     private func respond(to connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, error in
-            guard let self, let data, error == nil else {
+        receive(on: connection, buffer: Data())
+    }
+
+    // Same Content-Length accumulation used by ProwlarrUIFixtureServer: JSON
+    // bodies may arrive separately from headers and must be recorded in full.
+    private func receive(on connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self else {
                 connection.cancel()
                 return
             }
-
-            let request = Self.parseRequest(from: data)
+            var next = buffer
+            if let data { next.append(data) }
+            guard let request = Self.parseRequest(from: next) else {
+                if error != nil || isComplete { connection.cancel() }
+                else { self.receive(on: connection, buffer: next) }
+                return
+            }
             self.lock.lock()
             self.recordedRequests.append(request)
+            let rejectSave = request.method == "PUT" && (self.editorSaveFailuresRemaining[request.path] ?? 0) > 0
+            if rejectSave { self.editorSaveFailuresRemaining[request.path, default: 0] -= 1 }
             self.lock.unlock()
 
             let isAuthorized = self.acceptedAPIKey.map { $0 == request.apiKey } ?? true
-            let status = isAuthorized ? 200 : 401
-            let body = isAuthorized ? self.responseBody(for: request) : "{}"
+            let status = !isAuthorized ? 401 : rejectSave ? 500 : 200
+            let body = !isAuthorized ? "{}" : rejectSave ? #"{"message":"Fixture rejected editor save"}"# : self.responseBody(for: request)
             connection.send(
                 content: Self.httpResponse(body: body, status: status),
                 contentContext: .finalMessage,
@@ -203,6 +235,14 @@ final class SonarrFixtureServer: @unchecked Sendable {
             return statusResponseBody
         case ("GET", "/api/v3/qualityprofile"):
             return qualityProfilesJSON
+        case ("GET", "/api/v3/qualitydefinition"):
+            return qualityDefinitionsJSON
+        case ("GET", "/api/v3/config/naming"):
+            return namingJSON
+        case ("PUT", "/api/v3/qualitydefinition/update"):
+            return qualityDefinitionsSaveJSON ?? String(data: request.body, encoding: .utf8) ?? "[]"
+        case ("PUT", "/api/v3/config/naming/1"):
+            return namingSaveJSON ?? String(data: request.body, encoding: .utf8) ?? "{}"
         case ("GET", "/api/v3/wanted/missing"):
             return wantedJSON
         case ("GET", "/api/v3/log"):
@@ -242,16 +282,24 @@ final class SonarrFixtureServer: @unchecked Sendable {
         }
     }
 
-    private static func parseRequest(from data: Data) -> RecordedRequest {
-        guard let text = String(data: data, encoding: .utf8),
+    private static func parseRequest(from data: Data) -> RecordedRequest? {
+        guard let headerRange = data.range(of: Data("\r\n\r\n".utf8)),
+              let text = String(data: data[..<headerRange.lowerBound], encoding: .utf8),
               let firstLine = text.split(separator: "\r\n", maxSplits: 1).first else {
-            return RecordedRequest(method: "", path: "", apiKey: nil)
+            return nil
         }
+        let contentLength = text.components(separatedBy: "\r\n").dropFirst().compactMap { line -> Int? in
+            let pair = line.split(separator: ":", maxSplits: 1)
+            guard pair.count == 2, pair[0].caseInsensitiveCompare("Content-Length") == .orderedSame else { return nil }
+            return Int(pair[1].trimmingCharacters(in: .whitespaces))
+        }.first ?? 0
+        let bodyStart = headerRange.upperBound
+        guard contentLength >= 0, data.count - bodyStart >= contentLength else { return nil }
         let parts = firstLine.split(separator: " ", omittingEmptySubsequences: true)
         let method = parts.first.map(String.init) ?? ""
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
         let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
-        return RecordedRequest(method: method, path: path, apiKey: apiKeyHeader(in: text))
+        return RecordedRequest(method: method, path: path, apiKey: apiKeyHeader(in: text), body: Data(data[bodyStart..<(bodyStart + contentLength)]))
     }
 
     /// Header names are case-insensitive per RFC 9110, and the value is everything
@@ -268,7 +316,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
 
     private static func httpResponse(body: String, status: Int = 200) -> Data {
         let bytes = Data(body.utf8)
-        let reason = status == 200 ? "OK" : "Unauthorized"
+        let reason = status == 200 ? "OK" : status == 401 ? "Unauthorized" : "Internal Server Error"
         let headers = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         return Data(headers.utf8) + bytes
     }

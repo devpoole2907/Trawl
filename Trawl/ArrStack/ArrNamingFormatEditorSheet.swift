@@ -9,6 +9,7 @@ struct ArrNamingFormatEditorSheet: View {
     @State private var tokenFilter = ""
     @State private var showSaveAlert = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isDetailPane) private var isDetailPane
 
     init(target: ArrNamingFormatEditorTarget, initialFormat: String, onSave: @escaping (String) -> Void) {
         self.target = target
@@ -34,105 +35,127 @@ struct ArrNamingFormatEditorSheet: View {
     }
 
     var body: some View {
-        ArrSheetShell(
-            title: target.title,
-            subtitle: target.serviceType.displayName,
-            cancelTitle: "Cancel",
-            confirmTitle: "Save",
-            onConfirm: { showSaveAlert = true },
-            detents: [.medium, .large],
-            dragIndicator: .visible
-        ) {
-            Form {
-                Section("Format") {
-                    TextField("Naming format", text: $localFormat, axis: .vertical)
-                        .lineLimit(2...6)
-                        .font(.body.monospaced())
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-
-                    Button {
-                        localFormat = ""
-                    } label: {
-                        Label("Clear Format", systemImage: "xmark.circle")
-                    }
-                    .disabled(localFormat.isEmpty)
-                }
-
-                Section("Preview") {
-                    Text(preview)
-                        .font(.callout.monospaced())
-                        .foregroundStyle(localFormat.isEmpty ? .secondary : .primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if !target.presets.isEmpty {
-                    Section("Presets") {
-                        ForEach(target.presets) { preset in
-                            Button {
-                                localFormat = preset.format
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(preset.title)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.primary)
-                                    Text(preset.format)
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .padding(.vertical, 2)
-                            }
-                            .buttonStyle(.plain)
+        Group {
+            if isDetailPane {
+                editorForm
+                    .navigationTitle(target.title)
+                    .navigationSubtitle(target.serviceType.displayName)
+                    // A detail column has a real toolbar, so search lives there like
+                    // the Bazarr provider and profile panes rather than in an inset.
+                    .searchable(text: $tokenFilter, prompt: "Find tokens")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Save") { showSaveAlert = true }
+                                .bold()
                         }
                     }
-                }
-
-                if filteredTokenGroups.isEmpty {
-                    ContentUnavailableView(
-                        "No Tokens",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try another search.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    ForEach(filteredTokenGroups) { group in
-                        Section(group.title) {
-                            ArrNamingTokenFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                                ForEach(group.tokens) { token in
-                                    tokenButton(token)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
+            } else {
+                ArrSheetShell(
+                    title: target.title,
+                    subtitle: target.serviceType.displayName,
+                    cancelTitle: "Cancel",
+                    confirmTitle: "Save",
+                    onConfirm: { showSaveAlert = true },
+                    detents: [.medium, .large],
+                    dragIndicator: .visible
+                ) {
+                    editorForm
                 }
             }
-            .safeAreaInset(edge: .top) {
-                if !usesNavigationBarSearch {
-                    // A sheet has no navigation bar for `.searchable` on iPad or the Mac.
-                    ArrAddItemSearchBar(text: $tokenFilter, placeholder: "Find tokens")
-                        // The component's listRowInsets only apply inside a List.
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 6)
-                }
-            }
-            .navigationBarSearchable(text: $tokenFilter, prompt: "Find tokens")
         }
         .alert("Save Format?", isPresented: $showSaveAlert) {
             Button("Save") {
                 onSave(localFormat)
-                dismiss()
+                if !isDetailPane { dismiss() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Apply this naming format to \(target.serviceType.displayName)?")
         }
+    }
+
+    private var editorForm: some View {
+        Form {
+            Section("Format") {
+                TextField("Naming format", text: $localFormat, axis: .vertical)
+                    // A vertical field only exposes its title as a placeholder, so once
+                    // it holds a format nothing names it; this keeps it findable.
+                    .accessibilityIdentifier("Naming format")
+                    .lineLimit(2...6)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+
+                Button {
+                    localFormat = ""
+                } label: {
+                    Label("Clear Format", systemImage: "xmark.circle")
+                }
+                .disabled(localFormat.isEmpty)
+            }
+
+            Section("Preview") {
+                Text(preview)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(localFormat.isEmpty ? .secondary : .primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !target.presets.isEmpty {
+                Section("Presets") {
+                    ForEach(target.presets) { preset in
+                        Button {
+                            localFormat = preset.format
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(preset.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                Text(preset.format)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if filteredTokenGroups.isEmpty {
+                ContentUnavailableView(
+                    "No Tokens",
+                    systemImage: "magnifyingglass",
+                    description: Text("Try another search.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(filteredTokenGroups) { group in
+                    Section(group.title) {
+                        ArrNamingTokenFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                            ForEach(group.tokens) { token in
+                                tokenButton(token)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if !isDetailPane && !usesNavigationBarSearch {
+                ArrAddItemSearchBar(text: $tokenFilter, placeholder: "Find tokens")
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+            }
+        }
+        .navigationBarSearchable(text: $tokenFilter, prompt: "Find tokens")
     }
 
     private func tokenButton(_ token: ArrNamingToken) -> some View {

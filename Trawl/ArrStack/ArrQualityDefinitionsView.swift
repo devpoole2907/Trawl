@@ -43,17 +43,47 @@ private enum QualitySizeField: CaseIterable, Hashable {
 struct ArrQualityDefinitionsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(ArrQualityDefinitionBrowserState.self) private var sharedBrowser: ArrQualityDefinitionBrowserState?
 
     /// Quality definitions - the size limits per quality - are per-server, and an
     /// HD/4K pair sets them very differently. Scoped to a server, not a service.
-    @State private var selectedInstanceID: UUID?
-    @State private var selectedService: ArrServiceType = .sonarr
-    @State private var definitions: [ArrQualityDefinition] = []
-    @State private var isLoading = false
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-    @State private var editingDefinition: ArrQualityDefinition?
+    @State private var localBrowser = ArrQualityDefinitionBrowserState()
+    @State private var sheetDefinition: ArrQualityDefinition?
     @State private var showSettings = false
+
+    private var browser: ArrQualityDefinitionBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+
+    private var selectedInstanceID: UUID? {
+        get { browser.selectedInstanceID }
+        nonmutating set { browser.selectedInstanceID = newValue }
+    }
+
+    private var selectedService: ArrServiceType {
+        selectedInstance?.serviceType ?? browser.selectedService
+    }
+
+    private var definitions: [ArrQualityDefinition] {
+        get { browser.definitions }
+        nonmutating set { browser.definitions = newValue }
+    }
+
+    private var isLoading: Bool {
+        get { browser.isLoading }
+        nonmutating set { browser.isLoading = newValue }
+    }
+
+    private var isSaving: Bool {
+        get { browser.isSaving }
+        nonmutating set { browser.isSaving = newValue }
+    }
+
+    private var errorMessage: String? {
+        get { browser.errorMessage }
+        nonmutating set { browser.errorMessage = newValue }
+    }
 
     #if DEBUG
     init(
@@ -62,10 +92,12 @@ struct ArrQualityDefinitionsView: View {
         isLoading: Bool = false,
         errorMessage: String? = nil
     ) {
-        _definitions = State(initialValue: previewDefinitions)
-        _selectedService = State(initialValue: selectedService)
-        _isLoading = State(initialValue: isLoading)
-        _errorMessage = State(initialValue: errorMessage)
+        let browser = ArrQualityDefinitionBrowserState()
+        browser.definitions = previewDefinitions
+        browser.selectedService = selectedService
+        browser.isLoading = isLoading
+        browser.errorMessage = errorMessage
+        _localBrowser = State(initialValue: browser)
     }
     #endif
 
@@ -93,7 +125,32 @@ struct ArrQualityDefinitionsView: View {
         !serviceManager.isConnected(selectedService) && !serviceManager.isConnecting(selectedService) && !serviceManager.isInitializing
     }
 
+    private var showsDetailPane: Bool { sidebarColumn != nil }
+
+    private var selectedDefinition: ArrQualityDefinition? {
+        definitions.first { $0.id == browser.selectedDefinitionID }
+    }
+
     var body: some View {
+        TrawlListDetailPanes(title: "Quality Definitions") {
+            definitionsScreen
+        } detail: {
+            selectedDefinitionDetail
+        }
+        .sheet(item: $sheetDefinition) { definition in
+            ArrQualityDefinitionSheet(definition: definition) { updated in
+                await save(updated: updated)
+            }
+            #if os(iOS)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var definitionsScreen: some View {
+        @Bindable var browser = browser
         Group {
             if isSelectedConnecting || (isSelectedUnreachable && definitions.isEmpty) {
                 ArrServiceConnectionStatusView(
@@ -110,10 +167,9 @@ struct ArrQualityDefinitionsView: View {
                 definitionsList
             }
         }
-        .navigationTitle("Quality Definitions")
         .moreDestinationBackground(.qualityDefinitions)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+            ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
                 .disabled(isSaving)
         }
         .task(id: selectedInstance?.id) {
@@ -124,10 +180,16 @@ struct ArrQualityDefinitionsView: View {
         }
         .onAppear {
             selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+            reconcileSelection()
         }
-        .onChange(of: selectedInstance?.serviceType) { _, newValue in
-            if let newValue { selectedService = newValue }
+        .onChange(of: selectedInstanceID) {
+            browser.selectedDefinitionID = nil
+            sheetDefinition = nil
+            if let serviceType = selectedInstance?.serviceType {
+                browser.selectedService = serviceType
+            }
         }
+        .onChange(of: definitions.map(\.id)) { reconcileSelection() }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: selectedService)
@@ -140,19 +202,11 @@ struct ArrQualityDefinitionsView: View {
             }
             .macSheetSizing()
         }
-        .sheet(item: $editingDefinition) { def in
-            ArrQualityDefinitionSheet(definition: def) { updated in
-                await save(updated: updated)
-            }
-            #if os(iOS)
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-            #endif
-        }
     }
 
     private var definitionsList: some View {
-        List {
+        @Bindable var browser = browser
+        return List(selection: showsDetailPane ? $browser.selectedDefinitionID : .constant(nil)) {
             Section("How to Use") {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Tap a quality row to edit its file size limits.", systemImage: "hand.tap")
@@ -164,12 +218,19 @@ struct ArrQualityDefinitionsView: View {
             }
 
             ForEach(definitions) { def in
-                Button {
-                    editingDefinition = def
-                } label: {
-                    ArrQualityDefinitionRow(definition: def)
+                Group {
+                    if showsDetailPane {
+                        ArrQualityDefinitionRow(definition: def)
+                            .tag(def.id)
+                    } else {
+                        Button {
+                            sheetDefinition = def
+                        } label: {
+                            ArrQualityDefinitionRow(definition: def)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
                 .disabled(isSaving)
             }
         }
@@ -184,12 +245,36 @@ struct ArrQualityDefinitionsView: View {
         }
     }
 
+    @ViewBuilder
+    private var selectedDefinitionDetail: some View {
+        if let definition = selectedDefinition {
+            ArrQualityDefinitionSheet(definition: definition, instance: selectedInstance) { updated in
+                await save(updated: updated)
+            }
+            .id(ArrScopedID(selectedInstance?.id, definition.id))
+        } else {
+            listDetailPlaceholder("Select a Quality Definition", systemImage: "chart.bar")
+        }
+    }
+
+    private func reconcileSelection() {
+        guard showsDetailPane else {
+            browser.selectedDefinitionID = nil
+            return
+        }
+        if let selectedDefinitionID = browser.selectedDefinitionID,
+           !definitions.contains(where: { $0.id == selectedDefinitionID }) {
+            browser.selectedDefinitionID = nil
+        }
+    }
+
     private func load() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
             let client = try currentClient()
+            browser.selectedService = selectedInstance?.serviceType ?? browser.selectedService
             definitions = (try await client.getQualityDefinitions())
                 .sorted { ($0.weight ?? 0) < ($1.weight ?? 0) }
         } catch {
@@ -425,6 +510,8 @@ private struct QualityRangeBarView: View {
 
 private struct ArrQualityDefinitionSheet: View {
     let original: ArrQualityDefinition
+    /// The server the definition was loaded from, named in the detail header.
+    let instance: ArrInstanceRef?
     @State private var draft: ArrQualityDefinition
     @State private var selectedField: QualitySizeField = .min
     @State private var wheelValue: Double
@@ -432,17 +519,55 @@ private struct ArrQualityDefinitionSheet: View {
     let onSave: (ArrQualityDefinition) async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isDetailPane) private var isDetailPane
 
-    init(definition: ArrQualityDefinition, onSave: @escaping (ArrQualityDefinition) async -> Void) {
+    init(
+        definition: ArrQualityDefinition,
+        instance: ArrInstanceRef? = nil,
+        onSave: @escaping (ArrQualityDefinition) async -> Void
+    ) {
         self.original = definition
+        self.instance = instance
         _draft = State(initialValue: definition)
         _wheelValue = State(initialValue: definition.minSize ?? 0)
         self.onSave = onSave
     }
 
+    private var displayTitle: String {
+        draft.title ?? draft.quality?.name ?? "Quality"
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        Group {
+            if isDetailPane {
+                editorChrome(detailForm)
+            } else {
+                NavigationStack {
+                    editorChrome(sheetContent)
+                }
+                .macSheetSizing(minWidth: 460, idealWidth: 500, minHeight: 380)
+            }
+        }
+    }
+
+    // MARK: Detail pane
+
+    /// The detail column has the height a medium sheet does not, so it opens on the
+    /// same centred header as a quality profile and groups the controls beneath it.
+    private var detailForm: some View {
+        Form {
+            Section {
+                TrawlEntityHeader(
+                    title: displayTitle,
+                    subtitle: headerSubtitle,
+                    systemImage: "chart.bar",
+                    tint: instance?.serviceType.serviceIdentity.brandColor ?? .accentColor,
+                    badges: headerBadges
+                )
+            }
+            .listRowBackground(Color.clear)
+
+            Section {
                 QualityRangeBarView(
                     minSize: draft.minSize ?? 0,
                     preferredSize: draft.preferredSize ?? 0,
@@ -453,34 +578,84 @@ private struct ArrQualityDefinitionSheet: View {
                     onSelectField: { selectedField = $0 },
                     onDragEnded: { wheelValue = fieldValue(selectedField) }
                 )
-                .padding(.horizontal, 24)
-                .padding(.top, 20)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
 
                 chipRow
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
+                    .padding(.vertical, 4)
 
                 valueHint
-                    .padding(.top, 10)
-
-                Divider()
-                    .padding(.top, 12)
-
-                WheelValuePicker(value: wheelBinding, selectedField: selectedField)
-                    .onChange(of: selectedField) { _, _ in
-                        wheelValue = fieldValue(selectedField)
-                    }
-
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity)
+            } header: {
+                Text("File Size Limits")
+            } footer: {
+                Text("Values are MB per minute. Choose Min, Preferred or Max, then drag the bar or pick a value below. Max 0 means unlimited.")
             }
-            .navigationTitle(draft.title ?? draft.quality?.name ?? "Quality")
+
+            Section {
+                #if os(macOS)
+                LabeledContent(selectedField.label) {
+                    valuePicker
+                }
+                #else
+                valuePicker
+                #endif
+            } header: {
+                Text("\(selectedField.label) Value")
+            }
+        }
+        .serviceSettingsFormStyle()
+    }
+
+    private var headerSubtitle: String? {
+        var parts: [String] = []
+        if let instance { parts.append(instance.serviceType.displayName) }
+        if let name = draft.quality?.name, name != displayTitle { parts.append(name) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var headerBadges: [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = []
+        if let instance {
+            badges.append(ArrDetailBadge(
+                icon: instance.serviceType.systemImage,
+                label: instance.qualifiedLabel,
+                color: instance.serviceType.serviceIdentity.brandColor
+            ))
+        }
+        if let resolution = draft.quality?.resolution, resolution > 0 {
+            badges.append(ArrDetailBadge(icon: "rectangle.inset.filled", label: "\(resolution)p", color: .blue))
+        }
+        let isUnlimited = (draft.maxSize ?? 0) == 0
+        badges.append(ArrDetailBadge(
+            icon: isUnlimited ? "infinity" : "gauge.with.dots.needle.67percent",
+            label: isUnlimited ? "No Maximum" : "Size Capped",
+            color: isUnlimited ? .secondary : .orange
+        ))
+        return badges
+    }
+
+    private var valuePicker: some View {
+        WheelValuePicker(value: wheelBinding, selectedField: selectedField)
+            .onChange(of: selectedField) { _, _ in
+                wheelValue = fieldValue(selectedField)
+            }
+    }
+
+    // MARK: Shared chrome
+
+    private func editorChrome(_ content: some View) -> some View {
+        content
+            .navigationTitle(displayTitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
+                if !isDetailPane {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                            .disabled(isSaving)
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {
@@ -491,15 +666,51 @@ private struct ArrQualityDefinitionSheet: View {
                                 isSaving = true
                                 await onSave(draft)
                                 isSaving = false
-                                dismiss()
+                                if !isDetailPane {
+                                    dismiss()
+                                }
                             }
                         }
-                        .fontWeight(.semibold)
+                        .bold()
                     }
                 }
             }
+    }
+
+    // MARK: Sheet
+
+    private var sheetContent: some View {
+        VStack(spacing: 0) {
+            QualityRangeBarView(
+                minSize: draft.minSize ?? 0,
+                preferredSize: draft.preferredSize ?? 0,
+                maxSize: draft.maxSize ?? 0,
+                selectedField: selectedField,
+                barHeight: 10,
+                onChangeValue: updateValue,
+                onSelectField: { selectedField = $0 },
+                onDragEnded: { wheelValue = fieldValue(selectedField) }
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+
+            chipRow
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+
+            valueHint
+                .padding(.top, 10)
+
+            Divider()
+                .padding(.top, 12)
+
+            WheelValuePicker(value: wheelBinding, selectedField: selectedField)
+                .onChange(of: selectedField) { _, _ in
+                    wheelValue = fieldValue(selectedField)
+                }
+
+            Spacer(minLength: 0)
         }
-        .macSheetSizing(minWidth: 460, idealWidth: 500, minHeight: 380)
     }
 
     // MARK: Chips
