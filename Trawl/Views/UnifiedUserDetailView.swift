@@ -66,7 +66,7 @@ struct UnifiedUserDetailView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .navigationTitle(displayName)
+        .trawlCentralHeaderNavigationTitle(displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

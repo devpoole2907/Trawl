@@ -735,7 +735,7 @@ private struct ArrQualityDefinitionSheet: View {
 
     private func editorChrome(_ content: some View) -> some View {
         content
-            .navigationTitle(displayTitle)
+            .trawlCentralHeaderNavigationTitle(displayTitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

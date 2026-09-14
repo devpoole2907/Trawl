@@ -57,7 +57,7 @@ struct TorrentDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle(viewModel?.torrent?.name ?? "Detail")
+        .trawlCentralHeaderNavigationTitle(viewModel?.torrent?.name ?? "Detail")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

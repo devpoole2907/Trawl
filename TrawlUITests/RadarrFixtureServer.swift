@@ -115,6 +115,15 @@ final class RadarrFixtureServer: @unchecked Sendable {
     /// queue row linked to a qBittorrent torrent. `{}` remains the historical,
     /// decodable empty-page default for every existing fixture consumer.
     private let queueResponseJSON: String
+    /// `GET /api/v3/config/naming`. Defaults to `{}`, a config with no formats, so
+    /// every existing journey is unaffected. Replaced by each accepted naming PUT,
+    /// as a real Radarr answers later reads with what it stored.
+    private var namingJSON: String
+    /// `PUT /api/v3/config/naming/1` response; nil echoes the submitted body, the way
+    /// a real Radarr answers with the config it stored.
+    private let namingSaveJSON: String?
+    /// Answers the first naming PUT with a 500 when set, for retry journeys.
+    private var namingSaveFailuresRemaining: Int
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -160,7 +169,10 @@ final class RadarrFixtureServer: @unchecked Sendable {
         diskSpaceJSON: String = #"[{"path":"/movies","label":"Movies Archive","freeSpace":2400000000000,"totalSpace":8000000000000}]"#,
         backupsJSON: String = #"[{"id":10,"name":"radarr_backup_2026.09.05.zip","type":"manual","time":"2026-09-05T14:30:00Z","size":22000000,"path":"/backups/radarr_backup_2026.09.05.zip"}]"#,
         updatesJSON: String = #"[{"id":"5.18.4.9674","version":"5.18.4.9674","releaseDate":"2026-08-20T12:00:00Z","fileName":"Radarr.master.5.18.4.9674.linux-core-x64.tar.gz","url":"https://radarr.video","installed":true,"installable":false,"latest":true,"changes":{"new":["Enhanced disk detection"],"fixed":["Fix movie naming bug"]}}]"#,
-        remotePathMappingsJSON: String = #"[{"id":10,"host":"192.168.1.50","remotePath":"/remote/downloads/movies","localPath":"/movies"}]"#
+        remotePathMappingsJSON: String = #"[{"id":10,"host":"192.168.1.50","remotePath":"/remote/downloads/movies","localPath":"/movies"}]"#,
+        namingJSON: String = "{}",
+        namingSaveJSON: String? = nil,
+        rejectFirstNamingSave: Bool = false
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -177,6 +189,9 @@ final class RadarrFixtureServer: @unchecked Sendable {
         self.backupsJSON = backupsJSON
         self.updatesJSON = updatesJSON
         self.remotePathMappingsJSON = remotePathMappingsJSON
+        self.namingJSON = namingJSON
+        self.namingSaveJSON = namingSaveJSON
+        self.namingSaveFailuresRemaining = rejectFirstNamingSave ? 1 : 0
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -303,9 +318,14 @@ final class RadarrFixtureServer: @unchecked Sendable {
         lock.unlock()
         readyWaiters.forEach { $0.continuation.resume() }
 
-        let body = responseBody(for: request)
+        lock.lock()
+        let rejectSave = request.method == "PUT" && request.path == "/api/v3/config/naming/1" && namingSaveFailuresRemaining > 0
+        if rejectSave { namingSaveFailuresRemaining -= 1 }
+        lock.unlock()
+
+        let body = rejectSave ? #"{"message":"Fixture rejected naming save"}"# : responseBody(for: request)
         connection.send(
-            content: Self.httpResponse(body: body),
+            content: Self.httpResponse(body: body, status: rejectSave ? 500 : 200),
             contentContext: .finalMessage,
             isComplete: true,
             completion: .contentProcessed { _ in connection.cancel() }
@@ -399,6 +419,18 @@ final class RadarrFixtureServer: @unchecked Sendable {
         // ArrQueuePage / ArrHistoryPage / ArrBlocklistPage all decode as paged
         // *objects*, not bare arrays - every field on each is optional, so an empty
         // object decodes to an empty page rather than throwing.
+        if request.method == "GET" && request.path == "/api/v3/config/naming" {
+            lock.lock()
+            defer { lock.unlock() }
+            return namingJSON
+        }
+        if request.method == "PUT" && request.path == "/api/v3/config/naming/1" {
+            let stored = namingSaveJSON ?? request.body
+            lock.lock()
+            namingJSON = stored
+            lock.unlock()
+            return stored
+        }
         if request.method == "GET" && request.path == "/api/v3/queue" {
             return queueResponseJSON
         }
@@ -574,9 +606,10 @@ final class RadarrFixtureServer: @unchecked Sendable {
         return RecordedRequest(method: method, path: path, rawQuery: rawQuery, body: body)
     }
 
-    private static func httpResponse(body: String) -> Data {
+    private static func httpResponse(body: String, status: Int = 200) -> Data {
         let bytes = Data(body.utf8)
-        let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
+        let reason = status == 200 ? "OK" : "Internal Server Error"
+        let headers = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         return Data(headers.utf8) + bytes
     }
 }

@@ -212,36 +212,34 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         standard.tap()
         let inspector = app.navigationBars["Standard Episode Format"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
-        let clear = app.buttons["Clear Format"]
-        XCTAssertTrue(clear.waitForExistence(timeout: 5))
-        XCTAssertFalse(clear.isEnabled, "The format must be locked until Edit.")
-        beginEditing(inspector)
-        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5), "Edit must unlock the format.")
-        clear.tap()
-        let format = app.textFields["Naming format"]
-        XCTAssertTrue(format.waitForExistence(timeout: 5))
-        format.tap()
-        format.typeText("Requested Format")
-        inspector.buttons["Save"].tap()
+        let save = inspector.buttons["Save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "The builder opens editable, with no Edit gate.")
+        XCTAssertFalse(inspector.buttons["Edit"].exists, "The detail-pane Edit gate was replaced by direct local editing.")
+        XCTAssertFalse(save.isEnabled, "An untouched draft has nothing to save.")
+
+        addBlock("episodeTitle", in: app)
+        XCTAssertTrue(save.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        save.tap()
         let confirmation = app.alerts["Save Format?"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirmation.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Sonarr")).firstMatch.exists, "The confirmation must name the server.")
         confirmation.buttons["Cancel"].tap()
         XCTAssertFalse(sonarr?.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1") ?? true, "Cancelling the confirmation must not write.")
         XCTAssertTrue(inspector.exists)
 
-        inspector.buttons["Save"].tap()
+        save.tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         confirmation.buttons["Save"].tap()
         let acceptedRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Server Accepted Format")).firstMatch
-        XCTAssertTrue(acceptedRow.waitForExistence(timeout: 15), "The row must show the server response rather than just its optimistic requested format.")
-        XCTAssertTrue(inspector.exists)
-        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "An accepted save returns the editor to read-only.")
-        XCTAssertFalse(clear.isEnabled)
+        XCTAssertTrue(acceptedRow.waitForExistence(timeout: 15), "The row must show the server response rather than the submitted format.")
+        XCTAssertTrue(previewShows("Server Accepted Format", in: app), "The builder must reconcile to the accepted value too.")
+        XCTAssertTrue(inspector.exists, "Saving in the detail column must not dismiss the builder.")
+        XCTAssertTrue(save.wait(for: \.isEnabled, toEqual: false, timeout: 5), "The accepted value is the new baseline, so nothing is left to save.")
         XCTAssertEqual(app.sheets.count, 0)
         let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" })
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
         XCTAssertEqual(config["id"] as? Int, 1)
-        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "Requested Format")
+        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "{Series TitleYear} - S{season:00}E{episode:00} - {Episode CleanTitle}")
         XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date}", "Changing Standard must preserve unrelated naming formats.")
     }
 
@@ -277,7 +275,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     }
 
     @MainActor
-    func testRejectedNamingSaveRestoresTheServerRowAndCanBeRetried() async throws {
+    func testRejectedNamingSaveKeepsTheDraftAndCanBeRetried() async throws {
         let response = #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"standardEpisodeFormat":"Retried Format","dailyEpisodeFormat":"{Series TitleYear} - {Air-Date}"}"#
         let app = try await launchOnIPad(namingSaveJSON: response, rejectFirstEditorSave: true)
         XCTAssertTrue(open(app, "Naming"))
@@ -286,24 +284,22 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         standard.tap()
         let inspector = app.navigationBars["Standard Episode Format"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
-        beginEditing(inspector)
-        let clear = app.buttons["Clear Format"]
-        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5))
-        clear.tap()
-        let format = app.textFields["Naming format"]
-        format.tap()
-        format.typeText("Retry Requested Format")
+        addBlock("episodeTitle", in: app)
+        XCTAssertTrue(previewShows("S02E03 - Pilot", in: app))
+
         let confirmation = app.alerts["Save Format?"]
         inspector.buttons["Save"].tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         confirmation.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Save Failed"].waitForExistence(timeout: 15))
-        let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "{Series TitleYear} - S{season:00}E{episode:00}")).firstMatch
-        XCTAssertTrue(restored.waitForExistence(timeout: 15), "Failure must reload the server value instead of leaving the optimistic edit in the list.")
+        let unchanged = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S02E03")).firstMatch
+        XCTAssertTrue(unchanged.waitForExistence(timeout: 5), "A rejected save must leave the list on the server's value.")
+        XCTAssertFalse(unchanged.label.contains("Pilot"), "The list must not show a format the server refused.")
         XCTAssertTrue(inspector.exists)
-        XCTAssertTrue(inspector.buttons["Save"].exists, "A rejected save must stay in edit mode.")
-        XCTAssertEqual(format.value as? String, "Retry Requested Format", "Reloading the list must not discard the inspector's retry draft.")
+        XCTAssertTrue(previewShows("S02E03 - Pilot", in: app), "The draft must survive the refusal for a retry.")
+        XCTAssertEqual(sonarr?.requests.filter { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }.count, 1)
 
+        XCTAssertTrue(inspector.buttons["Save"].wait(for: \.isEnabled, toEqual: true, timeout: 5))
         inspector.buttons["Save"].tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         confirmation.buttons["Save"].tap()
@@ -315,9 +311,86 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertEqual(saves.count, 2)
         for save in saves {
             let config = try XCTUnwrap(JSONSerialization.jsonObject(with: save.body) as? [String: Any])
-            XCTAssertEqual(config["standardEpisodeFormat"] as? String, "Retry Requested Format")
+            XCTAssertEqual(config["standardEpisodeFormat"] as? String, "{Series TitleYear} - S{season:00}E{episode:00} - {Episode CleanTitle}")
             XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date}")
         }
+    }
+
+    /// Real drag and drop in the detail column: a tray block dropped at the front of the
+    /// board leads the filename, a placed block dragged to the front reorders it, and
+    /// each drop is one undo step, without leaving the native detail pane.
+    @MainActor
+    func testDraggingNamingBlocksInTheDetailColumn() async throws {
+        let app = try await launchOnIPad()
+        XCTAssertTrue(open(app, "Naming"))
+        let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,")).firstMatch
+        XCTAssertTrue(standard.waitForExistence(timeout: 15))
+        standard.tap()
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
+        XCTAssertTrue(previewShows("Example Show (2026) - S02E03", in: app))
+
+        drag(namingElement("naming.tray.year", in: app), toLeadingEdgeOf: namingBlock(titled: "Show name", in: app))
+        XCTAssertTrue(previewShows("(2026) - Example Show (2026) - S02E03", in: app, timeout: 10), "A tray block dropped before the first block must lead the filename.")
+
+        drag(namingBlock(titled: "Episode number", in: app), toLeadingEdgeOf: namingBlock(titled: "Year", in: app))
+        XCTAssertTrue(previewShows("S02E03 - (2026) - Example Show (2026)", in: app, timeout: 10), "Dragging a placed block to the front must reorder it.")
+
+        app.buttons["Undo"].tap()
+        XCTAssertTrue(previewShows("(2026) - Example Show (2026) - S02E03", in: app), "One drop is one undo step.")
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].exists)
+        XCTAssertEqual(app.sheets.count, 0)
+        XCTAssertFalse(sonarr?.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1") ?? true)
+    }
+
+    /// A detail-column draft is never silently replaced. Another format or another
+    /// server first asks; Keep Editing changes nothing, Discard moves on without a
+    /// write, and Save and Continue writes to the server the draft belongs to before
+    /// moving to the other one.
+    @MainActor
+    func testUnsavedNamingDraftGuardsFormatAndServerChanges() async throws {
+        let app = try await launchOnIPad(withAlternateSonarr: true)
+        let primary = try XCTUnwrap(sonarr)
+        let alternate = try XCTUnwrap(alternateSonarr)
+        XCTAssertTrue(open(app, "Naming"))
+
+        let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S02E03")).firstMatch
+        XCTAssertTrue(standard.waitForExistence(timeout: 15))
+        standard.tap()
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
+        addBlock("episodeTitle", in: app)
+        XCTAssertTrue(previewShows("S02E03 - Pilot", in: app))
+
+        let daily = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Daily,")).firstMatch
+        daily.tap()
+        XCTAssertTrue(keepEditing(in: app), "Changing format with edits must ask first.")
+        XCTAssertTrue(app.navigationBars["Standard Episode Format"].exists)
+        XCTAssertTrue(previewShows("S02E03 - Pilot", in: app), "Keep Editing must leave the draft alone.")
+
+        daily.tap()
+        let discard = app.buttons["Discard Changes"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(app.navigationBars["Daily Episode Format"].waitForExistence(timeout: 10))
+        XCTAssertFalse(primary.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"), "Discard must not write.")
+
+        addBlock("quality", in: app)
+        XCTAssertTrue(previewShows("2026-05-17 - WEBDL-1080p Proper", in: app))
+        let scope4K = app.buttons["Sonarr 4K"]
+        XCTAssertTrue(scope4K.waitForExistence(timeout: 10))
+        scope4K.tap()
+        let saveAndContinue = app.buttons["Save and Continue"]
+        XCTAssertTrue(saveAndContinue.waitForExistence(timeout: 5), "Switching server with edits must ask first.")
+        saveAndContinue.tap()
+
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Alternate Standard")).firstMatch.waitForExistence(timeout: 15),
+            "After the save lands, the scope must move to 4K."
+        )
+        let write = try XCTUnwrap(primary.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }, "Save and Continue must write to the server the draft belongs to.")
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: write.body) as? [String: Any])
+        XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date} - {Quality Full}")
+        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "{Series TitleYear} - S{season:00}E{episode:00}", "The discarded Standard draft must not ride along.")
+        XCTAssertFalse(alternate.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"), "Nothing may be written to the server switched to.")
     }
 
     /// A server switch has to take the open editor with it. Both Sonarr fixtures use
@@ -351,7 +424,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)
 
         XCTAssertTrue(open(app, "Naming"))
-        let hdStandard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S{season:00}E{episode:00}")).firstMatch
+        let hdStandard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S02E03")).firstMatch
         XCTAssertTrue(hdStandard.waitForExistence(timeout: 15), "Naming keeps its own scope and should open on the first server.")
         hdStandard.tap()
         let inspector = app.navigationBars["Standard Episode Format"]
@@ -369,24 +442,18 @@ final class IPadSidebarJourneyUITests: XCTestCase {
 
         alternateStandard.tap()
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
-        beginEditing(inspector)
-        let clear = app.buttons["Clear Format"]
-        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5))
-        clear.tap()
-        let format = app.textFields["Naming format"]
-        XCTAssertTrue(format.waitForExistence(timeout: 5))
-        format.tap()
-        format.typeText("4K Requested Format")
+        addBlock("episodeNumber", in: app)
+        XCTAssertTrue(inspector.buttons["Save"].wait(for: \.isEnabled, toEqual: true, timeout: 5))
         inspector.buttons["Save"].tap()
         let confirmation = app.alerts["Save Format?"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
         confirmation.buttons["Save"].tap()
 
-        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "4K Requested Format")).firstMatch
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Alternate Standard - S02E03")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 15))
         let write = try XCTUnwrap(alternate.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }, "The save must reach the 4K server. 4K: \(alternate.requests)")
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: write.body) as? [String: Any])
-        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "4K Requested Format")
+        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "{Series Title} - Alternate Standard - S{season:00}E{episode:00}")
         XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series Title} - {Air-Date}", "The write must be built from 4K's own config, not the first server's.")
         XCTAssertFalse(
             primary.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"),
@@ -738,6 +805,66 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         return true
+    }
+
+    /// Appends a block from the builder's tray, the tap-only way to build a format.
+    @MainActor
+    private func addBlock(_ definitionID: String, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let item = app.descendants(matching: .any).matching(identifier: "naming.tray.\(definitionID)").firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "The tray should offer \(definitionID).", file: file, line: line)
+        XCTAssertTrue(item.wait(for: \.isHittable, toEqual: true, timeout: 5), file: file, line: line)
+        item.tap()
+    }
+
+    /// Answers the unsaved-changes alert with Keep Editing. A confirmation dialog on
+    /// iOS 26 would leave that cancel-role button out, so a tap outside stays as the
+    /// fallback should the question ever be presented that way again.
+    @MainActor
+    private func keepEditing(in app: XCUIApplication) -> Bool {
+        guard app.buttons["Discard Changes"].waitForExistence(timeout: 10) else { return false }
+        let keepEditing = app.buttons["Keep Editing"]
+        if keepEditing.exists {
+            keepEditing.tap()
+        } else {
+            let outside = app.otherElements["PopoverDismissRegion"]
+            guard outside.exists else { return false }
+            outside.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.05)).tap()
+        }
+        return app.buttons["Discard Changes"].waitForNonExistence(timeout: 5)
+    }
+
+    @MainActor
+    private func namingElement(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor
+    private func namingBlock(titled title: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "naming.block", title))
+            .firstMatch
+    }
+
+    /// A real touch drag: a long press lifts the block, then it travels slowly to just
+    /// inside the target's top leading corner - before it in columns and in a single
+    /// column alike - and is held there so the board can settle its slot before the drop.
+    @MainActor
+    private func drag(_ source: XCUIElement, toLeadingEdgeOf target: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(source.waitForExistence(timeout: 10), "The drag source should be on screen.", file: file, line: line)
+        XCTAssertTrue(target.waitForExistence(timeout: 10), "The drop target should be on screen.", file: file, line: line)
+        XCTAssertTrue(source.wait(for: \.isHittable, toEqual: true, timeout: 5), file: file, line: line)
+        let start = source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.2))
+        start.press(forDuration: 0.8, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.8)
+    }
+
+    /// Waits on the builder preview's own text, the evidence every edit shares.
+    @MainActor
+    private func previewShows(_ text: String, in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "naming.preview", text))
+            .firstMatch
+            .waitForExistence(timeout: timeout)
     }
 
     /// Detail-column editors open read-only: Edit unlocks the form and turns into

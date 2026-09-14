@@ -29,6 +29,7 @@ struct ArrDetailHeaderView: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .trawlCentralHeaderTitle(title)
 
                 HStack(spacing: 4) {
                     if let networkOrStudio, !networkOrStudio.isEmpty { Text(networkOrStudio) }

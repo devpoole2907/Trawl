@@ -38,6 +38,7 @@ struct TrawlEntityHeader: View {
             VStack(spacing: 4) {
                 Text(title)
                     .font(.title2.bold())
+                    .trawlCentralHeaderTitle(title)
                     .multilineTextAlignment(.center)
 
                 if let subtitle, !subtitle.isEmpty {
@@ -93,5 +94,67 @@ struct TrawlEntityHeader: View {
         }
         .frame(width: 76, height: 76)
         .clipShape(clipShape)
+    }
+}
+
+/// Only publishes threshold crossings, rather than every point of scrolling.
+private struct CentralHeaderTitlePreference: PreferenceKey {
+    static let defaultValue: [String: Bool] = [:]
+
+    static func reduce(value: inout [String: Bool], nextValue: () -> [String: Bool]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct CentralHeaderTitleTracker: ViewModifier {
+    let title: String
+    @State private var hasScrolledPast = false
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: Bool.self) { proxy in
+                // A title below the viewport has not been scrolled past. Observe
+                // the bottom edge so multiline titles finish leaving first.
+                proxy.bounds(of: .scrollView(axis: .vertical)) != nil
+                    && proxy.frame(in: .scrollView(axis: .vertical)).maxY <= 0
+            } action: { hasScrolledPast = $0 }
+            .preference(key: CentralHeaderTitlePreference.self, value: [title: hasScrolledPast])
+    }
+}
+
+private struct CentralHeaderNavigationTitle: ViewModifier {
+    let title: String
+    @State private var headerStates: [String: Bool] = [:]
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(title)
+            #if os(iOS)
+            .onPreferenceChange(CentralHeaderTitlePreference.self) { headerStates = $0 }
+            .toolbar {
+                if let hasScrolledPast = headerStates[title] {
+                    ToolbarItem(placement: .principal) {
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .opacity(hasScrolledPast ? 1 : 0)
+                            .accessibilityHidden(!hasScrolledPast)
+                            .accessibilityIdentifier("central-header-navigation-title")
+                    }
+                }
+            }
+            #endif
+    }
+}
+
+extension View {
+    func trawlCentralHeaderTitle(_ title: String) -> some View {
+        modifier(CentralHeaderTitleTracker(title: title))
+    }
+
+    /// Retains native navigation identity/back labels, while handing the visible
+    /// title over from a matching central header after it scrolls off the top.
+    func trawlCentralHeaderNavigationTitle(_ title: String) -> some View {
+        modifier(CentralHeaderNavigationTitle(title: title))
     }
 }

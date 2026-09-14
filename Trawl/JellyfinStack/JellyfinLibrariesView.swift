@@ -546,7 +546,7 @@ private struct JellyfinLibraryDetailView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
-        .navigationTitle(folder.name)
+        .trawlCentralHeaderNavigationTitle(folder.name)
         .navigationSubtitle("Jellyfin")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

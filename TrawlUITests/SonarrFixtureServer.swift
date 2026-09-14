@@ -38,7 +38,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
     /// that predates episode coverage keeps exactly the behaviour it had.
     private let qualityProfilesJSON: String
     private let qualityDefinitionsJSON: String
-    private let namingJSON: String
+    /// Served for `GET /api/v3/config/naming`, and replaced by each accepted naming
+    /// PUT - a real Sonarr answers later reads with what it stored, and the compact
+    /// Naming list reloads whenever the builder pops back to it.
+    private var namingJSON: String
     private let qualityDefinitionsSaveJSON: String?
     private let namingSaveJSON: String?
     private let queueJSON: String
@@ -238,11 +241,17 @@ final class SonarrFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v3/qualitydefinition"):
             return qualityDefinitionsJSON
         case ("GET", "/api/v3/config/naming"):
+            lock.lock()
+            defer { lock.unlock() }
             return namingJSON
         case ("PUT", "/api/v3/qualitydefinition/update"):
             return qualityDefinitionsSaveJSON ?? String(data: request.body, encoding: .utf8) ?? "[]"
         case ("PUT", "/api/v3/config/naming/1"):
-            return namingSaveJSON ?? String(data: request.body, encoding: .utf8) ?? "{}"
+            let stored = namingSaveJSON ?? String(data: request.body, encoding: .utf8) ?? "{}"
+            lock.lock()
+            namingJSON = stored
+            lock.unlock()
+            return stored
         case ("GET", "/api/v3/wanted/missing"):
             return wantedJSON
         case ("GET", "/api/v3/log"):

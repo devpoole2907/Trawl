@@ -306,9 +306,10 @@ final class MoreSettingsBreadthUITests: XCTestCase {
     }
 
     /// The native editor columns must not accidentally replace the compact route.
-    /// Cancel exercises the real sheet dismissal and must return to the list.
+    /// The quality editor keeps its sheet and Cancel; the naming builder is pushed,
+    /// and an untouched one returns to the list without asking.
     @MainActor
-    func testCompactQualityAndNamingEditorsRemainCancellableSheets() async throws {
+    func testCompactQualityEditorIsASheetAndNamingBuilderIsPushed() async throws {
         try XCTSkipIf(TrawlChrome.isSidebar, "Compact editor presentation is covered on the iPhone destination.")
         let sonarr = try await SonarrFixtureServer(
             seriesJSON: "[]",
@@ -330,12 +331,13 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         XCTAssertTrue(openDestination(.naming, in: app))
         let standard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Standard,")).firstMatch
         XCTAssertTrue(tapWhenHittable(standard, in: app, timeout: 15))
-        XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
-        let cancelNaming = app.navigationBars["Standard Episode Format"].buttons["Cancel"]
-        XCTAssertTrue(cancelNaming.waitForExistence(timeout: 5), "The naming editor must retain its sheet dismissal affordance.")
-        cancelNaming.tap()
-        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.navigationBars["Standard Episode Format"].exists)
+        let builder = app.navigationBars["Standard Episode Format"]
+        XCTAssertTrue(builder.waitForExistence(timeout: 10))
+        XCTAssertFalse(builder.buttons["Cancel"].exists, "The naming builder is pushed, not presented as a sheet.")
+        XCTAssertEqual(app.sheets.count, 0)
+        XCTAssertTrue(tapWhenHittable(builder.buttons.element(boundBy: 0), in: app, timeout: 5), "An untouched builder keeps the system back button.")
+        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 10), "An untouched builder leaves without asking.")
+        XCTAssertFalse(builder.exists)
         XCTAssertFalse(sonarr.hasReceivedRequest(method: "PUT", path: "/api/v3/qualitydefinition/update"))
         XCTAssertFalse(sonarr.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"), "Cancelling must not save the naming configuration.")
     }

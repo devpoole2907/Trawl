@@ -35,7 +35,7 @@ struct ArrItemDetailView<Item, BodyContent: View>: View {
                 ContentUnavailableView("\(title) Not Found", systemImage: "questionmark.circle")
             }
         }
-        .navigationTitle(title)
+        .trawlCentralHeaderNavigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)

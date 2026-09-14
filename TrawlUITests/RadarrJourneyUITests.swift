@@ -202,6 +202,23 @@ final class RadarrJourneyUITests: XCTestCase {
             "The fixture movie is seeded monitored and in the library, so detailBadges(context:) should append a 'Monitored' pill (ArrDetailSharedTypes.swift) - this is also the baseline state the toggle action below flips away from."
         )
 
+        // The central title owns the initial identity, then hands it to the bar.
+        let compactTitle = app.navigationBars.staticTexts["central-header-navigation-title"]
+        XCTAssertFalse(compactTitle.exists, "The navigation title should stay hidden while the central title is visible.")
+        let detailScroller = app.scrollViews.firstMatch
+        XCTAssertTrue(detailScroller.exists)
+        for _ in 0..<6 {
+            if compactTitle.exists { break }
+            detailScroller.swipeUp()
+        }
+        XCTAssertTrue(compactTitle.waitForExistence(timeout: 5), "Scrolling past the central title should reveal the navigation title.")
+        XCTAssertEqual(compactTitle.label, RadarrFixtureServer.movieTitle)
+        for _ in 0..<6 {
+            if !compactTitle.exists && studioText.isHittable { break }
+            detailScroller.swipeDown()
+        }
+        XCTAssertFalse(compactTitle.exists, "Returning to the central header should hide the navigation title again.")
+
         // MARK: 3. Radarr-specific action: toggle "Monitored" off via the "More" menu.
 
         let moreButton = app.navigationBars.buttons["More"]

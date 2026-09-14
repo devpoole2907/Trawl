@@ -11,9 +11,20 @@ struct ArrNamingConfigView: View {
     /// a different folder tree - so "the Sonarr naming config" was never a single
     /// thing once a pair was configured.
     @State private var localBrowser = ArrNamingBrowserState()
-    @State private var sheetFormatTarget: ArrNamingFormatEditorTarget?
+    /// The builder pushed at compact width. Wider layouts select into the detail column.
+    @State private var compactTarget: ArrNamingFormatEditorTarget?
     @State private var saveTask: Task<Void, Never>?
     @State private var showSettings = false
+
+    /// A selection or server change waiting on the unsaved-changes question.
+    @State private var pendingChange: PendingChange?
+    @State private var guardedSession: ArrNamingEditorSession?
+    @State private var showUnsavedChanges = false
+
+    private enum PendingChange {
+        case select(ArrNamingFormatEditorTarget)
+        case server(UUID?)
+    }
 
     private var browser: ArrNamingBrowserState {
         sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
@@ -97,6 +108,14 @@ struct ArrNamingConfigView: View {
         !isConnected && (serviceManager.isInitializing || serviceManager.isConnecting(selectedService))
     }
 
+    /// The loaded configs still belong to the server that was selected before a
+    /// switch. Their rows must not be offered under the new server's scope, where a
+    /// tap would open that server's draft seeded with the other server's format.
+    private var isShowingStaleServer: Bool {
+        guard let loaded = browser.loadedInstanceID else { return false }
+        return loaded != selectedInstance?.id
+    }
+
     private var showsDetailPane: Bool { sidebarColumn != nil }
 
     var body: some View {
@@ -105,18 +124,10 @@ struct ArrNamingConfigView: View {
         } detail: {
             selectedFormatDetail
         }
-        .sheet(item: $sheetFormatTarget) { target in
-            ArrNamingFormatEditorSheet(
-                target: target,
-                initialFormat: currentFormat(for: target),
-                onSave: { newFormat in await applyFormat(newFormat, for: target) }
-            )
-        }
     }
 
     @ViewBuilder
     private var namingScreen: some View {
-        @Bindable var browser = browser
         Group {
             if isSelectedConnecting || !isConnected {
                 ArrServiceConnectionStatusView(
@@ -124,11 +135,11 @@ struct ArrNamingConfigView: View {
                     title: isSelectedConnecting ? "Connecting to \(selectedService.displayName)" : "\(selectedService.displayName) Unreachable",
                     message: serviceManager.connectionError(selectedService) ?? "Check your server connection and try again."
                 )
-            } else if isLoading && sonarrConfig == nil && radarrConfig == nil {
-                ProgressView("Loading naming settings…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage {
                 ServiceErrorView(title: "Could Not Load Settings", message: error, onRetry: { await load() })
+            } else if (isLoading && sonarrConfig == nil && radarrConfig == nil) || isShowingStaleServer {
+                ProgressView("Loading naming settings…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if selectedService == .sonarr, let config = sonarrConfig {
                 sonarrForm(config: config)
             } else if selectedService == .radarr, let config = radarrConfig {
@@ -137,7 +148,13 @@ struct ArrNamingConfigView: View {
         }
         .moreDestinationBackground(selectedService == .sonarr ? .sonarrNaming : .radarrNaming)
         .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
+            ArrInstanceScopeBar(
+                instances: availableInstances,
+                selection: Binding(
+                    get: { browser.selectedInstanceID },
+                    set: { requestServerChange(to: $0) }
+                )
+            )
         }
         .task(id: selectedInstance?.id) {
             #if DEBUG
@@ -155,8 +172,19 @@ struct ArrNamingConfigView: View {
         }
         .onChange(of: selectedInstanceID) {
             browser.selectedFormatTarget = nil
-            sheetFormatTarget = nil
+            compactTarget = nil
         }
+        .navigationDestination(item: $compactTarget) { target in
+            if let session = session(for: target) {
+                builder(for: session)
+            }
+        }
+        .namingUnsavedChangesDialog(
+            for: guardedSession,
+            isPresented: $showUnsavedChanges,
+            onSave: saveGuardedSessionAndContinue,
+            onDiscard: discardGuardedSessionAndContinue
+        )
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: selectedService)
@@ -173,15 +201,24 @@ struct ArrNamingConfigView: View {
 
     @ViewBuilder
     private var selectedFormatDetail: some View {
-        if let target = browser.selectedFormatTarget {
-            ArrNamingFormatEditorSheet(
-                target: target,
-                initialFormat: currentFormat(for: target),
-                onSave: { newFormat in await applyFormat(newFormat, for: target) }
-            )
-            .id(target.id)
+        if let target = browser.selectedFormatTarget, let session = session(for: target) {
+            builder(for: session)
+                .id(session.id)
         } else {
             listDetailPlaceholder("Select a Naming Format", systemImage: "character.cursor.ibeam")
+        }
+    }
+
+    private func builder(for session: ArrNamingEditorSession) -> some View {
+        ArrNamingBuilderView(session: session) { format in
+            await saveFormat(format, for: session.scope)
+        }
+        .onChange(of: currentFormat(for: session.target)) { _, serverFormat in
+            // An untouched draft follows a value reloaded underneath it; one with
+            // edits keeps measuring against what the person started from.
+            if browser.loadedInstanceID == session.scope.instanceID {
+                session.refreshBaseline(serverFormat)
+            }
         }
     }
 
@@ -284,32 +321,29 @@ struct ArrNamingConfigView: View {
         }
     }
 
+    /// A format's familiar name and what it produces, rather than its token syntax.
     private func formatEditorRow(_ label: String, value: String, target: ArrNamingFormatEditorTarget) -> some View {
-        Button {
-            if showsDetailPane {
-                browser.selectedFormatTarget = target
-            } else {
-                sheetFormatTarget = target
-            }
+        let hasDraft = session(for: target)?.isDirty ?? false
+        return Button {
+            open(target)
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(label)
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
+                    if hasDraft {
+                        Text("Edited")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
 
-                Text(value.isEmpty ? "No format" : value)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(value.isEmpty ? .secondary : .primary)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(ArrNamingFormatPreview.preview(for: value, groups: target.tokenGroups))
+                Text(example(for: value, target: target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -320,7 +354,13 @@ struct ArrNamingConfigView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint(showsDetailPane ? "Shows the token editor in the detail column" : "Opens the token editor")
+        .accessibilityHint(showsDetailPane ? "Shows the format builder in the detail column" : "Opens the format builder")
+    }
+
+    private func example(for value: String, target: ArrNamingFormatEditorTarget) -> String {
+        guard !value.isEmpty else { return "No format" }
+        let catalog = ArrNamingBlockCatalog(target: target)
+        return catalog.render(value).text + (catalog.previewFileExtension ?? "")
     }
 
     @ViewBuilder
@@ -336,6 +376,82 @@ struct ArrNamingConfigView: View {
         }
     }
 
+    // MARK: - Opening and leaving drafts
+
+    private func scope(for target: ArrNamingFormatEditorTarget) -> ArrNamingEditorScope? {
+        selectedInstance.map { ArrNamingEditorScope(instanceID: $0.id, target: target) }
+    }
+
+    private func session(for target: ArrNamingFormatEditorTarget) -> ArrNamingEditorSession? {
+        scope(for: target).flatMap(browser.editorSession(for:))
+    }
+
+    private func open(_ target: ArrNamingFormatEditorTarget) {
+        if showsDetailPane {
+            guard browser.selectedFormatTarget != target else { return }
+            if let current = browser.selectedFormatTarget, let session = session(for: current), session.isDirty {
+                ask(before: .select(target), leaving: session)
+                return
+            }
+        }
+        apply(.select(target))
+    }
+
+    private func requestServerChange(to instanceID: UUID?) {
+        guard instanceID != selectedInstance?.id else { return }
+        if let session = browser.dirtySession(on: selectedInstance?.id) {
+            ask(before: .server(instanceID), leaving: session)
+            return
+        }
+        apply(.server(instanceID))
+    }
+
+    private func ask(before change: PendingChange, leaving session: ArrNamingEditorSession) {
+        pendingChange = change
+        guardedSession = session
+        showUnsavedChanges = true
+    }
+
+    private func apply(_ change: PendingChange) {
+        switch change {
+        case .select(let target):
+            guard let instance = selectedInstance, let scope = scope(for: target) else { return }
+            browser.openEditorSession(
+                for: scope,
+                serverName: ArrInstanceScopeBar.label(for: instance, in: serviceManager),
+                serverFormat: currentFormat(for: target)
+            )
+            if showsDetailPane {
+                browser.selectedFormatTarget = target
+            } else {
+                compactTarget = target
+            }
+        case .server(let instanceID):
+            withAnimation { selectedInstanceID = instanceID }
+        }
+    }
+
+    /// Nothing changes until the server accepts the draft. A refusal leaves the
+    /// selection, the server and the draft exactly where they were.
+    private func saveGuardedSessionAndContinue() {
+        guard let session = guardedSession, let change = pendingChange else { return }
+        Task {
+            let saved = await session.save { format in
+                await saveFormat(format, for: session.scope)
+            }
+            if saved { apply(change) }
+            pendingChange = nil
+            guardedSession = nil
+        }
+    }
+
+    private func discardGuardedSessionAndContinue() {
+        guardedSession?.discardChanges()
+        if let change = pendingChange { apply(change) }
+        pendingChange = nil
+        guardedSession = nil
+    }
+
     // MARK: - Format helpers
 
     private func currentFormat(for target: ArrNamingFormatEditorTarget) -> String {
@@ -347,43 +463,84 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    /// Returns whether the server accepted the format, so a detail-pane editor
-    /// only leaves edit mode once the write has landed.
-    private func applyFormat(_ newFormat: String, for target: ArrNamingFormatEditorTarget) async -> Bool {
-        switch target {
-        case .sonarr(let field):
-            guard var config = sonarrConfig else { return false }
-            field.setValue(newFormat, in: &config)
-            sonarrConfig = config
-            return await saveSonarr(config, successMessage: "\(field.rowTitle) format saved")
-        case .radarr(let field):
-            guard var config = radarrConfig else { return false }
-            field.setValue(newFormat, in: &config)
-            radarrConfig = config
-            return await saveRadarr(config, successMessage: "\(field.rowTitle) format saved")
+    /// Writes one format to the server that owns the draft - captured in its scope,
+    /// never whichever server is selected by the time this runs - and returns the
+    /// value that server accepted, or nil when it refused.
+    ///
+    /// The body is that server's whole naming config with only this field changed,
+    /// so file handling and the other formats go back exactly as the server had them.
+    private func saveFormat(_ format: String, for scope: ArrNamingEditorScope) async -> String? {
+        // A file-handling change still being written is part of the config this
+        // write is built from, so it lands first.
+        await saveTask?.value
+        let serverName = availableInstances.first { $0.id == scope.instanceID }
+            .map { ArrInstanceScopeBar.label(for: $0, in: serviceManager) } ?? scope.target.serviceType.displayName
+
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            switch scope.target {
+            case .sonarr(let field):
+                guard let client = serviceManager.sonarrClient(for: scope.instanceID) else { return nil }
+                var config: SonarrNamingConfig? = browser.loadedInstanceID == scope.instanceID ? sonarrConfig : nil
+                if config == nil { config = try await client.getNamingConfig() }
+                guard var config else { return nil }
+                field.setValue(format, in: &config)
+                let accepted = try await client.updateNamingConfig(config)
+                if browser.loadedInstanceID == scope.instanceID { sonarrConfig = accepted }
+                notificationCenter.showSuccess(title: "Naming Updated", message: "\(field.rowTitle) format saved to \(serverName)")
+                return field.value(in: accepted) ?? format
+            case .radarr(let field):
+                guard let client = serviceManager.radarrClient(for: scope.instanceID) else { return nil }
+                var config: RadarrNamingConfig? = browser.loadedInstanceID == scope.instanceID ? radarrConfig : nil
+                if config == nil { config = try await client.getNamingConfig() }
+                guard var config else { return nil }
+                field.setValue(format, in: &config)
+                let accepted = try await client.updateNamingConfig(config)
+                if browser.loadedInstanceID == scope.instanceID { radarrConfig = accepted }
+                notificationCenter.showSuccess(title: "Naming Updated", message: "\(field.rowTitle) format saved to \(serverName)")
+                return field.value(in: accepted) ?? format
+            }
+        } catch {
+            notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
+            return nil
         }
     }
 
     // MARK: - Data
 
     private func load() async {
+        guard let instance = selectedInstance else {
+            isLoading = false
+            return
+        }
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
-        guard let instance = selectedInstance else { return }
         selectedService = instance.serviceType
+        // A response for a server that is no longer selected is dropped whole: it
+        // must not replace the newly selected server's list, error or spinner.
+        defer {
+            if selectedInstance?.id == instance.id { isLoading = false }
+        }
         do {
             switch instance.serviceType {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient(for: instance.id) else { return }
-                sonarrConfig = try await client.getNamingConfig()
+                let config: SonarrNamingConfig = try await client.getNamingConfig()
+                guard selectedInstance?.id == instance.id else { return }
+                sonarrConfig = config
+                browser.loadedInstanceID = instance.id
             case .radarr:
                 guard let client = serviceManager.radarrClient(for: instance.id) else { return }
-                radarrConfig = try await client.getNamingConfig()
+                let config: RadarrNamingConfig = try await client.getNamingConfig()
+                guard selectedInstance?.id == instance.id else { return }
+                radarrConfig = config
+                browser.loadedInstanceID = instance.id
             case .prowlarr, .bazarr:
                 break
             }
         } catch {
+            guard selectedInstance?.id == instance.id else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -409,27 +566,22 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    @discardableResult
-    private func saveSonarr(_ config: SonarrNamingConfig, successMessage: String? = nil) async -> Bool {
+    private func saveSonarr(_ config: SonarrNamingConfig) async {
         // Saved back to the server the form was loaded from, not to whichever
         // Sonarr happens to be active.
         guard let instance = selectedInstance,
-              let client = serviceManager.sonarrClient(for: instance.id) else { return false }
+              let client = serviceManager.sonarrClient(for: instance.id) else { return }
         isSaving = true
         defer {
             isSaving = false
             saveTask = nil
         }
         do {
-            sonarrConfig = try await client.updateNamingConfig(config)
-            if let successMessage {
-                notificationCenter.showSuccess(title: "Naming Updated", message: successMessage)
-            }
-            return true
+            let accepted = try await client.updateNamingConfig(config)
+            if browser.loadedInstanceID == instance.id { sonarrConfig = accepted }
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
             Task { await load() }
-            return false
         }
     }
 
@@ -452,25 +604,20 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    @discardableResult
-    private func saveRadarr(_ config: RadarrNamingConfig, successMessage: String? = nil) async -> Bool {
+    private func saveRadarr(_ config: RadarrNamingConfig) async {
         guard let instance = selectedInstance,
-              let client = serviceManager.radarrClient(for: instance.id) else { return false }
+              let client = serviceManager.radarrClient(for: instance.id) else { return }
         isSaving = true
         defer {
             isSaving = false
             saveTask = nil
         }
         do {
-            radarrConfig = try await client.updateNamingConfig(config)
-            if let successMessage {
-                notificationCenter.showSuccess(title: "Naming Updated", message: successMessage)
-            }
-            return true
+            let accepted = try await client.updateNamingConfig(config)
+            if browser.loadedInstanceID == instance.id { radarrConfig = accepted }
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
             Task { await load() }
-            return false
         }
     }
 }

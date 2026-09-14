@@ -135,11 +135,11 @@ private struct PaneAwareNavigationTitle: ViewModifier {
     func body(content: Content) -> some View {
         if isDetailPane, let paneTitle {
             content
-                .navigationTitle(paneTitle)
+                .trawlCentralHeaderNavigationTitle(paneTitle)
                 .navigationSubtitle("")
         } else {
             content
-                .navigationTitle(title)
+                .trawlCentralHeaderNavigationTitle(title)
                 .navigationSubtitle(subtitle ?? "")
         }
     }
