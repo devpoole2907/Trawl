@@ -191,18 +191,22 @@ struct ArrNamingFormatEditorSheet: View {
     }
 
     private func insert(_ value: String) {
-        guard !localFormat.isEmpty else {
-            localFormat = value
-            return
-        }
+        localFormat = ArrNamingFormatInsertion.appending(value, to: localFormat)
+    }
+}
 
-        let trailingCharacters = CharacterSet(charactersIn: " -._/[(")
-        if let lastScalar = localFormat.unicodeScalars.last,
-           trailingCharacters.contains(lastScalar) {
-            localFormat += value
-        } else {
-            localFormat += " " + value
+/// Where a tapped token lands in a naming format.
+enum ArrNamingFormatInsertion {
+    /// Appends `token`, adding a space unless the format already ends in a separator
+    /// the token should attach to directly - so `{Series CleanTitle}.` followed by a
+    /// tap on `{season:00}` stays one piece rather than growing a stray space.
+    static func appending(_ token: String, to format: String) -> String {
+        guard !format.isEmpty else { return token }
+        let separators = CharacterSet(charactersIn: " -._/[(")
+        if let last = format.unicodeScalars.last, separators.contains(last) {
+            return format + token
         }
+        return format + " " + token
     }
 }
 

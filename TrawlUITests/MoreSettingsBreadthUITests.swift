@@ -144,6 +144,29 @@ final class MoreSettingsBreadthUITests: XCTestCase {
             },
             "The visible language profile must come from Bazarr's real authenticated profile request."
         )
+
+        // Which presentation a row opens is the `hasTabBarChrome` gate. A split-view
+        // column reports a compact size class even in a full-screen iPad window, so a
+        // size-class check pushes here on the chrome that should get the sheet - and
+        // until now nothing tapped a row, so either behaviour passed.
+        let profileRow = firstButton(labelContaining: BazarrUIFixtureServer.languageProfileName, in: app)
+        XCTAssertTrue(tapWhenHittable(profileRow, in: app, timeout: 10), "The language-profile row should be tappable.")
+        let profileScreen = app.navigationBars[BazarrUIFixtureServer.languageProfileName]
+        // XCUITest taps the row's centre, which is the row's Spacer. That is also
+        // where this first failed: the sheet-chrome row was a plain button with no
+        // content shape, so a tap anywhere but its text opened nothing.
+        XCTAssertTrue(profileScreen.waitForExistence(timeout: 10), "Tapping anywhere on a profile row should open it.")
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                profileScreen.buttons["Cancel"].waitForExistence(timeout: 5),
+                "Without a tab bar the profile opens in a sheet, which carries its own Cancel."
+            )
+        } else {
+            XCTAssertFalse(
+                profileScreen.buttons["Cancel"].exists,
+                "With a tab bar the profile pushes; a Cancel here means it presented a sheet instead."
+            )
+        }
     }
 
     /// Covers More → Integrations & Automation → Remote Path Mappings. This route fans

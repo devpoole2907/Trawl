@@ -172,6 +172,10 @@ struct BazarrLanguageProfilesView: View {
                                 } label: {
                                     LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                        // A plain button only hit-tests what it draws, and the
+                                        // row's middle is a Spacer - so a tap anywhere but the
+                                        // text or the dot did nothing on iPad and the Mac.
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                             } else {

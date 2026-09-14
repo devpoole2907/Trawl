@@ -262,6 +262,9 @@ private struct DownloadOrganizationCategoriesView: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The SABnzbd rows wrap this in a plain button, which only hit-tests what is
+        // drawn - without a shape, the width to the right of the text ignored taps.
+        .contentShape(Rectangle())
     }
 
     private func qBittorrentSavePath(for name: String) -> String {

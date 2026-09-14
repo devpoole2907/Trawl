@@ -298,6 +298,9 @@ struct ArrServiceSettingsView: View {
                                 } label: {
                                     notificationRow(for: notifiableProfile)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                        // The row ends in a Spacer and a plain button only
+                                        // hit-tests what it draws; give the whole row a shape.
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                             } else {

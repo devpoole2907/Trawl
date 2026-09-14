@@ -29,6 +29,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     private var radarr: RadarrFixtureServer?
     private var sabnzbd: SABnzbdFixtureServer?
     private var qbittorrent: QBittorrentFixtureServer?
+    /// The 4K Sonarr, only for journeys that need a server to switch to.
+    private var alternateSonarr: SonarrFixtureServer?
 
     /// The promoted More rows, in sidebar order.
     /// Screens the compact chrome files inside More, each of which is a sidebar row
@@ -63,6 +65,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         radarr?.stop(); radarr = nil
         sabnzbd?.stop(); sabnzbd = nil
         qbittorrent?.stop(); qbittorrent = nil
+        alternateSonarr?.stop(); alternateSonarr = nil
         XCUIDevice.shared.orientation = .portrait
     }
 
@@ -301,6 +304,77 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             XCTAssertEqual(config["standardEpisodeFormat"] as? String, "Retry Requested Format")
             XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series TitleYear} - {Air-Date}")
         }
+    }
+
+    /// A server switch has to take the open editor with it. Both Sonarr fixtures use
+    /// definition id 1 and a Standard format, so an editor that outlived the switch
+    /// would keep editing the first server's copy - and a save from it could land on
+    /// either server. The scope bar clears both selections; this proves it from the
+    /// outside, then saves on 4K and requires the write to reach 4K alone.
+    @MainActor
+    func testSwitchingServerClosesTheOpenEditorAndSavesToTheNewServer() async throws {
+        let app = try await launchOnIPad(withAlternateSonarr: true)
+        let alternate = try XCTUnwrap(alternateSonarr)
+        let primary = try XCTUnwrap(sonarr)
+
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let hdDefinition = app.cells.containing(.staticText, identifier: "Fixture WEBDL-1080p").firstMatch
+        XCTAssertTrue(hdDefinition.waitForExistence(timeout: 15))
+        hdDefinition.tap()
+        XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10))
+
+        let qualityScope4K = app.buttons["Sonarr 4K"]
+        XCTAssertTrue(qualityScope4K.waitForExistence(timeout: 15), "Two Sonarr servers should offer a server scope bar.")
+        qualityScope4K.tap()
+        XCTAssertTrue(
+            app.cells.containing(.staticText, identifier: "Alternate WEBDL-2160p").firstMatch.waitForExistence(timeout: 15),
+            "The list must reload from the selected server. 4K: \(alternate.requests)"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Select a Quality Definition"].waitForExistence(timeout: 10),
+            "The first server's definition editor must not stay open over the second server's list."
+        )
+        XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)
+
+        XCTAssertTrue(open(app, "Naming"))
+        let hdStandard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S{season:00}E{episode:00}")).firstMatch
+        XCTAssertTrue(hdStandard.waitForExistence(timeout: 15), "Naming keeps its own scope and should open on the first server.")
+        hdStandard.tap()
+        let inspector = app.navigationBars["Standard Episode Format"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+
+        let namingScope4K = app.buttons["Sonarr 4K"]
+        XCTAssertTrue(namingScope4K.waitForExistence(timeout: 10))
+        namingScope4K.tap()
+        let alternateStandard = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Alternate Standard")).firstMatch
+        XCTAssertTrue(alternateStandard.waitForExistence(timeout: 15), "Naming must reload from the selected server. 4K: \(alternate.requests)")
+        XCTAssertTrue(
+            app.staticTexts["Select a Naming Format"].waitForExistence(timeout: 10),
+            "The first server's format editor must close when the server changes."
+        )
+
+        alternateStandard.tap()
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        app.buttons["Clear Format"].tap()
+        let format = app.textFields["Naming format"]
+        XCTAssertTrue(format.waitForExistence(timeout: 5))
+        format.tap()
+        format.typeText("4K Requested Format")
+        inspector.buttons["Save"].tap()
+        let confirmation = app.alerts["Save Format?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Save"].tap()
+
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "4K Requested Format")).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 15))
+        let write = try XCTUnwrap(alternate.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }, "The save must reach the 4K server. 4K: \(alternate.requests)")
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: write.body) as? [String: Any])
+        XCTAssertEqual(config["standardEpisodeFormat"] as? String, "4K Requested Format")
+        XCTAssertEqual(config["dailyEpisodeFormat"] as? String, "{Series Title} - {Air-Date}", "The write must be built from 4K's own config, not the first server's.")
+        XCTAssertFalse(
+            primary.hasReceivedRequest(method: "PUT", path: "/api/v3/config/naming/1"),
+            "Nothing may be written to the server the user switched away from."
+        )
     }
 
     // MARK: - An unconfigured service says so once, not twice
@@ -696,7 +770,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// badly enough that no destination resolved at all, which is worth not
     /// rediscovering.
     @MainActor
-    private func launchOnIPad(qualityDefinitionsSaveJSON: String? = nil, namingSaveJSON: String? = nil, rejectFirstEditorSave: Bool = false) async throws -> XCUIApplication {
+    private func launchOnIPad(qualityDefinitionsSaveJSON: String? = nil, namingSaveJSON: String? = nil, rejectFirstEditorSave: Bool = false, withAlternateSonarr: Bool = false) async throws -> XCUIApplication {
         let sonarrServer = try await SonarrFixtureServer(
             seriesJSON: Self.seriesJSON,
             statusJSON: #"{"instanceName":"Fixture Sonarr"}"#,
@@ -712,6 +786,18 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let sabnzbdServer = try await SABnzbdFixtureServer(queueJobName: "Sidebar Journey NZB")
         sabnzbd = sabnzbdServer
 
+        if withAlternateSonarr {
+            // Same definition id and the same Standard field as the primary, with
+            // different values: an editor that survived a server switch would show,
+            // and save, the wrong server's copy rather than failing outright.
+            alternateSonarr = try await SonarrFixtureServer(
+                seriesJSON: "[]",
+                statusJSON: #"{"instanceName":"Alternate Sonarr"}"#,
+                qualityDefinitionsJSON: #"[{"id":1,"quality":{"id":19,"name":"Alternate WEBDL-2160p","source":"web","resolution":2160},"title":"Alternate WEBDL-2160p","weight":90,"minSize":35,"maxSize":400,"preferredSize":200}]"#,
+                namingJSON: #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"colonReplacementFormat":4,"standardEpisodeFormat":"{Series Title} - Alternate Standard","dailyEpisodeFormat":"{Series Title} - {Air-Date}","animeEpisodeFormat":"{Series Title} - {absolute:000}","seriesFolderFormat":"{Series Title}","seasonFolderFormat":"Season {season:00}","specialsFolderFormat":"Specials"}"#
+            )
+        }
+
         XCUIDevice.shared.orientation = .landscapeLeft
 
         let app = XCUIApplication()
@@ -719,6 +805,9 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = sonarrServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = radarrServer.baseURL
         app.launchEnvironment["TRAWL_UITEST_SABNZBD_BASE_URL"] = sabnzbdServer.baseURL
+        if let alternateSonarr {
+            app.launchEnvironment["TRAWL_UITEST_SONARR_B_BASE_URL"] = alternateSonarr.baseURL
+        }
         // Without this, detail screens fire a real TMDb lookup that reaches the public
         // internet and sits out a 15s timeout.
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"

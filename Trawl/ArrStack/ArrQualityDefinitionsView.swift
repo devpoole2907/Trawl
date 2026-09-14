@@ -852,7 +852,10 @@ private enum ArrClientError: Error {
 
 // MARK: - Model Helpers
 
-private extension ArrQualityDefinition {
+/// The bounds rules for a definition's three sizes. Internal rather than private
+/// because these decide what is PUT to the server - `QualityDefinitionSizeBoundsTests`
+/// pins them. A max of 0 means unlimited, so it never pulls the other two down.
+extension ArrQualityDefinition {
     mutating func setMinSize(_ value: Double) {
         minSize = value
         if let maxSize, maxSize > 0, value > maxSize {
