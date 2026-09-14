@@ -694,3 +694,7 @@ The Subtitles hub supplies its list selection binding only in split-view columns
 `TrawlEntityHeader` and `ArrDetailHeaderView` publish whether their title has passed the top of the vertical scroll viewport. `trawlCentralHeaderNavigationTitle` preserves native navigation identity and hides the iOS principal title until the matching header has scrolled past; macOS retains its native title. `ArrItemDetailView`, `paneAwareNavigationTitle`, and direct central-header detail titles use this helper. `RadarrJourneyUITests/testRadarrMovieDetailRendersRealDataAndTogglingMonitoredReachesTheServer` checks initial hiding, reveal after scrolling, and hiding again on return. Other header consumers and macOS appearance remain build/manual verification boundaries.
 
 Validation for the central-header handoff: iOS simulator and macOS builds passed. The focused Radarr UI regression compiled, but two simulator runner-launch attempts stalled before assertions; its runtime result remains unverified.
+
+The central-header handoff also fades its principal title and subtitle together using `withAnimation`, respecting Reduce Motion. Native subtitles are retained when there is no matching header and on macOS. Subtitle appearance remains build/manual verification coverage.
+
+Form/List header recycling retains the last published title crossing, and the toolbar stack attaches its animation directly to opacity so a separate toolbar host does not rely solely on the parent transaction. Unified user detail fade/recycling remains manual verification coverage.

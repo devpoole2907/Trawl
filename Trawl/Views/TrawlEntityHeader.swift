@@ -123,26 +123,54 @@ private struct CentralHeaderTitleTracker: ViewModifier {
 }
 
 private struct CentralHeaderNavigationTitle: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let title: String
+    let subtitle: String?
     @State private var headerStates: [String: Bool] = [:]
 
     func body(content: Content) -> some View {
         content
             .navigationTitle(title)
             #if os(iOS)
-            .onPreferenceChange(CentralHeaderTitlePreference.self) { headerStates = $0 }
+            .navigationSubtitle(headerStates[title] == nil ? (subtitle ?? "") : "")
+            .onPreferenceChange(CentralHeaderTitlePreference.self) { states in
+                // Form/List can recycle the header row off-screen. Keep its last
+                // crossing instead of removing the principal item and exposing
+                // the native title when the row's preference disappears.
+                let updatedStates = headerStates.merging(states, uniquingKeysWith: { _, new in new })
+                guard headerStates != updatedStates else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    headerStates = updatedStates
+                }
+            }
             .toolbar {
                 if let hasScrolledPast = headerStates[title] {
                     ToolbarItem(placement: .principal) {
-                        Text(title)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .opacity(hasScrolledPast ? 1 : 0)
-                            .accessibilityHidden(!hasScrolledPast)
-                            .accessibilityIdentifier("central-header-navigation-title")
+                        VStack(spacing: 2) {
+                            Text(title)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .accessibilityIdentifier("central-header-navigation-title")
+                            if let subtitle, !subtitle.isEmpty {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .accessibilityIdentifier("central-header-navigation-subtitle")
+                            }
+                        }
+                        .opacity(hasScrolledPast ? 1 : 0)
+                        // Toolbar contents are hosted separately from the Form.
+                        // Animate at the opacity itself as well as at the state
+                        // update so the host cannot drop the transaction.
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: hasScrolledPast)
+                        .accessibilityHidden(!hasScrolledPast)
                     }
                 }
             }
+            #else
+            .navigationSubtitle(subtitle ?? "")
             #endif
     }
 }
@@ -154,7 +182,7 @@ extension View {
 
     /// Retains native navigation identity/back labels, while handing the visible
     /// title over from a matching central header after it scrolls off the top.
-    func trawlCentralHeaderNavigationTitle(_ title: String) -> some View {
-        modifier(CentralHeaderNavigationTitle(title: title))
+    func trawlCentralHeaderNavigationTitle(_ title: String, subtitle: String? = nil) -> some View {
+        modifier(CentralHeaderNavigationTitle(title: title, subtitle: subtitle))
     }
 }
