@@ -469,6 +469,11 @@ struct MoreView: View {
     @ViewBuilder
     private var connectivityAlertSection: some View {
         let issues = connectionIssues
+        #if os(iOS)
+        let cardPadding: CGFloat = 0
+        #else
+        let cardPadding: CGFloat = 16
+        #endif
         if !issues.isEmpty {
             Section {
                 ForEach(issues) { issue in
@@ -477,9 +482,13 @@ struct MoreView: View {
                         title: issue.isConnecting ? "Connecting to \(issue.identity.displayName)" : "\(issue.identity.displayName) Unreachable",
                         message: issue.message,
                         isConnecting: issue.isConnecting,
+                        outerPadding: cardPadding,
                         onRetry: { retryConnection(for: issue.identity) },
                         onEdit: { presentConnectionEditor(for: issue.identity) }
                     )
+                    #if os(iOS)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    #endif
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 

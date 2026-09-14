@@ -696,3 +696,5 @@ The Subtitles hub supplies its list selection binding only in split-view columns
 Validation for the central-header handoff: iOS simulator and macOS builds passed. The focused Radarr UI regression compiled, but two simulator runner-launch attempts stalled before assertions; its runtime result remains unverified.
 
 The central-header handoff also fades its principal title and subtitle together using `withAnimation`, respecting Reduce Motion. Native subtitles are retained when there is no matching header and on macOS. Subtitle appearance remains build/manual verification coverage.
+
+More connection cards use zero outer padding and horizontal row insets on iOS so their edges align with the inset-grouped sections. Settings service rows defer unselected backgrounds to the native Form fill; split-pane selection keeps its accent tint. These spacing/background changes remain manual visual coverage; existing ServiceUnavailableJourneyUITests and MoreSettingsBreadthUITests own recovery and Settings navigation behavior.

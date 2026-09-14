@@ -114,12 +114,11 @@ struct SettingsView: View {
 
     /// The selected row's tint. `Form` has no `selection:`, so the highlight is
     /// drawn rather than inherited - the rows are buttons, not list tags.
-    @ViewBuilder
-    private func serviceRowBackground(_ destination: MoreDestination) -> some View {
+    private func serviceRowBackground(_ destination: MoreDestination) -> Color? {
         if showsDetailPane && selectedService == destination {
             Color.accentColor.opacity(0.15)
         } else {
-            Color.clear
+            nil
         }
     }
 

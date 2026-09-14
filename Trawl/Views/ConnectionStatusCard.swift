@@ -15,6 +15,7 @@ struct ConnectionStatusCard: View {
     var retryTitle = "Retry Connection"
     var editTitle = "Edit Server"
     var presentation: Presentation = .card
+    var outerPadding: CGFloat = 16
     var systemImage: String?
     /// Only connection retries are driven by the global scheduler.
     var showsRetryCountdown = true
@@ -58,7 +59,7 @@ struct ConnectionStatusCard: View {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.extraLarge)
                 .strokeBorder(.quaternary)
         }
-        .padding()
+        .padding(outerPadding)
         .frame(maxWidth: .infinity)
         .animation(.snappy, value: isConnecting)
     }
