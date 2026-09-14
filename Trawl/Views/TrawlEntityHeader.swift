@@ -135,13 +135,9 @@ private struct CentralHeaderNavigationTitle: ViewModifier {
             #if os(iOS)
             .navigationSubtitle(headerStates[title] == nil ? (subtitle ?? "") : "")
             .onPreferenceChange(CentralHeaderTitlePreference.self) { states in
-                // Form/List can recycle the header row off-screen. Keep its last
-                // crossing instead of removing the principal item and exposing
-                // the native title when the row's preference disappears.
-                let updatedStates = headerStates.merging(states, uniquingKeysWith: { _, new in new })
-                guard headerStates != updatedStates else { return }
+                guard headerStates != states else { return }
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    headerStates = updatedStates
+                    headerStates = states
                 }
             }
             .toolbar {
@@ -161,10 +157,6 @@ private struct CentralHeaderNavigationTitle: ViewModifier {
                             }
                         }
                         .opacity(hasScrolledPast ? 1 : 0)
-                        // Toolbar contents are hosted separately from the Form.
-                        // Animate at the opacity itself as well as at the state
-                        // update so the host cannot drop the transaction.
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: hasScrolledPast)
                         .accessibilityHidden(!hasScrolledPast)
                     }
                 }
