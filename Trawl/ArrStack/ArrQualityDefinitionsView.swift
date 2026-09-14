@@ -282,8 +282,10 @@ struct ArrQualityDefinitionsView: View {
         }
     }
 
-    private func save(updated: ArrQualityDefinition) async {
-        guard !isSaving else { return }
+    /// Returns whether the server accepted the definitions, so a detail-pane editor
+    /// only leaves edit mode once the write has landed.
+    private func save(updated: ArrQualityDefinition) async -> Bool {
+        guard !isSaving else { return false }
         isSaving = true
         defer { isSaving = false }
         var toSave = definitions
@@ -296,8 +298,10 @@ struct ArrQualityDefinitionsView: View {
             let client = try currentClient()
             definitions = try await client.updateQualityDefinitions(toSave)
                 .sorted { ($0.weight ?? 0) < ($1.weight ?? 0) }
+            return true
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -516,7 +520,11 @@ private struct ArrQualityDefinitionSheet: View {
     @State private var selectedField: QualitySizeField = .min
     @State private var wheelValue: Double
     @State private var isSaving = false
-    let onSave: (ArrQualityDefinition) async -> Void
+    /// A detail pane opens read-only, like the indexer editor: Edit unlocks the form
+    /// and becomes Save. Sheets are opened to edit, so they start unlocked.
+    @State private var isEditing = false
+    /// Returns whether the server accepted the definition.
+    let onSave: (ArrQualityDefinition) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isDetailPane) private var isDetailPane
@@ -524,7 +532,7 @@ private struct ArrQualityDefinitionSheet: View {
     init(
         definition: ArrQualityDefinition,
         instance: ArrInstanceRef? = nil,
-        onSave: @escaping (ArrQualityDefinition) async -> Void
+        onSave: @escaping (ArrQualityDefinition) async -> Bool
     ) {
         self.original = definition
         self.instance = instance
@@ -536,6 +544,11 @@ private struct ArrQualityDefinitionSheet: View {
     private var displayTitle: String {
         draft.title ?? draft.quality?.name ?? "Quality"
     }
+
+    private var isEditable: Bool { !isDetailPane || isEditing }
+
+    /// The sizes the server accepts; the bar and the iOS wheel cover the same span.
+    private static let sizeRange: ClosedRange<Double> = 0...400
 
     var body: some View {
         Group {
@@ -572,40 +585,116 @@ private struct ArrQualityDefinitionSheet: View {
                     minSize: draft.minSize ?? 0,
                     preferredSize: draft.preferredSize ?? 0,
                     maxSize: draft.maxSize ?? 0,
-                    selectedField: selectedField,
+                    selectedField: detailHighlightedField,
                     barHeight: 10,
-                    onChangeValue: updateValue,
+                    onChangeValue: rangeBarChange,
                     onSelectField: { selectedField = $0 },
                     onDragEnded: { wheelValue = fieldValue(selectedField) }
                 )
                 .padding(.horizontal, 8)
                 .padding(.vertical, 12)
 
+                #if os(macOS)
+                sizeFieldRow
+                    .padding(.vertical, 4)
+                #else
                 chipRow
                     .padding(.vertical, 4)
 
                 valueHint
                     .frame(maxWidth: .infinity)
+                #endif
             } header: {
                 Text("File Size Limits")
             } footer: {
-                Text("Values are MB per minute. Choose Min, Preferred or Max, then drag the bar or pick a value below. Max 0 means unlimited.")
-            }
-
-            Section {
                 #if os(macOS)
-                LabeledContent(selectedField.label) {
-                    valuePicker
-                }
+                Text("Values are MB per minute. Drag the bar or set each limit. A Max of 0 means unlimited.")
                 #else
-                valuePicker
+                Text("Values are MB per minute. Choose Min, Preferred or Max, then drag the bar or pick a value below. Max 0 means unlimited.")
                 #endif
+            }
+            .disabled(!isEditable)
+
+            #if os(iOS)
+            Section {
+                valuePicker
             } header: {
                 Text("\(selectedField.label) Value")
             }
+            .disabled(!isEditable)
+            #endif
         }
         .serviceSettingsFormStyle()
+        .animation(.snappy, value: isEditing)
     }
+
+    /// The bar is only draggable while editing; without a handler it draws read-only.
+    private var rangeBarChange: ((QualitySizeField, Double) -> Void)? {
+        guard isEditable else { return nil }
+        return { field, value in updateValue(field, value: value) }
+    }
+
+    /// iOS edits one selected limit at a time, so its marker is highlighted. The Mac
+    /// edits all three in place and has no selection to show.
+    private var detailHighlightedField: QualitySizeField? {
+        #if os(macOS)
+        nil
+        #else
+        selectedField
+        #endif
+    }
+
+    #if os(macOS)
+    /// On a Mac each limit is its own number field and stepper. Selecting a chip and
+    /// scrolling a menu of 801 half-steps is a touch idiom that does not translate.
+    private var sizeFieldRow: some View {
+        HStack(spacing: 10) {
+            ForEach(QualitySizeField.allCases, id: \.self) { field in
+                sizeField(field)
+            }
+        }
+    }
+
+    private func sizeField(_ field: QualitySizeField) -> some View {
+        let value = fieldValue(field)
+        let binding = Binding(
+            get: { fieldValue(field) },
+            set: { updateValue(field, value: min(max($0, Self.sizeRange.lowerBound), Self.sizeRange.upperBound)) }
+        )
+        return VStack(spacing: 6) {
+            Text(field.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(field.color)
+
+            HStack(spacing: 4) {
+                TextField(field.label, value: binding, format: .number.precision(.fractionLength(0...1)))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 64)
+                Stepper(field.label, value: binding, in: Self.sizeRange, step: 0.5)
+                    .labelsHidden()
+            }
+
+            Text(value == 0 ? field.zeroLabel() : String(format: "≈ %.1f GB/hr", value * 60 / 1024))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(field.color.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(field.color.opacity(0.25), lineWidth: 1)
+        )
+    }
+    #endif
 
     private var headerSubtitle: String? {
         var parts: [String] = []
@@ -660,18 +749,25 @@ private struct ArrQualityDefinitionSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     if isSaving {
                         ProgressView()
-                    } else {
+                    } else if isEditable {
                         Button("Save") {
                             Task {
                                 isSaving = true
-                                await onSave(draft)
+                                let saved = await onSave(draft)
                                 isSaving = false
                                 if !isDetailPane {
                                     dismiss()
+                                } else if saved {
+                                    // A rejected save stays in edit mode, ready to retry.
+                                    withAnimation(.snappy) { isEditing = false }
                                 }
                             }
                         }
                         .bold()
+                    } else {
+                        Button("Edit", systemImage: "pencil") {
+                            withAnimation(.snappy) { isEditing = true }
+                        }
                     }
                 }
             }
@@ -910,6 +1006,15 @@ extension ArrQualityDefinition {
 }
 
 #Preview("Quality Definition - Editor") {
-    ArrQualityDefinitionSheet(definition: .preview) { _ in }
+    ArrQualityDefinitionSheet(definition: .preview) { _ in true }
+}
+
+#Preview("Quality Definition - Detail Pane") {
+    NavigationStack {
+        ArrQualityDefinitionSheet(definition: .preview) { _ in true }
+    }
+    .environment(\.isDetailPane, true)
+    // Tall enough to show the size limits, which sit below the header.
+    .frame(width: 600, height: 900)
 }
 #endif

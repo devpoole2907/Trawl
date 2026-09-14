@@ -3,21 +3,28 @@ import SwiftUI
 
 struct ArrNamingFormatEditorSheet: View {
     let target: ArrNamingFormatEditorTarget
-    let onSave: (String) -> Void
+    /// Returns whether the server accepted the format.
+    let onSave: (String) async -> Bool
 
     @State private var localFormat: String
     @State private var tokenFilter = ""
     @State private var showSaveAlert = false
+    /// A detail pane opens read-only, like the indexer editor: Edit unlocks the form
+    /// and becomes Save. Sheets are opened to edit, so they start unlocked.
+    @State private var isEditing = false
+    @State private var isSaving = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isDetailPane) private var isDetailPane
 
-    init(target: ArrNamingFormatEditorTarget, initialFormat: String, onSave: @escaping (String) -> Void) {
+    init(target: ArrNamingFormatEditorTarget, initialFormat: String, onSave: @escaping (String) async -> Bool) {
         self.target = target
         self.onSave = onSave
         self._localFormat = State(initialValue: initialFormat)
     }
 
     private var accent: Color { target.serviceType.serviceIdentity.brandColor }
+
+    private var isEditable: Bool { !isDetailPane || isEditing }
 
     private var filteredTokenGroups: [ArrNamingTokenGroup] {
         let query = tokenFilter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,8 +52,16 @@ struct ArrNamingFormatEditorSheet: View {
                     .searchable(text: $tokenFilter, prompt: "Find tokens")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Save") { showSaveAlert = true }
-                                .bold()
+                            if isSaving {
+                                ProgressView()
+                            } else if isEditing {
+                                Button("Save") { showSaveAlert = true }
+                                    .bold()
+                            } else {
+                                Button("Edit", systemImage: "pencil") {
+                                    withAnimation(.snappy) { isEditing = true }
+                                }
+                            }
                         }
                     }
             } else {
@@ -65,8 +80,18 @@ struct ArrNamingFormatEditorSheet: View {
         }
         .alert("Save Format?", isPresented: $showSaveAlert) {
             Button("Save") {
-                onSave(localFormat)
-                if !isDetailPane { dismiss() }
+                if isDetailPane {
+                    Task {
+                        isSaving = true
+                        let saved = await onSave(localFormat)
+                        isSaving = false
+                        // A rejected save stays in edit mode with the draft, ready to retry.
+                        if saved { withAnimation(.snappy) { isEditing = false } }
+                    }
+                } else {
+                    Task { _ = await onSave(localFormat) }
+                    dismiss()
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -95,6 +120,7 @@ struct ArrNamingFormatEditorSheet: View {
                 }
                 .disabled(localFormat.isEmpty)
             }
+            .disabled(!isEditable)
 
             Section("Preview") {
                 Text(preview)
@@ -126,6 +152,7 @@ struct ArrNamingFormatEditorSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
+                .disabled(!isEditable)
             }
 
             if filteredTokenGroups.isEmpty {
@@ -145,9 +172,11 @@ struct ArrNamingFormatEditorSheet: View {
                         }
                         .padding(.vertical, 4)
                     }
+                    .disabled(!isEditable)
                 }
             }
         }
+        .animation(.snappy, value: isEditing)
         .safeAreaInset(edge: .top) {
             if !isDetailPane && !usesNavigationBarSearch {
                 ArrAddItemSearchBar(text: $tokenFilter, placeholder: "Find tokens")
@@ -670,13 +699,23 @@ private struct ArrNamingTokenFlowLayout: Layout {
     ArrNamingFormatEditorSheet(
         target: .sonarr(.standardEpisode),
         initialFormat: SonarrNamingConfig.preview.standardEpisodeFormat ?? ""
-    ) { _ in }
+    ) { _ in true }
+}
+
+#Preview("Naming Format Editor - Detail Pane") {
+    NavigationStack {
+        ArrNamingFormatEditorSheet(
+            target: .sonarr(.standardEpisode),
+            initialFormat: SonarrNamingConfig.preview.standardEpisodeFormat ?? ""
+        ) { _ in true }
+    }
+    .environment(\.isDetailPane, true)
 }
 
 #Preview("Naming Format Editor - Movie") {
     ArrNamingFormatEditorSheet(
         target: .radarr(.standardMovie),
         initialFormat: RadarrNamingConfig.preview.standardMovieFormat ?? ""
-    ) { _ in }
+    ) { _ in true }
 }
 #endif

@@ -185,11 +185,13 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         row.tap()
         let inspector = app.navigationBars["Fixture WEBDL-1080p"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        beginEditing(inspector)
         inspector.buttons["Save"].tap()
 
         let updatedRow = app.cells.containing(.staticText, identifier: "Server Accepted Quality").firstMatch
         XCTAssertTrue(updatedRow.waitForExistence(timeout: 15), "The content column must render the server's saved response, not retain its old list copy.")
         XCTAssertTrue(inspector.exists, "Saving in the detail column must not dismiss its editor.")
+        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "An accepted save returns the editor to read-only.")
         XCTAssertEqual(app.sheets.count, 0)
         let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" })
         let definitions = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [[String: Any]])
@@ -212,6 +214,9 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
         let clear = app.buttons["Clear Format"]
         XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        XCTAssertFalse(clear.isEnabled, "The format must be locked until Edit.")
+        beginEditing(inspector)
+        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5), "Edit must unlock the format.")
         clear.tap()
         let format = app.textFields["Naming format"]
         XCTAssertTrue(format.waitForExistence(timeout: 5))
@@ -230,6 +235,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let acceptedRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "Server Accepted Format")).firstMatch
         XCTAssertTrue(acceptedRow.waitForExistence(timeout: 15), "The row must show the server response rather than just its optimistic requested format.")
         XCTAssertTrue(inspector.exists)
+        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "An accepted save returns the editor to read-only.")
+        XCTAssertFalse(clear.isEnabled)
         XCTAssertEqual(app.sheets.count, 0)
         let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" })
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
@@ -248,15 +255,18 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         original.tap()
         let inspector = app.navigationBars["Fixture WEBDL-1080p"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        beginEditing(inspector)
         inspector.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Save Failed"].waitForExistence(timeout: 15))
         XCTAssertTrue(original.exists, "A rejected save must not replace the loaded definition.")
         XCTAssertTrue(inspector.exists, "Failure must leave the inspector available for retry.")
+        XCTAssertTrue(inspector.buttons["Save"].waitForExistence(timeout: 5), "A rejected save must stay in edit mode.")
         XCTAssertEqual(sonarr?.requests.filter { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" }.count, 1)
 
         inspector.buttons["Save"].tap()
         XCTAssertTrue(app.cells.containing(.staticText, identifier: "Retried Quality").firstMatch.waitForExistence(timeout: 15))
         XCTAssertTrue(inspector.exists)
+        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "The accepted retry returns the editor to read-only.")
         XCTAssertEqual(app.sheets.count, 0)
         let saves = try XCTUnwrap(sonarr).requests.filter { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" }
         XCTAssertEqual(saves.count, 2)
@@ -276,7 +286,10 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         standard.tap()
         let inspector = app.navigationBars["Standard Episode Format"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
-        app.buttons["Clear Format"].tap()
+        beginEditing(inspector)
+        let clear = app.buttons["Clear Format"]
+        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        clear.tap()
         let format = app.textFields["Naming format"]
         format.tap()
         format.typeText("Retry Requested Format")
@@ -288,6 +301,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let restored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "{Series TitleYear} - S{season:00}E{episode:00}")).firstMatch
         XCTAssertTrue(restored.waitForExistence(timeout: 15), "Failure must reload the server value instead of leaving the optimistic edit in the list.")
         XCTAssertTrue(inspector.exists)
+        XCTAssertTrue(inspector.buttons["Save"].exists, "A rejected save must stay in edit mode.")
         XCTAssertEqual(format.value as? String, "Retry Requested Format", "Reloading the list must not discard the inspector's retry draft.")
 
         inspector.buttons["Save"].tap()
@@ -355,7 +369,10 @@ final class IPadSidebarJourneyUITests: XCTestCase {
 
         alternateStandard.tap()
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
-        app.buttons["Clear Format"].tap()
+        beginEditing(inspector)
+        let clear = app.buttons["Clear Format"]
+        XCTAssertTrue(clear.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        clear.tap()
         let format = app.textFields["Naming format"]
         XCTAssertTrue(format.waitForExistence(timeout: 5))
         format.tap()
@@ -721,6 +738,23 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         return true
+    }
+
+    /// Detail-column editors open read-only: Edit unlocks the form and turns into
+    /// Save. Asserts Save is absent first, so a pane that skipped the gate fails here.
+    /// The Edit tap is retried once because a toolbar tap synthesised while the
+    /// inspector is still settling is dropped silently.
+    @MainActor
+    private func beginEditing(_ inspector: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let edit = inspector.buttons["Edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10), "The detail editor must open read-only behind Edit.", file: file, line: line)
+        let save = inspector.buttons["Save"]
+        XCTAssertFalse(save.exists, "Save must not be offered before Edit.", file: file, line: line)
+        edit.tap()
+        if !save.waitForExistence(timeout: 3), edit.exists {
+            edit.tap()
+        }
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "Edit must turn into Save.", file: file, line: line)
     }
 
     /// `select`, then proves the destination arrived. A sidebar tap synthesised while

@@ -109,7 +109,7 @@ struct ArrNamingConfigView: View {
             ArrNamingFormatEditorSheet(
                 target: target,
                 initialFormat: currentFormat(for: target),
-                onSave: { newFormat in applyFormat(newFormat, for: target) }
+                onSave: { newFormat in await applyFormat(newFormat, for: target) }
             )
         }
     }
@@ -177,7 +177,7 @@ struct ArrNamingConfigView: View {
             ArrNamingFormatEditorSheet(
                 target: target,
                 initialFormat: currentFormat(for: target),
-                onSave: { newFormat in applyFormat(newFormat, for: target) }
+                onSave: { newFormat in await applyFormat(newFormat, for: target) }
             )
             .id(target.id)
         } else {
@@ -347,18 +347,20 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    private func applyFormat(_ newFormat: String, for target: ArrNamingFormatEditorTarget) {
+    /// Returns whether the server accepted the format, so a detail-pane editor
+    /// only leaves edit mode once the write has landed.
+    private func applyFormat(_ newFormat: String, for target: ArrNamingFormatEditorTarget) async -> Bool {
         switch target {
         case .sonarr(let field):
-            guard var config = sonarrConfig else { return }
+            guard var config = sonarrConfig else { return false }
             field.setValue(newFormat, in: &config)
             sonarrConfig = config
-            Task { await saveSonarr(config, successMessage: "\(field.rowTitle) format saved") }
+            return await saveSonarr(config, successMessage: "\(field.rowTitle) format saved")
         case .radarr(let field):
-            guard var config = radarrConfig else { return }
+            guard var config = radarrConfig else { return false }
             field.setValue(newFormat, in: &config)
             radarrConfig = config
-            Task { await saveRadarr(config, successMessage: "\(field.rowTitle) format saved") }
+            return await saveRadarr(config, successMessage: "\(field.rowTitle) format saved")
         }
     }
 
@@ -407,11 +409,12 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    private func saveSonarr(_ config: SonarrNamingConfig, successMessage: String? = nil) async {
+    @discardableResult
+    private func saveSonarr(_ config: SonarrNamingConfig, successMessage: String? = nil) async -> Bool {
         // Saved back to the server the form was loaded from, not to whichever
         // Sonarr happens to be active.
         guard let instance = selectedInstance,
-              let client = serviceManager.sonarrClient(for: instance.id) else { return }
+              let client = serviceManager.sonarrClient(for: instance.id) else { return false }
         isSaving = true
         defer {
             isSaving = false
@@ -422,9 +425,11 @@ struct ArrNamingConfigView: View {
             if let successMessage {
                 notificationCenter.showSuccess(title: "Naming Updated", message: successMessage)
             }
+            return true
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
             Task { await load() }
+            return false
         }
     }
 
@@ -447,9 +452,10 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    private func saveRadarr(_ config: RadarrNamingConfig, successMessage: String? = nil) async {
+    @discardableResult
+    private func saveRadarr(_ config: RadarrNamingConfig, successMessage: String? = nil) async -> Bool {
         guard let instance = selectedInstance,
-              let client = serviceManager.radarrClient(for: instance.id) else { return }
+              let client = serviceManager.radarrClient(for: instance.id) else { return false }
         isSaving = true
         defer {
             isSaving = false
@@ -460,9 +466,11 @@ struct ArrNamingConfigView: View {
             if let successMessage {
                 notificationCenter.showSuccess(title: "Naming Updated", message: successMessage)
             }
+            return true
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
             Task { await load() }
+            return false
         }
     }
 }
