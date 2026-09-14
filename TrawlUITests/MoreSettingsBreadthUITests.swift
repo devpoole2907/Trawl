@@ -169,6 +169,33 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         }
     }
 
+    /// The Startup Tab picker only exists where there are tabs to start on. It follows
+    /// `hasTabBarChrome`, not the size class: Settings is a split-view column on iPad,
+    /// a column that narrow reads compact, and the size-class version showed the picker
+    /// in exactly the chrome it was meant to be hidden from. Theme sits in the same
+    /// section, so finding it proves the section rendered before the picker's absence
+    /// is believed.
+    @MainActor
+    func testStartupTabPickerFollowsTheTabBarChrome() async throws {
+        let sonarr = try await SonarrFixtureServer(seriesJSON: "[]")
+        sonarrServer = sonarr
+        let app = launchApp(sonarr: sonarr)
+        openMoreSettings(in: app)
+
+        let theme = firstElement(labelContaining: "Theme", in: app)
+        XCTAssertTrue(theme.waitForExistence(in: app, timeout: 10), "Settings should render its Appearance section.")
+
+        let startupTab = firstElement(labelContaining: "Startup Tab", in: app)
+        if TrawlChrome.isSidebar {
+            XCTAssertFalse(startupTab.exists, "The sidebar chrome has no tab bar, so there is no startup tab to choose.")
+        } else {
+            XCTAssertTrue(
+                startupTab.waitForExistence(in: app, timeout: 5),
+                "With a tab bar, Settings should offer the Startup Tab choice."
+            )
+        }
+    }
+
     /// Covers More → Integrations & Automation → Remote Path Mappings. This route fans
     /// one screen out to each connected Arr client concurrently, making it a useful
     /// assembly test for client injection and profile-aware routing rather than a

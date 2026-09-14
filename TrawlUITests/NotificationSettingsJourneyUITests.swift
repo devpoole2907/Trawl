@@ -139,6 +139,54 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
         )
     }
 
+    /// The per-server Notifications rows in Sonarr's own settings are the third
+    /// `hasTabBarChrome` reader. A size-class check pushed here on the iPad sidebar,
+    /// where the column reads compact; the sheet is the no-tab-bar route and is the
+    /// only one carrying Done. The hub route above never reaches this gate, so this
+    /// journey starts from Settings instead.
+    @MainActor
+    func testServiceSettingsNotificationRowPresentationFollowsTheChrome() async throws {
+        let server = try await NotificationSettingsUIFixtureServer()
+        self.server = server
+        let app = launchApp(using: server)
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Sonarr profile should reach the app chrome.")
+
+        XCTAssertTrue(openDestination(.settings, in: app), "Settings should be reachable.")
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        let sonarrSettingsRow = firstButton(labelContaining: "Fixture Sonarr", in: app)
+        XCTAssertTrue(tapWhenHittable(sonarrSettingsRow, in: app, timeout: 10), "Settings should list the configured Sonarr.")
+        XCTAssertTrue(app.navigationBars["Sonarr"].waitForExistence(timeout: 10), "The Sonarr row should open Sonarr's settings.")
+
+        // The Notifications row leads with the service name; the server row above it
+        // leads with the profile name. Right-most, because on iPad Settings' own list
+        // sits beside the pane under test.
+        let notificationRows = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Sonarr,"))
+        XCTAssertTrue(
+            notificationRows.firstMatch.waitForExistence(in: app, timeout: 15),
+            "Sonarr settings should offer a Notifications row once an APNs token exists."
+        )
+        let notificationRow = notificationRows.allElementsBoundByIndex.max { $0.frame.minX < $1.frame.minX } ?? notificationRows.firstMatch
+        XCTAssertTrue(tapWhenHittable(notificationRow, in: app, timeout: 10))
+
+        let configuration = app.navigationBars["Sonarr Notifications"]
+        XCTAssertTrue(configuration.waitForExistence(timeout: 10), "The row should open Sonarr's notification configuration.")
+        XCTAssertTrue(
+            app.switches["Series Added"].waitForExistence(in: app, timeout: 15),
+            "The configuration should load the real notification form, whichever way it was presented."
+        )
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                configuration.buttons["Done"].exists,
+                "Without a tab bar the configuration opens as a sheet, which is the route that carries Done."
+            )
+        } else {
+            XCTAssertFalse(
+                configuration.buttons["Done"].exists,
+                "With a tab bar the configuration pushes; Done here means it presented a sheet instead."
+            )
+        }
+    }
+
     // MARK: - Launch and real navigation helpers
 
     @MainActor
