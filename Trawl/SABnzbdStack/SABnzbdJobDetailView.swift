@@ -144,7 +144,7 @@ struct SABnzbdJobDetailView: View {
                 }
             }
 
-            Section("Info") {
+            Section("Details") {
                 SABnzbdDetailInfoRow(label: "Status", value: job.status)
                 SABnzbdDetailInfoRow(label: "Source", value: job.source == .queue ? "Queue" : "History")
                 if let category = job.category, !category.isEmpty {

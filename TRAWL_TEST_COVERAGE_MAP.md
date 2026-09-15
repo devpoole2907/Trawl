@@ -35,6 +35,10 @@ Validation for this tranche: all changed Swift files pass syntax parsing and dif
 | qBittorrent, Seerr and Jellyfin log titles/exports | `LogExportFileTests` | `ServiceLogPresentation` owns service, navigation, share and export names. The focused unit assertion pins all three mappings; screen rendering remains covered by existing log journeys and manual review. |
 | Localized spelling and progress punctuation | Build/string-catalog validation | `Behavior` is the development-language key; `en-GB` and `en-NZ` render `Behaviour`. User-facing indefinite progress uses the ellipsis character. Locale switching and exhaustive visual copy review remain manual checks. |
 
+Validation for this consistency tranche: iOS and macOS compile-only builds passed. `LogExportFileTests` passed 4 tests with zero failures or skips and was accepted by `Scripts/assert-test-results.py`. Changed Swift files passed syntax parsing, the string catalog passed JSON validation and `git diff --check` passed. The complete test plan was not rerun.
+
+Equivalent read-only metadata sections use **Details**; editable identity remains **General**, connection fields remain **Connection**, health remains **Status**, and domain-specific headings such as **System Status** and **Connection Test** retain their more precise names. The remaining generic `Info` headings in the SABnzbd job and Bazarr movie detail screens were normalized to `Details`; this is copy-only and remains covered by their existing detail journeys and visual checks.
+
 ## Arr library, add and release-search flows
 
 | Production surface | Focused coverage to read/run | Current boundary |

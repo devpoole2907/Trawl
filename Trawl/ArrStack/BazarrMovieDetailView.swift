@@ -110,7 +110,7 @@ struct BazarrMovieDetailView: View {
                     }
                 }
 
-                Section("Info") {
+                Section("Details") {
                     LabeledContent("Status", value: statusText)
                     if !movie.audioLanguages.isEmpty {
                         LabeledContent("Audio", value: movie.audioLanguages.map(\.name).joined(separator: ", "))
