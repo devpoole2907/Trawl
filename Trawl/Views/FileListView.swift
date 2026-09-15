@@ -9,7 +9,7 @@ struct FileListView: View {
     var body: some View {
         List(selection: $selectedIndices) {
             if viewModel.isLoading && viewModel.files.isEmpty {
-                ProgressView("Loading files…")
+                TrawlInitialLoadingView(label: "Loading torrent files")
             } else if viewModel.files.isEmpty {
                 ContentUnavailableView("No Files", systemImage: "doc.questionmark", description: Text("No files found for this torrent."))
             } else {

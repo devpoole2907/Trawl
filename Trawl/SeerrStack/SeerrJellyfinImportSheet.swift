@@ -33,8 +33,7 @@ struct SeerrJellyfinImportSheet: View {
         ) {
             Group {
                 if isLoading && availableUsers.isEmpty {
-                    ProgressView("Fetching Jellyfin users…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    TrawlInitialLoadingView(label: "Loading Jellyfin users")
                 } else if let loadError, availableUsers.isEmpty {
                     ServiceErrorView(
                         title: "Couldn't Load Users",

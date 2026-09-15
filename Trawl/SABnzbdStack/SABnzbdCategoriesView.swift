@@ -143,12 +143,7 @@ struct SABnzbdCategoriesView: View {
         if categories.isEmpty {
             SwiftUI.Section {
                 if serviceManager.isLoadingCategoryConfigs {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Loading categories…")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                    TrawlInitialLoadingView(label: "Loading categories")
                 } else if serviceManager.categoryConfigsError == nil {
                     Text("SABnzbd has no categories configured.")
                         .font(.footnote)

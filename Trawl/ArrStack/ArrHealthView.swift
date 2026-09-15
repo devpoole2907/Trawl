@@ -192,7 +192,7 @@ struct ArrHealthView: View {
                     }
             }
             .macSheetSizing(minWidth: 480, idealWidth: 520, minHeight: 280)
-            .presentationDetents([.medium])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
         .onChange(of: filteredChecks.map(\.id)) { _, ids in

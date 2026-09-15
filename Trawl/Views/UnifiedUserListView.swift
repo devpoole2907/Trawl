@@ -40,8 +40,7 @@ struct UnifiedUserListView: View {
             } else if sidebarColumn == .detail {
                 listDetailPlaceholder("Select a User", systemImage: "person.2")
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading users")
             }
         }
         .task(id: seerrClientID) {
@@ -123,10 +122,7 @@ struct UnifiedUserListView: View {
         @Bindable var browser = self.browser
         return List(selection: $browser.selectedUserID) {
             if viewModel.isLoading && viewModel.users.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                TrawlInitialLoadingView(label: "Loading users")
             } else if viewModel.users.isEmpty && viewModel.jellyfinLoadError == nil && viewModel.seerrLoadError == nil {
                 ContentUnavailableView(
                     "No Users",

@@ -16,8 +16,7 @@ struct SeerrLinkedApplicationsView: View {
             if let viewModel {
                 content(viewModel: viewModel)
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading linked applications")
             }
         }
         .paneAwareNavigationTitle("Linked Apps", subtitle: "Seerr")
@@ -64,10 +63,7 @@ struct SeerrLinkedApplicationsView: View {
     private func content(viewModel: SeerrLinkedApplicationsViewModel) -> some View {
         List {
             if viewModel.isLoading && viewModel.entries.isEmpty {
-                Section {
-                    ProgressView("Loading linked applications…")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                TrawlInitialLoadingView(label: "Loading linked applications")
             } else if let error = viewModel.errorMessage, viewModel.entries.isEmpty {
                 ServiceErrorView(
                     title: "Could Not Load Apps",

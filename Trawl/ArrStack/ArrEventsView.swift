@@ -256,11 +256,18 @@ struct ArrEventsView: View {
                 }
             } else if displayedEntries.isEmpty {
                 if currentError == nil {
-                    ContentUnavailableView(
-                        "No Events",
-                        systemImage: "list.bullet.rectangle",
-                        description: Text("No log entries match the current filter.")
-                    )
+                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Group {
+                        if query.isEmpty {
+                            ContentUnavailableView(
+                                "No Events",
+                                systemImage: "list.bullet.rectangle",
+                                description: Text("No log entries match the current filter.")
+                            )
+                        } else {
+                            ContentUnavailableView.search(text: query)
+                        }
+                    }
                     .listRowBackground(Color.clear)
                 }
             } else {

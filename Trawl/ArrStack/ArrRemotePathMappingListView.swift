@@ -126,12 +126,7 @@ struct ArrRemotePathMappingListView: View {
         List {
             if browser.isLoading && browser.mappings.isEmpty {
                 Section {
-                    HStack {
-                        ProgressView()
-                            .padding(.trailing, 4)
-                        Text("Loading remote path mappings…")
-                            .foregroundStyle(.secondary)
-                    }
+                    TrawlInitialLoadingView(label: "Loading remote path mappings")
                 }
             } else if let loadError = browser.loadError {
                 ServiceErrorView(title: "Remote Path Mappings Unavailable", message: loadError, onRetry: { await loadMappings() })

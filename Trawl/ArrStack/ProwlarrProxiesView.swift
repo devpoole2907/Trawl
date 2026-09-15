@@ -67,10 +67,7 @@ struct ProwlarrProxiesListView: View {
     private var content: some View {
         List {
             if viewModel.isLoadingProxies && viewModel.proxies.isEmpty {
-                Section {
-                    ProgressView("Loading proxies…")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                TrawlInitialLoadingView(label: "Loading Prowlarr proxies")
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoadingProxies, viewModel.proxies.isEmpty {
                 ServiceErrorView(
                     title: "Could Not Load Proxies",

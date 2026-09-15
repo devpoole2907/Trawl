@@ -90,12 +90,7 @@ struct ArrDownloadClientListView: View {
                 }
             } else if isLoading && clients.isEmpty {
                 Section {
-                    HStack {
-                        ProgressView()
-                            .padding(.trailing, 4)
-                        Text("Loading download clients…")
-                            .foregroundStyle(.secondary)
-                    }
+                    TrawlInitialLoadingView(label: "Loading download clients")
                 }
             } else if let loadError {
                 ServiceErrorView(

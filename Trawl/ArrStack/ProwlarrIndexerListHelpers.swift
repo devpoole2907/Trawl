@@ -236,8 +236,7 @@ struct DirectIndexerSchemaPickerSheet: View {
         ArrSheetShell(title: "Add Indexer", minContentHeight: 520) {
             Group {
                 if viewModel.isLoadingSchema(for: profile.id) {
-                    ProgressView("Loading indexer types…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    TrawlInitialLoadingView(label: "Loading indexer types")
                 } else if let error = viewModel.schemaError(for: profile.id) {
                     ServiceErrorView(
                         title: "Failed to Load",
@@ -245,11 +244,7 @@ struct DirectIndexerSchemaPickerSheet: View {
                         onRetry: { await viewModel.loadSchema(for: profile.id, serviceType: serviceType, force: true) }
                     )
                 } else if filteredSchema.isEmpty && !searchText.isEmpty {
-                    ContentUnavailableView(
-                        "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text("No indexers match \"\(searchText)\".")
-                    )
+                    ContentUnavailableView.search(text: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
                 } else if filteredSchema.isEmpty, let protocolFilter {
                     ContentUnavailableView(
                         "No \(protocolFilter.title) Indexers",

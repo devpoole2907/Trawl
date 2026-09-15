@@ -681,8 +681,7 @@ struct DownloadsView: View {
         // Gated on the first load rather than on `isLoadingQueue`, which flips true on
         // every poll - an empty queue would otherwise flicker spinner/empty each cycle.
         if arrServiceManager.isLoadingQueue && !arrServiceManager.hasLoadedQueueOnce && items.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading download queue")
         } else if let scopedFailure, items.isEmpty {
             // A scope names one client, so when that client is unreachable this list
             // has to say so. Showing an empty list instead would report "no
@@ -1550,17 +1549,20 @@ struct DownloadsView: View {
         )
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label(emptyTitle, systemImage: emptySystemImage)
-        } description: {
-            if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let query = viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            ContentUnavailableView {
+                Label(emptyTitle, systemImage: emptySystemImage)
+            } description: {
                 Text(emptyDescription)
-            } else {
-                Text("No downloads match “\(viewModel.searchText)”.")
             }
+            .scrollableUnavailableState()
+        } else {
+            ContentUnavailableView.search(text: query)
+                .scrollableUnavailableState()
         }
-        .scrollableUnavailableState()
     }
 
     private var emptyTitle: String {

@@ -240,15 +240,20 @@ struct BazarrLanguageProfilesView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        ContentUnavailableView(
-            searchText.isEmpty ? "No Language Profiles" : "No Results",
-            systemImage: searchText.isEmpty ? "globe" : "magnifyingglass",
-            description: Text(searchText.isEmpty
-                ? "No language profiles are configured in Bazarr."
-                : "No profiles match your search.")
-        )
-        .listRowBackground(Color.clear)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            ContentUnavailableView(
+                "No Language Profiles",
+                systemImage: "globe",
+                description: Text("No language profiles are configured in Bazarr.")
+            )
+            .listRowBackground(Color.clear)
+        } else {
+            ContentUnavailableView.search(text: query)
+                .listRowBackground(Color.clear)
+        }
     }
 
     private var backgroundGradient: some View {
@@ -976,10 +981,11 @@ private struct LanguagePickerSheet: View {
         AppSheetShell(title: "Add Language", minContentHeight: 520) {
             Group {
                 if filtered.isEmpty {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "All Languages Added" : "No Results",
-                        systemImage: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass"
-                    )
+                    if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView("All Languages Added", systemImage: "checkmark.circle")
+                    } else {
+                        ContentUnavailableView.search(text: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
                 } else {
                     List(filtered) { language in
                         Button {

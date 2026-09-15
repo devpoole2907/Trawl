@@ -28,8 +28,7 @@ struct QBittorrentRSSRulesSheet: View {
     var body: some View {
         Group {
                 if isLoading && rules.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    TrawlInitialLoadingView(label: "Loading RSS rules")
                 } else if rules.isEmpty {
                     ContentUnavailableView(
                         "No Auto-Download Rules",

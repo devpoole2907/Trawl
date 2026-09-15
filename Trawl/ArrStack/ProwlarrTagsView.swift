@@ -88,10 +88,7 @@ struct ProwlarrTagsListView: View {
     private var content: some View {
         List {
             if viewModel.isLoading && viewModel.tags.isEmpty {
-                Section {
-                    ProgressView("Loading tags…")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                TrawlInitialLoadingView(label: "Loading Prowlarr tags")
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoading, viewModel.tags.isEmpty {
                 ServiceErrorView(
                     title: "Could Not Load Tags",

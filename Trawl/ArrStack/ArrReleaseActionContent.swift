@@ -916,12 +916,17 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                         Button("Search Again", systemImage: "arrow.clockwise", action: searchAgain)
                     }
                 } else if !releases.isEmpty && derived.displayed.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
-                    } description: {
-                        Text("Some releases are hidden by the selected filters.")
-                    } actions: {
-                        Button("Clear Filters") { clearFilters() }
+                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if query.isEmpty {
+                        ContentUnavailableView {
+                            Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
+                        } description: {
+                            Text("Some releases are hidden by the selected filters.")
+                        } actions: {
+                            Button("Clear Filters") { clearFilters() }
+                        }
+                    } else {
+                        ContentUnavailableView.search(text: query)
                     }
                 } else {
                     releaseList(derived)

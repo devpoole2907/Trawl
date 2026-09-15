@@ -8,6 +8,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     let nounPlural: String
     let emptyIcon: String
     let titleKeyPath: KeyPath<Item, String>
+    var searchText = ""
     var sectionTitle: ((Item) -> String)?
     var usesTitleSections = true
     /// Bound rather than passed by value: the List owns selection now, so it
@@ -81,8 +82,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
 
     var body: some View {
         if isLoading && items.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading \(nounPlural.lowercased())")
         } else if let error, items.isEmpty {
             ServiceErrorView(title: "Failed to Load", message: error, systemImage: emptyIcon, onRetry: retry)
         } else {
@@ -106,10 +106,15 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
                         .allowsHitTesting(!items.isEmpty)
 
                     if items.isEmpty {
-                        ContentUnavailableView {
-                            Label("No \(nounPlural)", systemImage: emptyIcon)
-                        } description: {
-                            Text("No \(nounPlural.lowercased()) match the current filter.")
+                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if query.isEmpty {
+                            ContentUnavailableView {
+                                Label("No \(nounPlural)", systemImage: emptyIcon)
+                            } description: {
+                                Text("No \(nounPlural.lowercased()) match the current filter.")
+                            }
+                        } else {
+                            ContentUnavailableView.search(text: query)
                         }
                     }
                 }

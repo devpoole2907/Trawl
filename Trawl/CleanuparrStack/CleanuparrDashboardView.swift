@@ -78,11 +78,7 @@ struct CleanuparrDashboardView: View {
                     }
                 } else if serviceManager.isConnecting || serviceManager.isRefreshing {
                     Section {
-                        HStack {
-                            Spacer()
-                            ProgressView("Loading Cleanuparr…")
-                            Spacer()
-                        }
+                        TrawlInitialLoadingView(label: "Loading Cleanuparr")
                     }
                 } else {
                     Section {
@@ -357,8 +353,7 @@ struct CleanuparrDashboardView: View {
                 serverDetailPane(stats: stats)
             }
         } else if serviceManager.isConnecting || serviceManager.isRefreshing {
-            ProgressView("Loading Cleanuparr…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading Cleanuparr")
         } else {
             listDetailPlaceholder("Cleanuparr Unavailable", systemImage: "exclamationmark.triangle")
         }

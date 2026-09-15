@@ -49,11 +49,10 @@ struct TrackerListView: View {
             ToolbarItem(placement: trackerRefreshToolbarPlacement) {
                 if isRefreshing {
                     ProgressView()
+                        .accessibilityLabel("Refreshing trackers")
                 } else {
-                    Button {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
                         Task { await refreshTrackers() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
                     }
                 }
             }

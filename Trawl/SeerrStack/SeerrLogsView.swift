@@ -34,17 +34,20 @@ struct SeerrLogsView: View {
             }
 
             if isLoading && entries.isEmpty {
-                Section("Logs") {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading Seerr logs")
             } else if entries.isEmpty {
                 if errorMessage == nil {
-                    ContentUnavailableView(
-                        "No Seerr Logs",
-                        systemImage: "doc.text.magnifyingglass",
-                        description: Text("No server log entries were returned by Seerr.")
-                    )
+                    Group {
+                        if committedSearchText.isEmpty {
+                            ContentUnavailableView(
+                                "No Seerr Logs",
+                                systemImage: "doc.text.magnifyingglass",
+                                description: Text("No server log entries were returned by Seerr.")
+                            )
+                        } else {
+                            ContentUnavailableView.search(text: committedSearchText)
+                        }
+                    }
                     .listRowBackground(Color.clear)
                 }
             } else {

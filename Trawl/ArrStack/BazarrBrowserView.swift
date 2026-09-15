@@ -113,7 +113,8 @@ struct BazarrBrowserView: View {
             isEmpty: seriesItems.isEmpty,
             emptyTitle: "No Series Found",
             emptyIcon: "tv",
-            emptyDescription: LocalizedStringKey(viewModel.searchText.isEmpty ? "No series are being tracked by Bazarr." : "No series match your search."),
+            emptyDescription: "No series are being tracked by Bazarr.",
+            searchText: viewModel.searchText,
             onRetry: { await viewModel.loadSeries() }
         ) {
             List {
@@ -181,7 +182,8 @@ struct BazarrBrowserView: View {
             isEmpty: viewModel.filteredMovies.isEmpty,
             emptyTitle: "No Movies Found",
             emptyIcon: "film",
-            emptyDescription: LocalizedStringKey(viewModel.searchText.isEmpty ? "No movies are being tracked by Bazarr." : "No movies match your search."),
+            emptyDescription: "No movies are being tracked by Bazarr.",
+            searchText: viewModel.searchText,
             onRetry: { await viewModel.loadMovies() }
         ) {
             List {

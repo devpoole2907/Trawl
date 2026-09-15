@@ -80,8 +80,7 @@ struct BazarrLinkedApplicationsListView: View {
                 .listRowBackground(Color.clear)
             } else if isLoadingEverything {
                 Section {
-                    ProgressView("Loading linked applications…")
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    TrawlInitialLoadingView(label: "Loading linked applications")
                 }
             } else {
                 ForEach(availableInstances) { instance in

@@ -2115,8 +2115,7 @@ private struct LibraryImportIdentifySheet: View {
     private var content: some View {
         Group {
             if viewModel.isLoadingLibrary {
-                ProgressView("Loading library…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading library")
             } else if isAddingTheseItems {
                 VStack(spacing: 12) {
                     ProgressView()

@@ -107,9 +107,7 @@ struct ArrUpdatesView: View {
             } else if let instance = selectedInstance {
                 serviceContent(for: instance)
             } else {
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading updates")
             }
         }
         .moreDestinationBackground(.updates)
@@ -199,9 +197,7 @@ struct ArrUpdatesView: View {
                 inlineChangelogList(data: data, instance: instance)
             }
         } else if isLoading || data == nil {
-            ProgressView()
-                .controlSize(.large)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading version history")
         } else if let error = data?.error {
             ServiceErrorView(
                 title: "Updates Unavailable",

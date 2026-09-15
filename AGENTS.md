@@ -89,6 +89,22 @@ Update the focused UI journeys and `TRAWL_TEST_COVERAGE_MAP.md` when changing th
 
 ## Usage-efficient reliability work
 
+## Search empty-state consistency
+
+When a non-empty text query returns no matches, use `ContentUnavailableView.search(text:)` with the trimmed query. Keep custom `ContentUnavailableView` copy for genuinely empty collections and for non-text filters, because those states should explain the domain condition rather than suggest changing search spelling.
+
+## Initial loading consistency
+
+When a screen has no usable content during its first load, reuse `TrawlInitialLoadingView` from `Views/ServiceErrorView.swift`. Give it a concise localized accessibility label; do not add visible loading text. Keep compact `ProgressView` controls for refreshes, pagination, saves, searches, and row-level actions where existing content remains usable.
+
+## Toolbar action accessibility
+
+Every icon-only toolbar action must carry its localized action name. Prefer `Button("Refresh", systemImage: "arrow.clockwise") { ... }` or a `Label` over a bare `Image`; if the action becomes a `ProgressView`, give the progress control a concise accessibility label such as “Refreshing trackers.”
+
+## Sheet sizing
+
+Informational detail sheets that may contain variable or lengthy content should offer both `.medium` and `.large` detents with a visible drag indicator. Keep short, task-focused forms at `.medium` when their complete content fits comfortably without scrolling.
+
 Reliability coverage must stay meaningful without repeatedly rediscovering the whole repository.
 
 Before editing production behavior, consult `TRAWL_TEST_COVERAGE_MAP.md`. Read and run the focused suites mapped to the touched surface; add or update the map whenever test ownership changes or a new behavior remains intentionally uncovered.

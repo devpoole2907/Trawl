@@ -107,10 +107,7 @@ struct JellyfinLibrariesView: View {
             }
 
             if isLoading && folders.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading Jellyfin libraries")
             } else if folders.isEmpty {
                 if errorMessage == nil {
                     ContentUnavailableView(

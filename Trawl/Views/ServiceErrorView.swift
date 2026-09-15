@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// The shared first-load presentation for screens that do not have usable content yet.
+/// Refreshes, pagination, and row actions intentionally keep their smaller inline progress.
+struct TrawlInitialLoadingView: View {
+    var label: LocalizedStringKey = "Loading"
+
+    var body: some View {
+        ProgressView()
+            .controlSize(.large)
+            .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
+            .accessibilityLabel(label)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+}
+
 /// Request failures share the same two presentations as connection failures.
 /// A failed first load blocks the surface; a failed refresh leaves its content usable.
 struct ServiceErrorView: View {

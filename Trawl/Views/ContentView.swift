@@ -920,11 +920,7 @@ struct ContentView: View {
         let results = MoreSearchIndex.results(for: query)
 
         if results.isEmpty {
-            ContentUnavailableView(
-                "No Results",
-                systemImage: "magnifyingglass",
-                description: Text("No settings or features match \"\(query)\".")
-            )
+            ContentUnavailableView.search(text: query)
         } else {
             Section("Results") {
                 ForEach(results) { entry in

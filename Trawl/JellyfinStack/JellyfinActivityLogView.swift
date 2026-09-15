@@ -24,9 +24,7 @@ struct JellyfinActivityLogView: View {
             if let viewModel {
                 activityContent(viewModel)
             } else {
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading Jellyfin activity")
             }
         }
         .navigationTitle(presentation.navigationTitle)
@@ -66,10 +64,7 @@ struct JellyfinActivityLogView: View {
             }
 
             if viewModel.isLoading && viewModel.entries.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading Jellyfin activity")
             } else if viewModel.entries.isEmpty {
                 if viewModel.errorMessage == nil {
                     ContentUnavailableView(

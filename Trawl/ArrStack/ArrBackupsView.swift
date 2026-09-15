@@ -444,9 +444,7 @@ struct ArrBackupsView: View {
         } else if let state = states[instance.id] {
             backupList(state: state, instance: instance)
         } else {
-            ProgressView()
-                .controlSize(.large)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading backups")
         }
     }
 
@@ -570,9 +568,7 @@ struct ArrBackupsView: View {
     @ViewBuilder
     private func jellyfinContent() -> some View {
         if jellyfinServiceManager.isConnecting && !jellyfinServiceManager.isConnected {
-            ProgressView()
-                .controlSize(.large)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TrawlInitialLoadingView(label: "Loading Jellyfin backups")
         } else if !jellyfinServiceManager.isConnected {
             ServiceErrorView(
                 title: "Jellyfin Unreachable",

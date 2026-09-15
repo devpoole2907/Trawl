@@ -35,8 +35,7 @@ struct SeerrDashboardView: View {
             } else if sidebarColumn == .detail {
                 listDetailPlaceholder("Select a Request", systemImage: "square.and.arrow.down.on.square")
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading Seerr requests")
             }
         }
         // An approved request that never becomes a download is almost always Seerr
@@ -122,7 +121,7 @@ struct SeerrDashboardView: View {
             }
 
             if viewModel.isLoading && viewModel.requests.isEmpty {
-                loadingRows
+                TrawlInitialLoadingView(label: "Loading Seerr requests")
             } else if !query.isEmpty && viewModel.isLoadingSearch && viewModel.searchRequests.isEmpty {
                 loadingRows
             } else if query.isEmpty && viewModel.requests.isEmpty {

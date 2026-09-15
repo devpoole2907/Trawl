@@ -159,8 +159,7 @@ struct ArrQualityDefinitionsView: View {
                     message: serviceManager.connectionError(selectedService) ?? "Check your server connection and try again."
                 )
             } else if isLoading && definitions.isEmpty {
-                ProgressView("Loading quality definitions…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading quality definitions")
             } else if let error = errorMessage, definitions.isEmpty {
                 ServiceErrorView(title: "Could Not Load", message: error, onRetry: { await load() })
             } else {

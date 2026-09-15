@@ -140,8 +140,7 @@ struct ArrNamingConfigView: View {
             } else if let error = errorMessage {
                 ServiceErrorView(title: "Could Not Load Settings", message: error, onRetry: { await load() })
             } else if (isLoading && sonarrConfig == nil && radarrConfig == nil) || isShowingStaleServer {
-                ProgressView("Loading naming settings…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading naming settings")
             } else if selectedService == .sonarr, let config = sonarrConfig {
                 sonarrForm(config: sonarrHandlingDraft ?? config)
             } else if selectedService == .radarr, let config = radarrConfig {

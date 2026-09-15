@@ -57,9 +57,7 @@ struct SeerrJobsView: View {
             }
 
             if isLoading && jobs.isEmpty {
-                Section {
-                    ProgressView().frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading Seerr jobs")
             } else if jobs.isEmpty {
                 if errorMessage == nil {
                     ContentUnavailableView(

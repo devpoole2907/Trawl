@@ -67,8 +67,7 @@ struct ProwlarrIndexerListView: View {
             } else if showsSelectedIndexer {
                 listDetailPlaceholder("Select an Indexer", systemImage: "magnifyingglass.circle")
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading indexers")
             }
         }
         .sheet(isPresented: $showSetupCheck) {
@@ -1052,13 +1051,20 @@ struct ProwlarrIndexerListView: View {
         )
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        ContentUnavailableView(
-            "No Indexers",
-            systemImage: "magnifyingglass.circle",
-            description: Text("Use the add button to create an indexer in Prowlarr, Sonarr, or Radarr.")
-        )
-        .listRowBackground(Color.clear)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            ContentUnavailableView(
+                "No Indexers",
+                systemImage: "magnifyingglass.circle",
+                description: Text("Use the add button to create an indexer in Prowlarr, Sonarr, or Radarr.")
+            )
+            .listRowBackground(Color.clear)
+        } else {
+            ContentUnavailableView.search(text: query)
+                .listRowBackground(Color.clear)
+        }
     }
 
     private var backgroundGradient: some View {

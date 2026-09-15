@@ -79,10 +79,7 @@ struct JellyfinSessionsView: View {
             }
 
             if browser.isLoading && browser.sessions.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading playback sessions")
             } else if browser.sessions.isEmpty {
                 if browser.errorMessage == nil {
                     ContentUnavailableView(

@@ -285,13 +285,20 @@ struct BazarrProvidersView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        ContentUnavailableView(
-            searchText.isEmpty ? "No Providers" : "No Results",
-            systemImage: searchText.isEmpty ? "person.2.slash" : "magnifyingglass",
-            description: Text(searchText.isEmpty ? "Use the add button to enable a Bazarr subtitle provider." : "No enabled providers match your search.")
-        )
-        .listRowBackground(Color.clear)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            ContentUnavailableView(
+                "No Providers",
+                systemImage: "person.2.slash",
+                description: Text("Use the add button to enable a Bazarr subtitle provider.")
+            )
+            .listRowBackground(Color.clear)
+        } else {
+            ContentUnavailableView.search(text: query)
+                .listRowBackground(Color.clear)
+        }
     }
 
     private var backgroundGradient: some View {
@@ -699,11 +706,17 @@ private struct BazarrProviderPickerView: View {
                 }
 
                 if availableProviders.isEmpty {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "All Providers Enabled" : "No Results",
-                        systemImage: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass",
-                        description: Text(searchText.isEmpty ? "Every supported provider is already enabled." : "No providers match your search.")
-                    )
+                    Group {
+                        if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            ContentUnavailableView(
+                                "All Providers Enabled",
+                                systemImage: "checkmark.circle",
+                                description: Text("Every supported provider is already enabled.")
+                            )
+                        } else {
+                            ContentUnavailableView.search(text: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        }
+                    }
                     .listRowBackground(Color.clear)
                 } else {
                     ForEach(availableProviders) { provider in

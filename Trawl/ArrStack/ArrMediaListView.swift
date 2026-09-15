@@ -314,6 +314,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             nounPlural: nounPlural,
             emptyIcon: emptyIcon,
             titleKeyPath: \.titlePlaceholder,
+            searchText: viewModel.searchText,
             sectionTitle: { entry in
                 let item = entry.primary
                 return item.sortTitle ?? item.title

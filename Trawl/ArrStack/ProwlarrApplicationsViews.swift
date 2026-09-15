@@ -68,8 +68,7 @@ struct ProwlarrApplicationsListView: View {
         List {
             if viewModel.isLoadingApplications && viewModel.supportedApplications.isEmpty {
                 Section {
-                    ProgressView("Loading linked applications…")
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    TrawlInitialLoadingView(label: "Loading linked applications")
                 }
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoadingApplications, viewModel.supportedApplications.isEmpty {
                 ServiceErrorView(

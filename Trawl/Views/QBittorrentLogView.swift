@@ -61,18 +61,23 @@ struct QBittorrentLogView: View {
                 )
             }
             if isLoading && entries.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .listRowBackground(Color.clear)
+                TrawlInitialLoadingView(label: "Loading qBittorrent logs")
             } else if displayed.isEmpty {
                 if loadError == nil {
-                    ContentUnavailableView(
-                        "No Log Entries",
-                        systemImage: "doc.text",
-                        description: Text(entries.isEmpty
-                            ? "No log entries found."
-                            : "No entries match the selected filter.")
-                    )
+                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    Group {
+                        if query.isEmpty {
+                            ContentUnavailableView(
+                                "No Log Entries",
+                                systemImage: "doc.text",
+                                description: Text(entries.isEmpty
+                                    ? "No log entries found."
+                                    : "No entries match the selected filter.")
+                            )
+                        } else {
+                            ContentUnavailableView.search(text: query)
+                        }
+                    }
                     .listRowBackground(Color.clear)
                 }
             } else {

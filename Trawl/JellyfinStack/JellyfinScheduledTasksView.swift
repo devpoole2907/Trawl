@@ -20,9 +20,7 @@ struct JellyfinScheduledTasksView: View {
             if let viewModel {
                 tasksContent(viewModel)
             } else {
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading scheduled tasks")
             }
         }
         .paneAwareNavigationTitle("Scheduled Tasks", subtitle: "Jellyfin")
@@ -54,10 +52,7 @@ struct JellyfinScheduledTasksView: View {
             }
 
             if viewModel.isLoading && viewModel.tasks.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading scheduled tasks")
             } else if viewModel.tasks.isEmpty {
                 if viewModel.errorMessage == nil {
                     ContentUnavailableView(

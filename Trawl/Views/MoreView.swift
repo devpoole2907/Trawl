@@ -958,11 +958,7 @@ struct MoreView: View {
     private var moreSearchResultsContent: some View {
         if filteredMoreSearchEntries.isEmpty {
             Section {
-                ContentUnavailableView(
-                    "No Results",
-                    systemImage: "magnifyingglass",
-                    description: Text("No settings or features match \"\(trimmedMoreSearchText)\".")
-                )
+                ContentUnavailableView.search(text: trimmedMoreSearchText)
                 .frame(maxWidth: .infinity)
             }
         } else {

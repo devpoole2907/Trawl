@@ -53,8 +53,7 @@ struct TorrentDetailView: View {
             } else if let vm = viewModel, vm.torrent == nil {
                 ContentUnavailableView("Torrent Not Found", systemImage: "questionmark.circle", description: Text("This torrent may have been removed."))
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading torrent details")
             }
         }
         .trawlCentralHeaderNavigationTitle(viewModel?.torrent?.name ?? "Detail")

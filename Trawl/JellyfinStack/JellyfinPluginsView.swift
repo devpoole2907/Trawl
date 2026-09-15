@@ -68,10 +68,7 @@ struct JellyfinPluginsView: View {
             }
 
             if browser.isLoading && browser.plugins.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                }
+                TrawlInitialLoadingView(label: "Loading Jellyfin plugins")
             } else if browser.plugins.isEmpty {
                 if browser.errorMessage == nil {
                     ContentUnavailableView(

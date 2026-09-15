@@ -92,12 +92,7 @@ struct SABnzbdNewsServersView: View {
             if servers.isEmpty {
                 if serviceManager.isLoadingNewsServers {
                     Section {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Loading servers…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+                        TrawlInitialLoadingView(label: "Loading servers")
                     }
                 } else if serviceManager.newsServersError == nil {
                     Section {
@@ -190,12 +185,7 @@ struct SABnzbdNewsServersView: View {
             if servers.isEmpty {
                 if serviceManager.isLoadingNewsServers {
                     Section {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Loading servers…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
+                        TrawlInitialLoadingView(label: "Loading servers")
                     }
                 } else if serviceManager.newsServersError == nil {
                     Section {

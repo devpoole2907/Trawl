@@ -29,6 +29,10 @@ Validation for this tranche: all changed Swift files pass syntax parsing and dif
 
 ## Cross-service presentation consistency
 
+Text-search empty results use `ContentUnavailableView.search(text:)` with the trimmed query across the app chrome, Downloads, Arr libraries/releases/events, Prowlarr indexer lists and pickers, Bazarr browsers/providers/language profiles, and searchable service logs. Genuinely empty collections and filter-only empty results retain domain-specific guidance. Rendering remains owned by the existing navigation and surface journeys for those screens; the standard component itself is system behavior and is not duplicated in a unit test.
+
+First loads with no usable content use `TrawlInitialLoadingView`: a centered large progress indicator with a screen-specific accessibility label and no visible loading sentence. Refresh, pagination, search, save, and row-action progress remains compact and local to the affected control. Existing surface journeys own the transition from initial loading to content/error/empty state; the system progress indicator itself is not duplicated in a unit test.
+
 | Production surface | Focused coverage | Boundary |
 |---|---|---|
 | Bazarr movie/episode subtitle removal and linked-application disabling | `BazarrSeriesDetailJourneyUITests`; `ArrUncoveredScreensJourneyUITests` | Destructive swipe/context actions now stage a target and require confirmation; subtitle rows disallow full-swipe deletion. Existing journeys own navigation and server requests, but confirmation dismissal and the no-request-before-confirm boundary remain UI coverage gaps. |

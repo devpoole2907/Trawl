@@ -35,8 +35,7 @@ struct SeerrIssueListView: View {
             } else if sidebarColumn == .detail {
                 listDetailPlaceholder("Select an Issue", systemImage: "exclamationmark.bubble")
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                TrawlInitialLoadingView(label: "Loading Seerr issues")
             }
         }
         .task(id: seerrClientID) {
@@ -103,10 +102,7 @@ struct SeerrIssueListView: View {
             }
 
             if viewModel.isLoading && viewModel.issues.isEmpty {
-                Section {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                TrawlInitialLoadingView(label: "Loading Seerr issues")
             } else if !query.isEmpty && viewModel.isLoadingSearch && viewModel.searchIssues.isEmpty {
                 Section {
                     ProgressView()
