@@ -1498,7 +1498,7 @@ struct SonarrEpisodeSearchView: View {
                         if viewModel.isLoadingHistory && episodeHistory.isEmpty {
                             HStack {
                                 Spacer()
-                                ProgressView("Loading history...")
+                                ProgressView("Loading history…")
                                 Spacer()
                             }
                         } else {

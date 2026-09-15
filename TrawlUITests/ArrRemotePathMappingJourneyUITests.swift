@@ -64,7 +64,7 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         localField.tap()
         localField.typeText(ArrRemotePathMappingUIFixtureServer.addedLocalPath)
 
-        let save = app.buttons["Save"]
+        let save = app.buttons["Add"]
         XCTAssertTrue(save.waitForExistence(timeout: 5), "The editor should expose Save after both required paths are supplied.")
         XCTAssertTrue(save.isEnabled, "Save must enable only after the production form receives both entered paths.")
         save.tap()
@@ -110,7 +110,7 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         replaceText(in: existingRemote, with: ArrRemotePathMappingUIFixtureServer.editedRemotePath, in: app)
         replaceText(in: existingLocal, with: ArrRemotePathMappingUIFixtureServer.editedLocalPath, in: app)
 
-        let update = app.buttons["Update"]
+        let update = app.buttons["Save"]
         XCTAssertTrue(update.waitForExistence(timeout: 5), "The edit sheet should expose Update.")
         XCTAssertTrue(update.isEnabled, "Update should remain enabled after both edited paths are present.")
         update.tap()

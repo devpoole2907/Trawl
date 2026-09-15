@@ -93,11 +93,6 @@ struct BazarrProvidersView: View {
         .sheet(item: $editingProvider) { provider in
             NavigationStack {
                 providerEditor(provider)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { editingProvider = nil }
-                        }
-                    }
             }
             .macSheetSizing()
         }
@@ -262,6 +257,7 @@ struct BazarrProvidersView: View {
             provider: provider,
             settings: settings,
             mode: .edit,
+            showsClose: !usesNavigationBarSearch,
             onRemove: { Task { await disable(provider) } }
         ) { values in
             await save(provider: provider, values: values, enabling: false)
@@ -761,21 +757,26 @@ private struct BazarrProviderEditorView: View {
     let mode: Mode
     let onSave: ([String: String]) async -> Bool
     let onRemove: (() -> Void)?
+    let showsClose: Bool
 
     @State private var values: [String: String]
     @State private var isSaving = false
+    @State private var isEditing = false
+    @State private var originalValues: [String: String]
     @State private var showDisableConfirm = false
 
     init(
         provider: BazarrProviderDefinition,
         settings: [String: JSONValue],
         mode: Mode,
+        showsClose: Bool = false,
         onRemove: (() -> Void)? = nil,
         onSave: @escaping ([String: String]) async -> Bool
     ) {
         self.provider = provider
         self.settings = settings
         self.mode = mode
+        self.showsClose = showsClose
         self.onRemove = onRemove
         self.onSave = onSave
 
@@ -786,6 +787,7 @@ private struct BazarrProviderEditorView: View {
                 ?? ""
         }
         _values = State(initialValue: initialValues)
+        _originalValues = State(initialValue: initialValues)
     }
 
     var body: some View {
@@ -828,7 +830,7 @@ private struct BazarrProviderEditorView: View {
             if !provider.fields.isEmpty {
                 Section("Configuration") {
                     ForEach(provider.fields) { field in
-                        fieldRow(field)
+                        fieldRow(field).disabled((mode == .edit && !isEditing) || isSaving)
                     }
                 }
             }
@@ -847,14 +849,17 @@ private struct BazarrProviderEditorView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .trawlEditingGuard(isEditing: isEditing, isSaving: isSaving)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Button(mode.buttonTitle) {
-                        Task { await save() }
-                    }
+            if mode == .edit {
+                TrawlEditToolbar(isEditing: $isEditing, isSaving: isSaving,
+                    canSave: values != originalValues,
+                    onCancel: { values = originalValues }, onSave: { Task { await save() } },
+                    onClose: showsClose ? { dismiss() } : nil)
+            } else {
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving { ProgressView() }
+                    else { Button(mode.buttonTitle) { Task { await save() } } }
                 }
             }
         }
@@ -896,7 +901,12 @@ private struct BazarrProviderEditorView: View {
         }
         defer { isSaving = false }
         if await onSave(formValues) {
-            dismiss()
+            if mode == .edit {
+                originalValues = values
+                isEditing = false
+            } else {
+                dismiss()
+            }
         }
     }
 

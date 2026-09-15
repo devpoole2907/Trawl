@@ -246,7 +246,7 @@ struct SeerrSettingsView: View {
                     Section("System Status") {
                         HStack {
                             ProgressView()
-                            Text("Loading system status...")
+                            Text("Loading system status…")
                                 .foregroundStyle(.secondary)
                         }
                     }

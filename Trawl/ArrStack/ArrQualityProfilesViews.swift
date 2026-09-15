@@ -218,9 +218,7 @@ struct ArrQualityProfilesListView: View {
                 Text("Quality profiles define which releases qualify, whether upgrades are allowed, and where upgrades stop.")
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.qualityProfiles)
         .safeAreaInset(edge: .top) {
             ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)

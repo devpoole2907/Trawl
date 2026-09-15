@@ -190,7 +190,7 @@ struct ArrDownloadClientEditorSheet: View {
     var body: some View {
         AppSheetShell(
             title: sheetTitle,
-            confirmTitle: isEditing ? "Update" : "Save",
+            confirmTitle: isEditing ? "Save" : "Add",
             isConfirmDisabled: !canSave,
             isConfirmLoading: isSaving,
             onConfirm: { Task { await save() } },

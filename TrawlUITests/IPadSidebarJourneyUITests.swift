@@ -44,7 +44,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     private static let promotedDestinations = [
         "Missing", "Blocklist", "Calendar", "Requests", "Indexers",
         "Download Clients", "Quality Profiles", "Quality Definitions", "Naming",
-        "Setup Check", "Settings"
+        "Library Import", "Manual Import", "Setup Check", "Settings"
     ]
 
     private static let headlineSeries = "Aurora Reach"
@@ -176,6 +176,31 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     }
 
     @MainActor
+    func testStagedQualityEditingBlocksSidebarUntilCancel() async throws {
+        let app = try await launchOnIPad()
+        XCTAssertTrue(open(app, "Quality Definitions"))
+        let definition = app.cells.containing(.staticText, identifier: "Fixture WEBDL-1080p").firstMatch
+        XCTAssertTrue(definition.waitForExistence(timeout: 15))
+        definition.tap()
+        let inspector = app.navigationBars["Fixture WEBDL-1080p"]
+        XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        let naming = try XCTUnwrap(sidebarRow(app, "Naming"))
+        XCTAssertTrue(naming.isEnabled, "Sidebar navigation should be available before editing.")
+
+        beginEditing(inspector)
+        naming.tap()
+        XCTAssertTrue(inspector.buttons["Save"].waitForExistence(timeout: 5), "A sidebar tap during editing must leave the staged quality inspector open.")
+        XCTAssertTrue(inspector.exists, "The quality inspector must remain open during editing.")
+        let cancel = inspector.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        cancel.tap()
+        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 5), "Cancel must return the quality editor to read-only.")
+        XCTAssertTrue(open(app, "Naming"))
+        XCTAssertFalse(inspector.exists, "After Cancel, Naming must replace the quality inspector normally.")
+        XCTAssertFalse(sonarr?.hasReceivedRequest(method: "PUT", path: "/api/v3/qualitydefinition/update") ?? true, "Cancelling the staged edit must not write to Sonarr.")
+    }
+
+    @MainActor
     func testQualityDefinitionSaveUpdatesTheListFromTheServerResponseWithoutClosingTheInspector() async throws {
         let response = #"[{"id":1,"quality":{"id":7,"name":"WEBDL-1080p"},"title":"Server Accepted Quality","weight":70,"minSize":20,"maxSize":180,"preferredSize":90}]"#
         let app = try await launchOnIPad(qualityDefinitionsSaveJSON: response)
@@ -212,9 +237,9 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         standard.tap()
         let inspector = app.navigationBars["Standard Episode Format"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
+        beginEditing(inspector)
         let save = inspector.buttons["Save"]
-        XCTAssertTrue(save.waitForExistence(timeout: 5), "The builder opens editable, with no Edit gate.")
-        XCTAssertFalse(inspector.buttons["Edit"].exists, "The detail-pane Edit gate was replaced by direct local editing.")
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "Edit unlocks the naming builder.")
         XCTAssertFalse(save.isEnabled, "An untouched draft has nothing to save.")
 
         addBlock("episodeTitle", in: app)
@@ -234,7 +259,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertTrue(acceptedRow.waitForExistence(timeout: 15), "The row must show the server response rather than the submitted format.")
         XCTAssertTrue(previewShows("Server Accepted Format", in: app), "The builder must reconcile to the accepted value too.")
         XCTAssertTrue(inspector.exists, "Saving in the detail column must not dismiss the builder.")
-        XCTAssertTrue(save.wait(for: \.isEnabled, toEqual: false, timeout: 5), "The accepted value is the new baseline, so nothing is left to save.")
+        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 5), "An accepted save returns Naming to read-only.")
         XCTAssertEqual(app.sheets.count, 0)
         let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" })
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
@@ -329,6 +354,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Standard Episode Format"].waitForExistence(timeout: 10))
         XCTAssertTrue(previewShows("Example Show (2026) - S02E03", in: app))
 
+        beginEditing(app.navigationBars["Standard Episode Format"])
         drag(namingElement("naming.tray.year", in: app), toLeadingEdgeOf: namingBlock(titled: "Show name", in: app))
         XCTAssertTrue(previewShows("(2026) - Example Show (2026) - S02E03", in: app, timeout: 10), "A tray block dropped before the first block must lead the filename.")
 
@@ -676,8 +702,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// is not in this chrome. So it has to reach screens that are *not* sidebar rows,
     /// which is exactly what a filter over the eleven destination names could not do.
     ///
-    /// Manual Import is the case that matters: it remains a leaf under Library
-    /// Management rather than becoming a sidebar destination of its own.
+    /// Language Profiles is the case that matters: a Bazarr leaf under Library
+    /// Management with no sidebar row, so it lands in Root Folders' stack.
     @MainActor
     func testSidebarSearchReachesAScreenThatIsNotASidebarRow() async throws {
         let app = try await launchOnIPad()
@@ -689,19 +715,19 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let field = sidebarSearchField(app)
         XCTAssertTrue(field.waitForExistence(timeout: 10), "The sidebar should offer a search field.")
         field.tap()
-        field.typeText("manual import")
+        field.typeText("language profiles")
 
         let result = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Manual Import"))
+            .matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Language Profiles"))
             .firstMatch
         XCTAssertTrue(
             result.waitForExistence(timeout: 10),
-            "Searching the sidebar should find Manual Import, which is not a sidebar row."
+            "Searching the sidebar should find Language Profiles, which is not a sidebar row."
         )
         result.tap()
 
         XCTAssertTrue(
-            app.showsScreen(named: "Manual Import", timeout: 15),
+            app.showsScreen(named: "Language Profiles", timeout: 15),
             "Choosing a search result should open that screen."
         )
         // Choosing a result has to *leave* search, not merely clear its text. iOS keeps
@@ -709,27 +735,52 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         // empty results container - the screen opens and there is no way back to
         // anything else. The row being here is how that is detected from the outside.
         XCTAssertNotNil(
-            sidebarRow(app, "Library Import"),
+            sidebarRow(app, "Root Folders"),
             "The result should leave its owning Library Management row on screen, so there is a way back."
         )
-        let back = app.navigationBars["Manual Import"].buttons["Back"]
+        let back = app.navigationBars["Language Profiles"].buttons["Back"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        XCTAssertFalse(app.navigationBars["Manual Import"].exists)
-        XCTAssertTrue(app.showsScreen(named: "Library Import"))
+        XCTAssertFalse(app.navigationBars["Language Profiles"].exists)
+        XCTAssertTrue(app.showsScreen(named: "Root Folders"))
 
         // Repeat from the already-selected owner: this must not depend on a sidebar
         // selection change, and leaving the result must remove its pushed screen.
         let repeatedField = sidebarSearchField(app)
         XCTAssertTrue(repeatedField.waitForExistence(timeout: 5))
         repeatedField.tap()
-        repeatedField.typeText("manual import")
+        repeatedField.typeText("language profiles")
         XCTAssertTrue(result.waitForExistence(timeout: 10))
         result.tap()
-        XCTAssertTrue(app.showsScreen(named: "Manual Import"))
+        XCTAssertTrue(app.showsScreen(named: "Language Profiles"))
         XCTAssertTrue(select(app, "Downloads"))
         XCTAssertTrue(app.buttons["Downloads, change view"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Language Profiles"].exists)
+    }
+
+    /// Manual Import used to be reachable here only by search, while Library Import
+    /// beside it had a row. Selecting it must open Manual Import itself - not Library
+    /// Import's screen, which shares the same location browser - and switching
+    /// between the two must swap the screen rather than leave the other one showing.
+    @MainActor
+    func testManualImportIsASidebarRowBelowLibraryImport() async throws {
+        let app = try await launchOnIPad()
+
+        let library = try XCTUnwrap(sidebarRow(app, "Library Import"))
+        let manual = try XCTUnwrap(sidebarRow(app, "Manual Import"), "Manual Import should be a sidebar row.")
+        XCTAssertLessThan(library.frame.minY, manual.frame.minY, "Manual Import should sit below Library Import.")
+
+        XCTAssertTrue(select(app, "Manual Import"))
+        XCTAssertTrue(app.showsScreen(named: "Manual Import", timeout: 15), "The row should open Manual Import.")
+        XCTAssertFalse(app.navigationBars["Library Import"].exists)
+
+        XCTAssertTrue(select(app, "Library Import"))
+        XCTAssertTrue(app.showsScreen(named: "Library Import", timeout: 15))
         XCTAssertFalse(app.navigationBars["Manual Import"].exists)
+
+        XCTAssertTrue(select(app, "Manual Import"))
+        XCTAssertTrue(app.showsScreen(named: "Manual Import", timeout: 15))
+        XCTAssertFalse(app.navigationBars["Library Import"].exists)
     }
 
     // MARK: - Helpers
@@ -810,6 +861,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// Appends a block from the builder's tray, the tap-only way to build a format.
     @MainActor
     private func addBlock(_ definitionID: String, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let bar = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", "Format")).firstMatch
+        if bar.buttons["Edit"].exists { beginEditing(bar, file: file, line: line) }
         let item = app.descendants(matching: .any).matching(identifier: "naming.tray.\(definitionID)").firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 10), "The tray should offer \(definitionID).", file: file, line: line)
         XCTAssertTrue(item.wait(for: \.isHittable, toEqual: true, timeout: 5), file: file, line: line)
@@ -917,6 +970,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         case "Naming": "naming"
         case "Root Folders": "rootFolders"
         case "Library Import": "libraryImport"
+        case "Manual Import": "manualImport"
         case "Setup Check": "setupCheck"
         case "Settings": "settings"
         case "Libraries": "jellyfinLibraries"

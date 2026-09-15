@@ -9,6 +9,7 @@ struct BazarrMovieDetailView: View {
     @State private var error: String?
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
+    @State private var subtitlePendingDeletion: BazarrSubtitle?
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     private let loadsOnAppear: Bool
 
@@ -59,6 +60,23 @@ struct BazarrMovieDetailView: View {
             await load()
         }
         .refreshable { await load() }
+        .confirmationDialog(
+            "Delete Subtitle?",
+            isPresented: Binding(
+                get: { subtitlePendingDeletion != nil },
+                set: { if !$0 { subtitlePendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let subtitle = subtitlePendingDeletion else { return }
+                subtitlePendingDeletion = nil
+                Task { await deleteSubtitle(subtitle) }
+            }
+            Button("Cancel", role: .cancel) { subtitlePendingDeletion = nil }
+        } message: {
+            Text("This permanently removes the selected subtitle file.")
+        }
     }
 
     private var contentView: some View {
@@ -110,10 +128,10 @@ struct BazarrMovieDetailView: View {
                     Section("Current Subtitles") {
                         ForEach(Array(movie.subtitles.enumerated()), id: \.offset) { _, sub in
                             BazarrSubtitleListRow(subtitle: sub)
-                                .swipeActions(edge: .trailing) {
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if sub.path != nil {
                                         Button(role: .destructive) {
-                                            Task { await deleteSubtitle(sub) }
+                                            subtitlePendingDeletion = sub
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
@@ -240,7 +258,7 @@ struct BazarrMovieDetailView: View {
         do {
             try await viewModel.downloadMovieSubtitles(radarrId: radarrId, language: lang.code2, forced: lang.forced, hi: lang.hi)
             await load()
-            inAppNotificationCenter.showSuccess(title: "Downloading", message: "\(lang.name) subtitles downloading...")
+            inAppNotificationCenter.showSuccess(title: "Downloading", message: "\(lang.name) subtitles downloading…")
         } catch {
             inAppNotificationCenter.showError(title: "Download Failed", message: error.localizedDescription)
         }

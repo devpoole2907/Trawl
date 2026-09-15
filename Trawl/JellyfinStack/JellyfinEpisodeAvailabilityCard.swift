@@ -101,11 +101,11 @@ struct JellyfinEpisodeAvailabilityCard: View {
             if isExpanded {
                 switch stage {
                 case .connecting:
-                    loadingRow("Connecting to Jellyfin...")
+                    loadingRow("Connecting to Jellyfin…")
                 case .loadingSeries:
-                    loadingRow("Checking series in Jellyfin...")
+                    loadingRow("Checking series in Jellyfin…")
                 case .loadingEpisodes:
-                    loadingRow("Checking episode in Jellyfin...")
+                    loadingRow("Checking episode in Jellyfin…")
                 case .seriesMissing:
                     missingRow(title: "Series not in Jellyfin", detail: "The parent series for this episode wasn't found.")
                 case .episodeMissing:

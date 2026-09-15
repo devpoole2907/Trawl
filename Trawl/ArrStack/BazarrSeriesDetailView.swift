@@ -576,6 +576,7 @@ private struct BazarrEpisodeDetailView: View {
 
     @State private var isSearching = false
     @State private var showInteractiveSearch = false
+    @State private var subtitlePendingDeletion: BazarrSubtitle?
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
 
     private var isComplete: Bool { episode.missingSubtitles.isEmpty }
@@ -610,10 +611,10 @@ private struct BazarrEpisodeDetailView: View {
                 Section("Current Subtitles") {
                     ForEach(Array(episode.subtitles.enumerated()), id: \.offset) { _, sub in
                         BazarrSubtitleListRow(subtitle: sub)
-                            .swipeActions(edge: .trailing) {
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if sub.path != nil {
                                     Button(role: .destructive) {
-                                        Task { await deleteSubtitle(sub) }
+                                        subtitlePendingDeletion = sub
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -647,6 +648,23 @@ private struct BazarrEpisodeDetailView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete Subtitle?",
+            isPresented: Binding(
+                get: { subtitlePendingDeletion != nil },
+                set: { if !$0 { subtitlePendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let subtitle = subtitlePendingDeletion else { return }
+                subtitlePendingDeletion = nil
+                Task { await deleteSubtitle(subtitle) }
+            }
+            Button("Cancel", role: .cancel) { subtitlePendingDeletion = nil }
+        } message: {
+            Text("This permanently removes the selected subtitle file.")
         }
         #if os(iOS)
         .listStyle(.insetGrouped)

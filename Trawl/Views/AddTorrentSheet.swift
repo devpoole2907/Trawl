@@ -224,7 +224,7 @@ struct AddTorrentSheet: View {
         @Bindable var vm = vm
         switch vm.source {
         case .magnet:
-            linkTextField(placeholder: "magnet:?xt=urn:btih:...", text: $vm.magnetLink)
+            linkTextField(placeholder: "magnet:?xt=urn:btih:…", text: $vm.magnetLink)
         case .url:
             linkTextField(placeholder: "https://example.com/file.nzb", text: $vm.linkURL)
         case .torrentFile:

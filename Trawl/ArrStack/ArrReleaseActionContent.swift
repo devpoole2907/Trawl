@@ -62,7 +62,7 @@ struct ArrReleaseActionContent: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .prominentBottomButton(
-            isGrabbing ? "Downloading..." : "Download Release",
+            isGrabbing ? "Downloading…" : "Download Release",
             systemImage: isGrabbing ? nil : "arrow.down.circle.fill",
             isLoading: isGrabbing,
             isDisabled: !canDownload,

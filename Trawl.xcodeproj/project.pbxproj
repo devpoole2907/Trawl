@@ -1119,6 +1119,8 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"en-GB",
+				"en-NZ",
 				Base,
 			);
 			mainGroup = 7C724A112F81D5920073A650;

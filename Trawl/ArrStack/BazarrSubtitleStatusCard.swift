@@ -282,7 +282,7 @@ struct BazarrSubtitleStatusCard: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
-            Text("Checking Bazarr...")
+            Text("Checking Bazarr…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

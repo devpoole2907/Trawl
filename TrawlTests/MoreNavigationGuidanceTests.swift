@@ -4,11 +4,38 @@ import Testing
 @Suite("More navigation guidance")
 @MainActor
 struct MoreNavigationGuidanceTests {
-    @Test("Manual Import search belongs to its import browser rather than Root Folders")
+    @Test("Import search results land on their own sidebar rows rather than Root Folders")
     func manualImportSidebarOwner() {
-        #expect(RootTab.owningSidebarDestination(for: .manualImport, category: "Library Management") == .libraryImport)
+        #expect(RootTab.owningSidebarDestination(for: .manualImport, category: "Library Management") == .manualImport)
         #expect(RootTab.owningSidebarDestination(for: .libraryImport, category: "Library Management") == .libraryImport)
         #expect(RootTab.owningSidebarDestination(for: .rootFolders, category: "Library Management") == .rootFolders)
+    }
+
+    /// Manual Import was reachable on iPad and Mac only through search, while its
+    /// sibling Library Import had a row. Pinned as a row of its own, directly below
+    /// Library Import, opening its own screen rather than Library Import's.
+    @Test("Manual Import is a Management sidebar row directly below Library Import")
+    func manualImportSidebarRow() throws {
+        let rows = SidebarSection.management.rows
+        let library = try #require(rows.firstIndex(of: .libraryImport))
+        #expect(rows.firstIndex(of: .manualImport) == library + 1)
+        #expect(SidebarSection.allCases.flatMap(\.rows).filter { $0 == .manualImport }.count == 1)
+
+        #expect(RootTab.manualImport.moreRoot == .manualImport)
+        #expect(RootTab.manualImport.moreRoot != RootTab.libraryImport.moreRoot)
+        #expect(RootTab.manualImport.displayName == "Manual Import")
+        #expect(RootTab.manualImport.navigationIdentifier == "nav.manualImport")
+        #expect(RootTab.manualImport.systemImage != RootTab.libraryImport.systemImage)
+        #expect(RootTab.manualImport.isSidebarOnly)
+        #expect(!RootTab.startupChoices.contains(.manualImport))
+    }
+
+    /// Every sidebar row must own a distinct screen, or search's exact match picks
+    /// whichever row `allCases` lists first and the other can never be reached.
+    @Test("Every sidebar row roots a distinct screen")
+    func sidebarRowsRootDistinctScreens() {
+        let roots = SidebarSection.allCases.flatMap(\.rows).compactMap(\.moreRoot)
+        #expect(Set(roots).count == roots.count)
     }
 
     @Test("SABnzbd guidance names the destination, not the container it sits in")

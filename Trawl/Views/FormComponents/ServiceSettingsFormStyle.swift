@@ -84,3 +84,55 @@ extension View {
         #endif
     }
 }
+
+/// Shared chrome for existing configuration: read-only → Edit → draft → Save.
+/// The owner snapshots/restores its draft and exits editing only after an accepted save.
+struct TrawlEditToolbar: ToolbarContent {
+    @Binding var isEditing: Bool
+    let isSaving: Bool
+    let canSave: Bool
+    var canEdit: Bool = true
+    var editTitle: String = "Edit"
+    var saveTitle: String = "Save"
+    var onEdit: () -> Void = {}
+    let onCancel: () -> Void
+    let onSave: () -> Void
+    var onClose: (() -> Void)? = nil
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            if isEditing {
+                Button("Cancel") {
+                    onCancel()
+                    isEditing = false
+                }
+                .disabled(isSaving)
+            } else if let onClose {
+                Button("Close", action: onClose)
+            }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            if isSaving {
+                ProgressView()
+            } else if isEditing {
+                Button(saveTitle, action: onSave)
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!canSave)
+            } else {
+                Button(editTitle, systemImage: "pencil") {
+                    onEdit()
+                    isEditing = true
+                }
+                .disabled(!canEdit)
+            }
+        }
+    }
+}
+
+extension View {
+    /// Keep the draft on screen until Save succeeds or Cancel explicitly restores it.
+    func trawlEditingGuard(isEditing: Bool, isSaving: Bool) -> some View {
+        navigationBarBackButtonHidden(isEditing || isSaving)
+            .interactiveDismissDisabled(isEditing || isSaving)
+    }
+}

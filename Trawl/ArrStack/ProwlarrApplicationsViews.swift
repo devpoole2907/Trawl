@@ -394,7 +394,7 @@ struct ProwlarrApplicationEditorSheet: View {
     var body: some View {
         AppSheetShell(
             title: application == nil ? "Link \(appType.displayName)" : "Edit \(appType.displayName)",
-            confirmTitle: application == nil ? "Save" : "Update",
+            confirmTitle: application == nil ? "Add" : "Save",
             isConfirmDisabled: !canSave,
             isConfirmLoading: isSaving,
             onConfirm: { Task { await save() } }

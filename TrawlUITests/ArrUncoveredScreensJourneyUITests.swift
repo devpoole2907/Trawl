@@ -137,14 +137,13 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars[BazarrUIFixtureServer.providerDisplayName].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Configuration"].exists, "The selected provider must open its populated editor.")
         if TrawlChrome.isSidebar {
-            let cancel = app.buttons["Cancel"].firstMatch
+            let cancel = app.buttons["Close"].firstMatch
             XCTAssertTrue(cancel.exists, "Sidebar editing must expose a sheet dismissal action.")
             cancel.tap()
             XCTAssertTrue(app.navigationBars["Providers"].exists)
         } else {
-            XCTAssertFalse(app.buttons["Cancel"].exists, "iPhone editing must remain on the navigation stack.")
+            XCTAssertFalse(app.buttons["Close"].exists, "iPhone editing must remain on the navigation stack.")
         }
-
     }
 
     // MARK: Helpers

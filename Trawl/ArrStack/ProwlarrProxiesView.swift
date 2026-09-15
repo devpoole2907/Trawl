@@ -292,7 +292,7 @@ struct ProwlarrProxyEditorSheet: View {
         AppSheetShell(
             title: context.isEditing ? "Edit Proxy" : "Add \(context.seed.typeName) Proxy",
             subtitle: context.isEditing ? context.seed.typeName : nil,
-            confirmTitle: context.isEditing ? "Update" : "Save",
+            confirmTitle: context.isEditing ? "Save" : "Add",
             isConfirmDisabled: !canSave,
             isConfirmLoading: isSaving,
             onConfirm: { Task { await save() } }

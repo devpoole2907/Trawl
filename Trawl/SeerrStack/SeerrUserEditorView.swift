@@ -25,7 +25,7 @@ struct SeerrUserEditorView: View {
             }
 
             if isEditing {
-                editingContent
+                editingContent.disabled(viewModel.isSaving)
             } else {
                 viewContent
             }
@@ -35,36 +35,18 @@ struct SeerrUserEditorView: View {
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
+        .trawlEditingGuard(isEditing: isEditing, isSaving: viewModel.isSaving)
         .toolbar {
-            if isEditing {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        viewModel.reset()
-                        withAnimation { isEditing = false }
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if viewModel.isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            Task {
-                                if let updatedUser = await viewModel.save() {
-                                    onSave(updatedUser)
-                                    withAnimation { isEditing = false }
-                                }
-                            }
+            TrawlEditToolbar(isEditing: $isEditing, isSaving: viewModel.isSaving,
+                canSave: viewModel.hasChanges, onCancel: { viewModel.reset() },
+                onSave: {
+                    Task {
+                        if let updatedUser = await viewModel.save() {
+                            onSave(updatedUser)
+                            isEditing = false
                         }
-                        .disabled(!viewModel.hasChanges)
                     }
-                }
-            } else {
-                ToolbarItem(placement: .automatic) {
-                    Button("Edit") {
-                        withAnimation { isEditing = true }
-                    }
-                }
-            }
+                })
         }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in

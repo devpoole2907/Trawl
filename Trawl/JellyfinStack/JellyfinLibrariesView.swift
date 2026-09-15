@@ -300,7 +300,7 @@ struct JellyfinLibrariesView: View {
         scanningAll = true
         inAppNotificationCenter.showProgress(
             title: "Scanning All Libraries",
-            message: "Triggering full library scan...",
+            message: "Triggering full library scan…",
             key: "jellyfin_scan_all",
             source: .inApp
         )
@@ -325,7 +325,7 @@ struct JellyfinLibrariesView: View {
         browser.scanningLibraryID = folder.itemId
         inAppNotificationCenter.showProgress(
             title: "Scanning \(folder.name)",
-            message: "Triggering library scan...",
+            message: "Triggering library scan…",
             key: "jellyfin_scan_\(folder.itemId)",
             source: .inApp
         )
@@ -603,11 +603,11 @@ private struct JellyfinLibraryDetailView: View {
             #endif
         }
         .sheet(isPresented: $showingOptions) {
-            AppSheetShell(title: "Scanning & Metadata", subtitle: folder.name, cancelTitle: "Done", minContentHeight: 560) {
+            AppSheetShell(title: "Scanning & Metadata", subtitle: folder.name, showsCancel: false, minContentHeight: 560) {
                 JellyfinLibraryOptionsView(
                     folder: folder,
                     apiClient: apiClient,
-                    onSaved: onChanged
+                    onSaved: onChanged, showsClose: true
                 )
             }
         }
@@ -695,7 +695,7 @@ private struct JellyfinLibraryDetailView: View {
         scanningLibraryID = folder.itemId
         inAppNotificationCenter.showProgress(
             title: "Scanning \(folder.name)",
-            message: "Triggering library scan...",
+            message: "Triggering library scan…",
             key: "jellyfin_scan_\(folder.itemId)",
             source: .inApp
         )

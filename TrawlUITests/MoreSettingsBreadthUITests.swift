@@ -322,8 +322,8 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         let definition = firstButton(labelContaining: "Fixture WEBDL-1080p", in: app)
         XCTAssertTrue(tapWhenHittable(definition, in: app, timeout: 15))
         XCTAssertTrue(app.navigationBars["Fixture WEBDL-1080p"].waitForExistence(timeout: 10))
-        let cancelDefinition = app.navigationBars["Fixture WEBDL-1080p"].buttons["Cancel"]
-        XCTAssertTrue(cancelDefinition.waitForExistence(timeout: 5), "The compact editor must retain its sheet-only Cancel action.")
+        let cancelDefinition = app.navigationBars["Fixture WEBDL-1080p"].buttons["Close"]
+        XCTAssertTrue(cancelDefinition.waitForExistence(timeout: 5), "The read-only compact inspector must offer Close.")
         cancelDefinition.tap()
         XCTAssertTrue(app.navigationBars["Quality Definitions"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.navigationBars["Fixture WEBDL-1080p"].exists)

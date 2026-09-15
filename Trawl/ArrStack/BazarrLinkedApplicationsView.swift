@@ -34,6 +34,7 @@ struct BazarrLinkedApplicationsListView: View {
     @State private var errorsByInstance: [UUID: String] = [:]
     @State private var loadingInstanceIDs: Set<UUID> = []
     @State private var editorTarget: BazarrLinkedApplicationTarget?
+    @State private var disableTarget: BazarrLinkedApplicationTarget?
     private let previewState: BazarrLinkedApplicationsPreviewState?
     private let initialInstanceID: UUID?
 
@@ -79,7 +80,7 @@ struct BazarrLinkedApplicationsListView: View {
                 .listRowBackground(Color.clear)
             } else if isLoadingEverything {
                 Section {
-                    ProgressView("Loading linked applications...")
+                    ProgressView("Loading linked applications…")
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else {
@@ -108,6 +109,24 @@ struct BazarrLinkedApplicationsListView: View {
                 await save(target: target, formItems: formItems)
             }
             .environment(serviceManager)
+        }
+        .confirmationDialog(
+            "Disable Linked App?",
+            isPresented: Binding(
+                get: { disableTarget != nil },
+                set: { if !$0 { disableTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Disable", role: .destructive) {
+                guard let target = disableTarget,
+                      let instance = availableInstances.first(where: { $0.id == target.instanceID }) else { return }
+                disableTarget = nil
+                Task { await disable(target.appType, on: instance) }
+            }
+            Button("Cancel", role: .cancel) { disableTarget = nil }
+        } message: {
+            Text("Bazarr will stop syncing this application until it is enabled again.")
         }
     }
 
@@ -139,7 +158,7 @@ struct BazarrLinkedApplicationsListView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         if settings.isBazarrLinkedApplicationEnabled(appType) {
                             Button(role: .destructive) {
-                                Task { await disable(appType, on: instance) }
+                                disableTarget = BazarrLinkedApplicationTarget(instanceID: instance.id, appType: appType)
                             } label: {
                                 Label("Disable", systemImage: "nosign")
                             }
@@ -159,7 +178,7 @@ struct BazarrLinkedApplicationsListView: View {
 
                         if settings.isBazarrLinkedApplicationEnabled(appType) {
                             Button("Disable", systemImage: "nosign", role: .destructive) {
-                                Task { await disable(appType, on: instance) }
+                                disableTarget = BazarrLinkedApplicationTarget(instanceID: instance.id, appType: appType)
                             }
                         }
                     }

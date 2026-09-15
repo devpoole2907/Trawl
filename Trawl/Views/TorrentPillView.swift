@@ -49,7 +49,7 @@ struct TorrentSummaryView<Accessory: View>: View {
                     HStack(spacing: 4) {
                         ProgressView()
                             .controlSize(.mini)
-                        Text("Processing...")
+                        Text("Processing…")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

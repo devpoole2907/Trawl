@@ -90,7 +90,7 @@ struct ShareAddTorrentView: View {
                     Section {
                         HStack {
                             ProgressView()
-                            Text("Sending to server...")
+                            Text("Sending to server…")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -156,7 +156,7 @@ struct ShareAddTorrentView: View {
                 Section {
                     HStack {
                         ProgressView()
-                        Text("Sending to SABnzbd...")
+                        Text("Sending to SABnzbd…")
                             .foregroundStyle(.secondary)
                     }
                 }

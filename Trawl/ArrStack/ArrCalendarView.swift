@@ -1553,7 +1553,7 @@ private struct ICalSubscribeSheet: View {
                 } else {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text(selectedInstanceID == nil ? "Select a server to generate a feed URL." : "Generating feed URL...")
+                        Text(selectedInstanceID == nil ? "Select a server to generate a feed URL." : "Generating feed URL…")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

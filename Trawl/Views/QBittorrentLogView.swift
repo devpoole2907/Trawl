@@ -23,6 +23,7 @@ private enum QBLogFilter: String, CaseIterable {
 }
 
 struct QBittorrentLogView: View {
+    private let presentation = ServiceLogPresentation.qbittorrent
     @Environment(TorrentService.self) private var torrentService
 
     @State private var entries: [QBittorrentLogEntry] = []
@@ -96,16 +97,16 @@ struct QBittorrentLogView: View {
         .refreshable {
             await load()
         }
-        .navigationTitle("Logs")
-        .navigationSubtitle("qBittorrent")
+        .navigationTitle(presentation.navigationTitle)
+        .navigationSubtitle(presentation.serviceName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         #endif
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: LogExportFile(title: "qBittorrent Log", text: exportText), preview: SharePreview("qBittorrent Log")) {
-                    Label("Share Log", systemImage: "square.and.arrow.up")
+                ShareLink(item: LogExportFile(title: presentation.exportTitle, text: exportText), preview: SharePreview(presentation.exportTitle)) {
+                    Label(presentation.shareTitle, systemImage: "square.and.arrow.up")
                 }
                 .disabled(displayed.isEmpty)
             }
@@ -173,7 +174,7 @@ struct QBittorrentLogView: View {
                 .formatted(date: .numeric, time: .standard)
             return "[\(timestamp)] [\(severityLabel(for: entry.type))] \(entry.message)"
         }
-        return (["qBittorrent Log", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+        return ([presentation.exportTitle, "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
             .joined(separator: "\n")
     }
 

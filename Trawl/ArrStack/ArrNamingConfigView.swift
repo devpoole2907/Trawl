@@ -13,7 +13,9 @@ struct ArrNamingConfigView: View {
     @State private var localBrowser = ArrNamingBrowserState()
     /// The builder pushed at compact width. Wider layouts select into the detail column.
     @State private var compactTarget: ArrNamingFormatEditorTarget?
-    @State private var saveTask: Task<Void, Never>?
+    @State private var isEditingHandling = false
+    @State private var sonarrHandlingDraft: SonarrNamingConfig?
+    @State private var radarrHandlingDraft: RadarrNamingConfig?
     @State private var showSettings = false
 
     /// A selection or server change waiting on the unsaved-changes question.
@@ -141,9 +143,9 @@ struct ArrNamingConfigView: View {
                 ProgressView("Loading naming settings…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if selectedService == .sonarr, let config = sonarrConfig {
-                sonarrForm(config: config)
+                sonarrForm(config: sonarrHandlingDraft ?? config)
             } else if selectedService == .radarr, let config = radarrConfig {
-                radarrForm(config: config)
+                radarrForm(config: radarrHandlingDraft ?? config)
             }
         }
         .moreDestinationBackground(selectedService == .sonarr ? .sonarrNaming : .radarrNaming)
@@ -155,6 +157,19 @@ struct ArrNamingConfigView: View {
                     set: { requestServerChange(to: $0) }
                 )
             )
+            .disabled(isEditingHandling || isSaving)
+        }
+        .onChange(of: isEditingHandling) { _, editing in browser.isEditingFileHandling = editing }
+        .onDisappear { browser.isEditingFileHandling = false }
+        .trawlEditingGuard(isEditing: isEditingHandling, isSaving: isSaving)
+        .toolbar {
+            TrawlEditToolbar(isEditing: $isEditingHandling, isSaving: isSaving,
+                canSave: handlingHasChanges,
+                canEdit: !isLoading && !isShowingStaleServer && (sonarrConfig != nil || radarrConfig != nil) && browser.dirtySession(on: selectedInstance?.id) == nil,
+                editTitle: "Edit File Handling", saveTitle: "Save File Handling",
+                onEdit: { sonarrHandlingDraft = sonarrConfig; radarrHandlingDraft = radarrConfig },
+                onCancel: { sonarrHandlingDraft = nil; radarrHandlingDraft = nil },
+                onSave: { Task { await saveHandling() } })
         }
         .task(id: selectedInstance?.id) {
             #if DEBUG
@@ -213,6 +228,7 @@ struct ArrNamingConfigView: View {
         ArrNamingBuilderView(session: session) { format in
             await saveFormat(format, for: session.scope)
         }
+        .disabled(isEditingHandling || isSaving)
         .onChange(of: currentFormat(for: session.target)) { _, serverFormat in
             // An untouched draft follows a value reloaded underneath it; one with
             // edits keeps measuring against what the person started from.
@@ -242,6 +258,7 @@ struct ArrNamingConfigView: View {
             } footer: {
                 Text("When renaming is off, Sonarr imports files using their original names.")
             }
+            .disabled(!isEditingHandling || isSaving)
 
             if config.standardEpisodeFormat != nil || config.dailyEpisodeFormat != nil || config.animeEpisodeFormat != nil {
                 Section("Episode Formats") {
@@ -259,9 +276,7 @@ struct ArrNamingConfigView: View {
                 }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .disabled(isSaving)
         .overlay(alignment: .top) {
             if isSaving { ProgressView().padding(8) }
@@ -288,6 +303,7 @@ struct ArrNamingConfigView: View {
             } footer: {
                 Text("When renaming is off, Radarr imports files using their original names.")
             }
+            .disabled(!isEditingHandling || isSaving)
 
             if config.standardMovieFormat != nil || config.movieFolderFormat != nil {
                 Section("Movie Formats") {
@@ -296,9 +312,7 @@ struct ArrNamingConfigView: View {
                 }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .disabled(isSaving)
         .overlay(alignment: .top) {
             if isSaving { ProgressView().padding(8) }
@@ -387,6 +401,7 @@ struct ArrNamingConfigView: View {
     }
 
     private func open(_ target: ArrNamingFormatEditorTarget) {
+        guard !isEditingHandling && !isSaving else { return }
         if showsDetailPane {
             guard browser.selectedFormatTarget != target else { return }
             if let current = browser.selectedFormatTarget, let session = session(for: current), session.isDirty {
@@ -398,6 +413,7 @@ struct ArrNamingConfigView: View {
     }
 
     private func requestServerChange(to instanceID: UUID?) {
+        guard !isEditingHandling && !isSaving else { return }
         guard instanceID != selectedInstance?.id else { return }
         if let session = browser.dirtySession(on: selectedInstance?.id) {
             ask(before: .server(instanceID), leaving: session)
@@ -470,9 +486,8 @@ struct ArrNamingConfigView: View {
     /// The body is that server's whole naming config with only this field changed,
     /// so file handling and the other formats go back exactly as the server had them.
     private func saveFormat(_ format: String, for scope: ArrNamingEditorScope) async -> String? {
-        // A file-handling change still being written is part of the config this
-        // write is built from, so it lands first.
-        await saveTask?.value
+        // File handling and format editors cannot commit concurrently.
+        guard !isSaving && !isEditingHandling else { return nil }
         let serverName = availableInstances.first { $0.id == scope.instanceID }
             .map { ArrInstanceScopeBar.label(for: $0, in: serviceManager) } ?? scope.target.serviceType.displayName
 
@@ -510,6 +525,7 @@ struct ArrNamingConfigView: View {
     // MARK: - Data
 
     private func load() async {
+        guard !isEditingHandling && !isSaving else { return }
         guard let instance = selectedInstance else {
             isLoading = false
             return
@@ -545,81 +561,68 @@ struct ArrNamingConfigView: View {
         }
     }
 
-    // Live-save helpers for toggles and picker
-
-    private func updateSonarr(
-        renameEpisodes: Bool? = nil,
-        replaceIllegalCharacters: Bool? = nil,
-        colonFormat: Int? = nil
-    ) {
-        guard var config = sonarrConfig else { return }
-        if let v = renameEpisodes { config.renameEpisodes = v }
-        if let v = replaceIllegalCharacters { config.replaceIllegalCharacters = v }
-        if let v = colonFormat { config.colonReplacementFormat = v }
-        sonarrConfig = config
-
-        let existingTask = saveTask
-        saveTask = Task {
-            await existingTask?.value
-            guard !Task.isCancelled else { return }
-            await saveSonarr(config)
+    // File-handling settings share the explicit draft/commit model of format editors.
+    private var handlingHasChanges: Bool {
+        if selectedService == .sonarr, let draft = sonarrHandlingDraft, let original = sonarrConfig {
+            return draft.renameEpisodes != original.renameEpisodes || draft.replaceIllegalCharacters != original.replaceIllegalCharacters || draft.colonReplacementFormat != original.colonReplacementFormat
         }
+        if selectedService == .radarr, let draft = radarrHandlingDraft, let original = radarrConfig {
+            return draft.renameMovies != original.renameMovies || draft.replaceIllegalCharacters != original.replaceIllegalCharacters || draft.colonReplacementFormat != original.colonReplacementFormat
+        }
+        return false
     }
 
-    private func saveSonarr(_ config: SonarrNamingConfig) async {
-        // Saved back to the server the form was loaded from, not to whichever
-        // Sonarr happens to be active.
-        guard let instance = selectedInstance,
-              let client = serviceManager.sonarrClient(for: instance.id) else { return }
+    private func updateSonarr(renameEpisodes: Bool? = nil, replaceIllegalCharacters: Bool? = nil, colonFormat: Int? = nil) {
+        guard isEditingHandling, var draft = sonarrHandlingDraft else { return }
+        if let renameEpisodes { draft.renameEpisodes = renameEpisodes }
+        if let replaceIllegalCharacters { draft.replaceIllegalCharacters = replaceIllegalCharacters }
+        if let colonFormat { draft.colonReplacementFormat = colonFormat }
+        sonarrHandlingDraft = draft
+    }
+
+    private func updateRadarr(renameMovies: Bool? = nil, replaceIllegalCharacters: Bool? = nil, colonFormat: Int? = nil) {
+        guard isEditingHandling, var draft = radarrHandlingDraft else { return }
+        if let renameMovies { draft.renameMovies = renameMovies }
+        if let replaceIllegalCharacters { draft.replaceIllegalCharacters = replaceIllegalCharacters }
+        if let colonFormat { draft.colonReplacementFormat = colonFormat }
+        radarrHandlingDraft = draft
+    }
+
+    private func saveHandling() async {
+        guard !isSaving, handlingHasChanges, let instance = selectedInstance else { return }
         isSaving = true
-        defer {
-            isSaving = false
-            saveTask = nil
-        }
+        defer { isSaving = false }
         do {
-            let accepted = try await client.updateNamingConfig(config)
-            if browser.loadedInstanceID == instance.id { sonarrConfig = accepted }
+            switch instance.serviceType {
+            case .sonarr:
+                guard let client = serviceManager.sonarrClient(for: instance.id),
+                      var config = sonarrConfig, let draft = sonarrHandlingDraft else { return }
+                config.renameEpisodes = draft.renameEpisodes
+                config.replaceIllegalCharacters = draft.replaceIllegalCharacters
+                config.colonReplacementFormat = draft.colonReplacementFormat
+                let accepted = try await client.updateNamingConfig(config)
+                guard selectedInstance?.id == instance.id else { return }
+                sonarrConfig = accepted
+            case .radarr:
+                guard let client = serviceManager.radarrClient(for: instance.id),
+                      var config = radarrConfig, let draft = radarrHandlingDraft else { return }
+                config.renameMovies = draft.renameMovies
+                config.replaceIllegalCharacters = draft.replaceIllegalCharacters
+                config.colonReplacementFormat = draft.colonReplacementFormat
+                let accepted = try await client.updateNamingConfig(config)
+                guard selectedInstance?.id == instance.id else { return }
+                radarrConfig = accepted
+            case .prowlarr, .bazarr:
+                return
+            }
+            sonarrHandlingDraft = nil
+            radarrHandlingDraft = nil
+            isEditingHandling = false
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
-            Task { await load() }
         }
     }
 
-    private func updateRadarr(
-        renameMovies: Bool? = nil,
-        replaceIllegalCharacters: Bool? = nil,
-        colonFormat: Int? = nil
-    ) {
-        guard var config = radarrConfig else { return }
-        if let v = renameMovies { config.renameMovies = v }
-        if let v = replaceIllegalCharacters { config.replaceIllegalCharacters = v }
-        if let v = colonFormat { config.colonReplacementFormat = v }
-        radarrConfig = config
-
-        let existingTask = saveTask
-        saveTask = Task {
-            await existingTask?.value
-            guard !Task.isCancelled else { return }
-            await saveRadarr(config)
-        }
-    }
-
-    private func saveRadarr(_ config: RadarrNamingConfig) async {
-        guard let instance = selectedInstance,
-              let client = serviceManager.radarrClient(for: instance.id) else { return }
-        isSaving = true
-        defer {
-            isSaving = false
-            saveTask = nil
-        }
-        do {
-            let accepted = try await client.updateNamingConfig(config)
-            if browser.loadedInstanceID == instance.id { radarrConfig = accepted }
-        } catch {
-            notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
-            Task { await load() }
-        }
-    }
 }
 
 #if DEBUG

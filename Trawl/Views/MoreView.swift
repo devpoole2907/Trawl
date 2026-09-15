@@ -820,7 +820,7 @@ struct MoreView: View {
                 JellyfinActivityLogView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination(title: "Activity Log")
+                jellyfinUnavailableDestination(title: ServiceLogPresentation.jellyfin.exportTitle)
                     .moreDestinationTitleStyle()
             }
         case .jellyfinScheduledTasks:
@@ -1203,7 +1203,7 @@ struct MoreView: View {
             ServiceSetupView(title: "qBittorrent Not Set Up", message: "Add a qBittorrent server in Settings to view server logs.", systemImage: "doc.text")
             .scrollableUnavailableState()
             .moreDestinationBackground(.downloadClients)
-            .navigationTitle("qBittorrent Log")
+            .navigationTitle(ServiceLogPresentation.qbittorrent.exportTitle)
         }
     }
 
@@ -1979,7 +1979,7 @@ enum MoreSearchIndex {
                 destination: .jellyfinActivityLog,
                 icon: "person.crop.rectangle.stack.fill",
                 color: ServiceIdentity.jellyfin.brandColor,
-                title: "Jellyfin Activity",
+                title: ServiceLogPresentation.jellyfin.exportTitle,
                 subtitle: "Jellyfin server activity history",
                 category: "Logs",
                 keywords: ["logs", "history", "activity", "jellyfin", "users"]
@@ -2019,7 +2019,7 @@ enum MoreSearchIndex {
                 destination: .qbittorrentLog,
                 icon: "doc.text.fill",
                 color: ServiceIdentity.qbittorrent.brandColor,
-                title: "qBittorrent Log",
+                title: ServiceLogPresentation.qbittorrent.exportTitle,
                 subtitle: "Application events and warnings from qBittorrent",
                 category: "Logs",
                 keywords: ["qbittorrent", "log", "events", "warnings", "errors"]
@@ -2039,7 +2039,7 @@ enum MoreSearchIndex {
                 destination: .seerrLogs,
                 icon: "doc.text.magnifyingglass",
                 color: ServiceIdentity.seerr.brandColor,
-                title: "Seerr Logs",
+                title: ServiceLogPresentation.seerr.exportTitle,
                 subtitle: "Live Seerr server logs",
                 category: "Logs",
                 keywords: ["overseerr", "jellyseerr", "server", "events"]
@@ -2366,9 +2366,7 @@ private struct LinkedApplicationsManagementView: View {
             }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.integrations)
         .refreshable {
             await statusModel.load(
@@ -2562,9 +2560,7 @@ private struct DownloadClientsManagementView: View {
             }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.integrations)
         .refreshable {
             await statusModel.load(arrServiceManager: arrServiceManager)
@@ -3210,9 +3206,7 @@ private struct SubtitleManagementView: View {
                 }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.subtitleManagement)
         .task { await evaluateLanguageProfileTip() }
     }
@@ -3711,7 +3705,7 @@ private struct LogsAndEventsHubView: View {
                             NavigationMenuRow(
                                 icon: "doc.text.fill",
                                 color: ServiceIdentity.qbittorrent.brandColor,
-                                title: "qBittorrent Log",
+                                title: ServiceLogPresentation.qbittorrent.exportTitle,
                                 subtitle: "Application events and warnings"
                             )
                         }
@@ -3733,7 +3727,7 @@ private struct LogsAndEventsHubView: View {
                             NavigationMenuRow(
                                 icon: "doc.text.magnifyingglass",
                                 color: ServiceIdentity.seerr.brandColor,
-                                title: "Seerr Logs",
+                                title: ServiceLogPresentation.seerr.exportTitle,
                                 subtitle: "Live Seerr server logs"
                             )
                         }
@@ -3744,7 +3738,7 @@ private struct LogsAndEventsHubView: View {
                             NavigationMenuRow(
                                 icon: "person.crop.rectangle.stack.fill",
                                 color: ServiceIdentity.jellyfin.brandColor,
-                                title: "Jellyfin Activity",
+                                title: ServiceLogPresentation.jellyfin.exportTitle,
                                 subtitle: "Jellyfin server activity history"
                             )
                         }
@@ -3758,9 +3752,7 @@ private struct LogsAndEventsHubView: View {
                 )
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.logsAndEvents)
     }
 }
@@ -3913,9 +3905,7 @@ private struct TasksHubView: View {
                 )
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.tasks)
     }
 }
@@ -4466,7 +4456,7 @@ private struct SeerrWebhookNotificationConfigView: View {
                         HStack {
                             ProgressView()
                                 .padding(.trailing, 8)
-                            Text("Testing...")
+                            Text("Testing…")
                         }
                     } else {
                         Label("Test", systemImage: "paperplane")

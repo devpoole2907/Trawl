@@ -208,7 +208,7 @@ struct ArrSetupSheet: View {
                 Section {
                     HStack {
                         ProgressView()
-                        Text("Testing connection...")
+                        Text("Testing connection…")
                             .foregroundStyle(.secondary)
                     }
                 }

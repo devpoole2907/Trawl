@@ -60,11 +60,11 @@ struct SeerrMediaRequestCard: View {
 
             if isExpanded {
                 if serviceManager.isConnecting {
-                    loadingRow("Connecting to Seerr...")
+                    loadingRow("Connecting to Seerr…")
                 } else if let errorMessage {
                     errorRow(errorMessage)
                 } else if isLoading && requests.isEmpty {
-                    loadingRow("Loading requests...")
+                    loadingRow("Loading requests…")
                 } else if requests.isEmpty {
                     emptyRow
                 } else {

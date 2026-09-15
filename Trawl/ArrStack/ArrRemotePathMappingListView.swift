@@ -174,9 +174,7 @@ struct ArrRemotePathMappingListView: View {
                 }
             }
         }
-        #if os(iOS)
         .scrollContentBackground(.hidden)
-        #endif
         .moreDestinationBackground(.remotePathMappings)
         .refreshable { await loadMappings() }
         .task {
@@ -705,7 +703,7 @@ struct ArrRemotePathMappingEditorSheet: View {
     var body: some View {
         AppSheetShell(
             title: isEditing ? "Edit Mapping" : "Add Mapping",
-            confirmTitle: isEditing ? "Update" : "Save",
+            confirmTitle: isEditing ? "Save" : "Add",
             isConfirmDisabled: !canSave,
             isConfirmLoading: isSaving,
             onConfirm: { Task { await save() } },

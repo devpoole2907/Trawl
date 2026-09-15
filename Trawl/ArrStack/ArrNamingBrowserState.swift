@@ -15,6 +15,7 @@ final class ArrNamingBrowserState {
     var selectedFormatTarget: ArrNamingFormatEditorTarget?
     var isLoading = true
     var isSaving = false
+    var isEditingFileHandling = false
     var errorMessage: String?
 
     /// Drafts for this session, keyed by server *and* format, so a column rebuild or

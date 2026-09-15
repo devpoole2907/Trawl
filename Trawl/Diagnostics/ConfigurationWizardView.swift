@@ -441,7 +441,7 @@ struct ConfigurationWizardView: View {
                 if isRechecking {
                     HStack {
                         ProgressView().controlSize(.small)
-                        Text("Checking...")
+                        Text("Checking…")
                     }
                 } else {
                     Label("Check Again", systemImage: "arrow.clockwise")

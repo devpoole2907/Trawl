@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - View
 
 struct JellyfinActivityLogView: View {
+    private let presentation = ServiceLogPresentation.jellyfin
     let apiClient: JellyfinAPIClient
 
     @State private var viewModel: JellyfinActivityLogViewModel?
@@ -28,12 +29,12 @@ struct JellyfinActivityLogView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Activity Log")
-        .navigationSubtitle("Jellyfin")
+        .navigationTitle(presentation.navigationTitle)
+        .navigationSubtitle(presentation.serviceName)
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: LogExportFile(title: "Jellyfin Activity Log", text: exportText), preview: SharePreview("Jellyfin Activity Log")) {
-                    Label("Share Activity Log", systemImage: "square.and.arrow.up")
+                ShareLink(item: LogExportFile(title: presentation.exportTitle, text: exportText), preview: SharePreview(presentation.exportTitle)) {
+                    Label(presentation.shareTitle, systemImage: "square.and.arrow.up")
                 }
                 .disabled(exportEntries.isEmpty)
             }
@@ -204,7 +205,7 @@ struct JellyfinActivityLogView: View {
             }
             return details.joined(separator: " ")
         }
-        return (["Jellyfin Activity Log", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+        return ([presentation.exportTitle, "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
             .joined(separator: "\n")
     }
 

@@ -784,8 +784,10 @@ struct ContentView: View {
     /// all in that case, so the inset costs nothing.
     private var sidebarAttentionBanner: some View {
         ConfigurationAttentionBanner(topic: nil) {
+            guard !isSidebarNavigationBlockedByEditing else { return }
             selectedTab = .setupCheck
         }
+        .disabled(isSidebarNavigationBlockedByEditing)
     }
 
     /// The notification bar, as the sidebar's own footer.
@@ -831,10 +833,14 @@ struct ContentView: View {
         // nothing" state the rest of the app has no representation for.
         let selection = Binding<RootTab?>(
             get: { selectedTab },
-            set: { if let newValue = $0 { selectedTab = newValue } }
+            set: {
+                guard !isSidebarNavigationBlockedByEditing, let newValue = $0 else { return }
+                selectedTab = newValue
+            }
         )
 
         return sidebarListContent(selection: selection, downloadBadge: downloadBadge)
+            .disabled(isSidebarNavigationBlockedByEditing)
             .modifier(SidebarListChrome(search: $sidebarSearch, placement: sidebarSearchPlacement))
     }
 
@@ -892,6 +898,13 @@ struct ContentView: View {
         !sidebarSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Keep the current detail alive until its staged configuration is saved or cancelled.
+    private var isSidebarNavigationBlockedByEditing: Bool {
+        qualityDefinitionBrowser.isEditingDefinition ||
+        indexerBrowser.prowlarrViewModel?.isEditingConfiguration == true ||
+        namingBrowser.isEditingFileHandling
+    }
+
     /// The sidebar's search results.
     ///
     /// Deliberately the *same* index More searches, rather than a filter over the
@@ -933,6 +946,7 @@ struct ContentView: View {
     /// puts the sidebar's own rows back, and `SidebarSearchResultButton` is where it
     /// is called from - see that type for why it cannot be called from here.
     private func open(_ entry: MoreSearchIndexEntry) {
+        guard !isSidebarNavigationBlockedByEditing else { return }
         sidebarSearch = ""
 
         guard let destination = entry.destination else {
@@ -1016,7 +1030,7 @@ struct ContentView: View {
             )
             .environment(indexerBrowser)
         case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .qualityDefinitions, .naming, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .manualImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
@@ -1165,7 +1179,7 @@ struct ContentView: View {
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
         case .downloadClients, .downloadOrganization, .newsServers, .linkedApplications, .qualityProfiles, .qualityDefinitions, .naming, .tasks, .requests,
-             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport,
+             .issues, .calendar, .missing, .users, .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins, .rootFolders, .libraryImport, .manualImport,
              .subtitles, .logs, .settings, .health, .diskSpace, .updates, .backups, .remotePaths, .cleanuparr, .setupCheck:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:

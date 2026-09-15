@@ -2,6 +2,37 @@ import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
 
+/// One source of user-facing names for the service log screens and their exports.
+nonisolated enum ServiceLogPresentation: Sendable {
+    case qbittorrent
+    case seerr
+    case jellyfin
+
+    var serviceName: String {
+        switch self {
+        case .qbittorrent: "qBittorrent"
+        case .seerr: "Seerr"
+        case .jellyfin: "Jellyfin"
+        }
+    }
+
+    var navigationTitle: String { "Logs" }
+
+    var exportTitle: String {
+        switch self {
+        case .jellyfin: "Jellyfin Activity Log"
+        case .qbittorrent, .seerr: "\(serviceName) Logs"
+        }
+    }
+
+    var shareTitle: String {
+        switch self {
+        case .jellyfin: "Share Activity Log"
+        case .qbittorrent, .seerr: "Share Logs"
+        }
+    }
+}
+
 /// A log shared as a plain-text file.
 ///
 /// The log screens used to hand `ShareLink` a bare `String`. The picker opened, but

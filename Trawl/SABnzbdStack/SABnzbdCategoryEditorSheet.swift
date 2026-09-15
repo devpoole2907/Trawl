@@ -117,7 +117,7 @@ struct SABnzbdCategoryEditorSheet: View {
                                 ProgressView()
                                     .padding(.trailing, 4)
                             }
-                            Text(isEditing ? "Save Changes" : "Add Category")
+                            Text(isEditing ? "Save" : "Add")
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                     }

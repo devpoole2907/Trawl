@@ -66,6 +66,27 @@ Whenever the user's instructions or the code you're working with reference an iO
 
 ---
 
+## Configuration editing and shared design patterns
+
+Existing configuration screens **must open read-only on every platform and in every presentation** (push, sheet, split detail). Use **Edit → Save** in the same toolbar position, plus **Cancel** while editing. Where independent editors share a toolbar, contextual labels such as **Edit File Handling → Save File Handling** disambiguate the action without changing this lifecycle. Successful Save returns to read-only; rejected Save retains the draft and Save action. Read-only sheets use **Close**, never Done to imply that an unsaved draft was committed.
+
+Reuse `TrawlEditToolbar` and `trawlEditingGuard(isEditing:isSaving:)` from `Trawl/Views/FormComponents/ServiceSettingsFormStyle.swift`. Do not copy toolbar state branches into a new editor. Examples: `SeerrUserEditorView`, `JellyfinTranscodingSettingsView`, `ArrQualityDefinitionSheet`, and `BazarrProviderEditorView`.
+
+- Keep a server-confirmed baseline and a separate local draft. Entering Edit snapshots the latest baseline; Cancel restores it without a network write. Only enable Save for a valid changed draft.
+- Save all related configuration changes in one request where the API allows it. Adopt the server's accepted response as the new baseline; do not substitute the submitted draft when the server can normalize it.
+- Disable editable controls and Cancel while saving. Do not dismiss or exit editing on failure. Retain the attempted draft for retry and show the error.
+- Apply the shared editing guard to the editor's presentation host. Protect parent row selection, server switching, and refresh too: the modifier protects local back navigation and interactive sheet dismissal, **not external sidebar navigation or parent-owned Close buttons**. Either block those transitions until Save/Cancel or retain drafts in shared, server-keyed session state and ask before discarding. Do not attach an unconditional dismissal button around an editor.
+- For native sidebar editors, expose editing state through the existing shared browser/view model and extend `ContentView.isSidebarNavigationBlockedByEditing`. Reuse its sidebar selection/search/banner guard rather than adding another navigation implementation. Quality, Prowlarr, and naming file handling already register there. Programmatic/deep-link navigation needs its own scope/draft check.
+- Keep existing configuration read-only in sheets too. Creation forms may open editable: use **Add** for creation and **Save** for existing-item commits. Domain commands such as **Enable**, **Import**, or **Send** retain their specific names.
+- Operational commands (pause/resume, speed mode, test, delete/disable) may apply immediately, with clear feedback or confirmation as appropriate. Ordinary configuration toggles, fields, tags and pickers must stage changes until Save. Do not mix draft and immediate configuration in the same editor.
+- Preserve server identity through save requests and async responses. A same-ID entity on another server is a different editor.
+- Bazarr Anti-Captcha intentionally keeps its existing in-form Edit/Save controls. Do not move those controls into a toolbar merely to enforce this convention. The separate Bazarr provider editor uses the shared toolbar.
+- Reuse grouped `Form` styling (`serviceSettingsFormStyle()`), central entity headers and existing sheet/navigation shells. Presentation may adapt to surrounding navigation, but commit semantics must stay consistent.
+
+Update the focused UI journeys and `TRAWL_TEST_COVERAGE_MAP.md` when changing these contracts. Syntax parsing is useful without Xcode, but it does not establish SwiftUI type correctness or replace iOS/macOS builds and fixture-backed runtime tests.
+
+---
+
 ## Usage-efficient reliability work
 
 Reliability coverage must stay meaningful without repeatedly rediscovering the whole repository.

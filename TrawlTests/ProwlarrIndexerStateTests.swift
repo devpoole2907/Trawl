@@ -295,6 +295,51 @@ struct ProwlarrIndexerStateTests {
         }
     }
 
+    @Test("Configuration Save commits enabled and tags together and adopts the server response")
+    func configurationSaveCommitsOneDraft() async throws {
+        let serverCopy = prowlarrIndexerJSON(id: 1, name: "Accepted Alpha", enable: false, tags: [3, 7])
+        let server = try await ProwlarrFixtureServer(label: "configuration-save", handler: Self.loadedHandler { request in
+            request.method == "PUT" && request.path == "/api/v1/indexer/1" ? .json(serverCopy) : nil
+        })
+        defer { server.stop() }
+        try await withConnectedProwlarr(server: server) { manager in
+            let viewModel = ProwlarrViewModel(serviceManager: manager)
+            await viewModel.loadIndexers()
+            let original = try indexer(1, in: viewModel)
+            #expect(server.requests(path: "/api/v1/indexer/1").isEmpty)
+            #expect(await viewModel.saveIndexerConfiguration(original, enabled: false, tagIDs: [7, 3]))
+            let requests = server.requests(path: "/api/v1/indexer/1")
+            #expect(requests.count == 1)
+            let body = try #require(requests.first?.jsonObject())
+            #expect(body["enable"] as? Bool == false)
+            #expect(body["tags"] as? [Int] == [3, 7])
+            #expect(body["id"] as? Int == original.id)
+            let accepted = try indexer(1, in: viewModel)
+            #expect(accepted.name == "Accepted Alpha")
+            #expect(accepted.enable == false)
+            #expect(accepted.tags == [3, 7])
+        }
+    }
+
+    @Test("Rejected configuration Save leaves the loaded indexer intact")
+    func configurationSaveFailureKeepsBaseline() async throws {
+        let server = try await ProwlarrFixtureServer(label: "configuration-rejected", handler: Self.loadedHandler { request in
+            request.method == "PUT" && request.path == "/api/v1/indexer/1" ? .failure(status: 500, message: "configuration rejected") : nil
+        })
+        defer { server.stop() }
+        try await withConnectedProwlarr(server: server) { manager in
+            let viewModel = ProwlarrViewModel(serviceManager: manager)
+            await viewModel.loadIndexers()
+            let original = try indexer(1, in: viewModel)
+            #expect(await viewModel.saveIndexerConfiguration(original, enabled: false, tagIDs: [7, 3]) == false)
+            let retained = try indexer(1, in: viewModel)
+            #expect(retained.enable == original.enable)
+            #expect(retained.tags == original.tags)
+            #expect(retained.name == original.name)
+            #expect(viewModel.indexerError != nil)
+        }
+    }
+
     // MARK: - updateIndexerTags
 
     @Test("updateIndexerTags PUTs sorted tag ids and adopts the server's copy")

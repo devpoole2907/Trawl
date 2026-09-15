@@ -11,6 +11,16 @@ struct LogExportFileTests {
         return Calendar(identifier: .gregorian).date(from: components)!
     }()
 
+    @Test("Log screens share one naming contract")
+    func serviceLogPresentation() {
+        #expect(ServiceLogPresentation.qbittorrent.navigationTitle == "Logs")
+        #expect(ServiceLogPresentation.seerr.navigationTitle == "Logs")
+        #expect(ServiceLogPresentation.jellyfin.navigationTitle == "Logs")
+        #expect(ServiceLogPresentation.qbittorrent.exportTitle == "qBittorrent Logs")
+        #expect(ServiceLogPresentation.seerr.exportTitle == "Seerr Logs")
+        #expect(ServiceLogPresentation.jellyfin.exportTitle == "Jellyfin Activity Log")
+    }
+
     @Test("Names the file after the log and the minute it was exported")
     func fileName() {
         let export = LogExportFile(title: "qBittorrent Log", text: "", exportedAt: Self.exportedAt)

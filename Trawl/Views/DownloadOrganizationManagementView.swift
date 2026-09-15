@@ -70,6 +70,8 @@ struct DownloadOrganizationManagementView: View {
             #if os(iOS)
             .listStyle(.insetGrouped)
             #endif
+            .scrollContentBackground(.hidden)
+            .moreDestinationBackground(.categoriesAndTags)
         } detail: {
             selectedDetail
         }

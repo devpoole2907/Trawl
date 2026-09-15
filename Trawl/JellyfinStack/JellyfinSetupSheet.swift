@@ -234,7 +234,7 @@ struct JellyfinSettingsView: View {
                     } else if jellyfinServiceManager.isConnecting {
                         HStack {
                             ProgressView()
-                            Text("Loading system info...")
+                            Text("Loading system info…")
                                 .foregroundStyle(.secondary)
                         }
                     } else {
@@ -360,15 +360,8 @@ struct JellyfinSettingsView: View {
         .sheet(isPresented: $showingTranscodingSheet) {
             if let client = jellyfinServiceManager.activeClient {
                 NavigationStack {
-                    JellyfinTranscodingSettingsView(apiClient: client)
+                    JellyfinTranscodingSettingsView(apiClient: client, showsClose: true)
                         .environment(inAppNotificationCenter)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") {
-                                    showingTranscodingSheet = false
-                                }
-                            }
-                        }
                 }
                 .macSheetSizing()
             }
@@ -430,7 +423,7 @@ struct JellyfinSettingsView: View {
 
         inAppNotificationCenter.showProgress(
             title: "Restarting Server",
-            message: "Jellyfin is restarting...",
+            message: "Jellyfin is restarting…",
             key: "jellyfin_restart",
             source: .inApp
         )
@@ -462,7 +455,7 @@ struct JellyfinSettingsView: View {
 
         inAppNotificationCenter.showProgress(
             title: "Shutting Down",
-            message: "Jellyfin is shutting down...",
+            message: "Jellyfin is shutting down…",
             key: "jellyfin_shutdown",
             source: .inApp
         )

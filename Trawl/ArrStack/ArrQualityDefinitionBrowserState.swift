@@ -11,5 +11,6 @@ final class ArrQualityDefinitionBrowserState {
     var definitions: [ArrQualityDefinition] = []
     var isLoading = false
     var isSaving = false
+    var isEditingDefinition = false
     var errorMessage: String?
 }

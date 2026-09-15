@@ -16,6 +16,7 @@ struct ArrNamingBuilderView: View {
     @State private var isConfirmingDiscard = false
     @State private var isShowingUnsavedChanges = false
     @State private var isSubmitting = false
+    @State private var isEditing = false
     @State private var textModeMessage: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isDetailPane) private var isDetailPane
@@ -48,12 +49,15 @@ struct ArrNamingBuilderView: View {
             VStack(alignment: .leading, spacing: density == .compact ? 18 : 24) {
                 previewCard
 
-                switch session.mode {
-                case .blocks:
-                    blocksContent
-                case .text:
-                    textContent
+                Group {
+                    switch session.mode {
+                    case .blocks:
+                        blocksContent
+                    case .text:
+                        textContent
+                    }
                 }
+                .disabled(!isEditing || session.isSaving || isSubmitting)
             }
             .padding(.horizontal, density == .compact ? 16 : 24)
             .padding(.vertical, density == .compact ? 16 : 22)
@@ -80,6 +84,8 @@ struct ArrNamingBuilderView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .navigationBarBackButtonHidden(hidesBackButton)
+        .trawlEditingGuard(isEditing: isEditing, isSaving: session.isSaving || isSubmitting)
+        .onAppear { if session.isDirty { isEditing = true } }
         .toolbar { toolbarContent }
         .alert("Save Format?", isPresented: $isConfirmingSave) {
             Button("Save", action: confirmSave)
@@ -332,21 +338,13 @@ struct ArrNamingBuilderView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            moreMenu
+            moreMenu.disabled(!isEditing || session.isSaving || isSubmitting)
         }
 
-        ToolbarItem(placement: .confirmationAction) {
-            if session.isSaving {
-                ProgressView()
-            } else {
-                Button("Save") {
-                    isConfirmingSave = true
-                }
-                .bold()
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(!session.canSave || isSubmitting)
-            }
-        }
+        TrawlEditToolbar(isEditing: $isEditing, isSaving: session.isSaving || isSubmitting,
+            canSave: session.canSave,
+            onCancel: { session.discardChanges(); textModeMessage = nil },
+            onSave: { isConfirmingSave = true })
     }
 
     private var moreMenu: some View {
@@ -391,8 +389,7 @@ struct ArrNamingBuilderView: View {
         Task {
             let saved = await session.save(using: performSave)
             isSubmitting = false
-            // A detail pane stays put; a pushed builder returns once the server accepts.
-            if saved && !isDetailPane { dismiss() }
+            if saved { isEditing = false }
         }
     }
 

@@ -17,11 +17,14 @@ struct JellyfinLibraryOptionsView: View {
     @State private var originalOptions: JellyfinLibraryOptions
     @State private var available: JellyfinAvailableLibraryOptions?
     @State private var isSaving = false
+    @State private var isEditing = false
+    var showsClose = false
     #if DEBUG
     private var isPreview = false
     #endif
 
-    init(folder: JellyfinVirtualFolder, apiClient: JellyfinAPIClient, onSaved: @escaping () -> Void = {}) {
+    init(folder: JellyfinVirtualFolder, apiClient: JellyfinAPIClient, onSaved: @escaping () -> Void = {}, showsClose: Bool = false) {
+        self.showsClose = showsClose
         self.folder = folder
         self.apiClient = apiClient
         self.onSaved = onSaved
@@ -53,9 +56,11 @@ struct JellyfinLibraryOptionsView: View {
             trickplaySection
             chapterImagesSection
         }
+        .disabled(!isEditing || isSaving)
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
+        .serviceSettingsFormStyle()
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Scanning & Metadata")
@@ -63,16 +68,11 @@ struct JellyfinLibraryOptionsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .trawlEditingGuard(isEditing: isEditing, isSaving: isSaving)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button("Save") { Task { await save() } }
-                        .disabled(!hasChanges)
-                }
-            }
+            TrawlEditToolbar(isEditing: $isEditing, isSaving: isSaving, canSave: hasChanges,
+                onCancel: { options = originalOptions }, onSave: { Task { await save() } },
+                onClose: showsClose ? { dismiss() } : nil)
         }
         .task {
             #if DEBUG
@@ -258,13 +258,14 @@ struct JellyfinLibraryOptionsView: View {
     }
 
     private func save() async {
+        guard isEditing && !isSaving && hasChanges else { return }
         isSaving = true
         do {
             try await apiClient.updateLibraryOptions(id: folder.itemId, options: options)
             originalOptions = options
             inAppNotificationCenter.showSuccess(title: "Library Updated", message: folder.name)
             onSaved()
-            dismiss()
+            isEditing = false
         } catch {
             inAppNotificationCenter.showError(title: "Update Failed", message: error.localizedDescription)
         }

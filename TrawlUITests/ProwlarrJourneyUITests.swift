@@ -48,6 +48,23 @@ final class ProwlarrJourneyUITests: XCTestCase {
             app.navigationBars[ProwlarrUIFixtureServer.indexerName].waitForExistence(timeout: 10),
             "Tapping an indexer should push its real Prowlarr detail screen."
         )
+        let initialHierarchy = app.debugDescription
+        let enabled = app.switches["Enabled in Prowlarr"]
+        XCTAssertTrue(enabled.waitForExistence(in: app, timeout: 10), "Expected read-only status control. Initial hierarchy: \(initialHierarchy)")
+        XCTAssertFalse(enabled.isEnabled, "Configuration must start read-only.")
+        let originalEnabled = enabled.value as? String
+        let edit = app.buttons["Edit"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: 5), "Edit must become Save.")
+        XCTAssertTrue(enabled.wait(for: \.isEnabled, toEqual: true, timeout: 5))
+        enabled.tap()
+        XCTAssertFalse(server.hasReceivedRequest(method: "PUT", path: "/api/v1/indexer/11"), "Editing must not write before Save.")
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        XCTAssertEqual(enabled.value as? String, originalEnabled, "Cancel restores the baseline.")
+        XCTAssertFalse(server.hasReceivedRequest(method: "PUT", path: "/api/v1/indexer/11"), "Cancel must not write.")
+
         XCTAssertTrue(
             app.staticTexts["Base URL"].waitForExistence(in: app, timeout: 10),
             "The detail screen should display a field decoded from the indexer payload."

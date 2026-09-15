@@ -177,7 +177,7 @@ struct SABnzbdSettingsView: View {
                 }
             }
         }
-        .navigationTitle("SABnzbd Settings")
+        .navigationTitle("SABnzbd")
         .serviceSettingsFormStyle()
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

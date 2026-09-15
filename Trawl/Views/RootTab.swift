@@ -42,7 +42,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
         case .integrations:
             [.indexers, .downloadClients, .newsServers, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:
-            [.downloadOrganization, .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .subtitles]
+            [.downloadOrganization, .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .manualImport, .subtitles]
         case .system:
             // Settings sits at the bottom of System rather than in a section of its
             // own: it is one row, and a heading over a single row is a heading that
@@ -100,6 +100,7 @@ enum RootTab: Hashable, CaseIterable {
     case qualityDefinitions
     case naming
     case libraryImport
+    case manualImport
     case subtitles
 
     case setupCheck
@@ -141,6 +142,7 @@ enum RootTab: Hashable, CaseIterable {
         case .qualityDefinitions: "Quality Definitions"
         case .naming: "Naming"
         case .libraryImport: "Library Import"
+        case .manualImport: "Manual Import"
         case .subtitles: "Subtitles"
         case .setupCheck: "Setup Check"
         case .health: "Health"
@@ -191,6 +193,7 @@ enum RootTab: Hashable, CaseIterable {
         case .qualityDefinitions: .qualityDefinitions
         case .naming: .arrNaming
         case .libraryImport: .libraryImport
+        case .manualImport: .manualImport
         case .subtitles: .subtitleManagement
         case .setupCheck: .setupCheck
         case .health: .health
@@ -217,9 +220,6 @@ enum RootTab: Hashable, CaseIterable {
         if let destination, let exact = allCases.first(where: { $0.moreRoot == destination }) {
             return exact
         }
-        // Manual Import shares Library Import's location browser. Root Folders
-        // auto-selects a server, which replaces a search push in its detail stack.
-        if destination == .manualImport { return .libraryImport }
         // Downloads' own sub-routes ("Downloads › Client Management") belong to the
         // Downloads tab, hence the prefix match rather than equality.
         if category.hasPrefix("Downloads") { return .downloads }
@@ -280,6 +280,7 @@ enum RootTab: Hashable, CaseIterable {
         case .qualityDefinitions: "chart.bar"
         case .naming: "character.cursor.ibeam"
         case .libraryImport: "square.and.arrow.down.on.square"
+        case .manualImport: "tray.and.arrow.down"
         case .subtitles: "captions.bubble"
         case .setupCheck: "checklist"
         case .health: "stethoscope"

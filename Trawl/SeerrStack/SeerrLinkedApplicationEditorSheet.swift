@@ -271,7 +271,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
     private var advancedSection: some View {
         Section {
             LabeledContent("External URL") {
-                TextField("External URL", text: $form.externalUrl, prompt: Text("https://..."))
+                TextField("External URL", text: $form.externalUrl, prompt: Text("https://…"))
                     .labeledContentField()
                     #if os(iOS)
                     .keyboardType(.URL)

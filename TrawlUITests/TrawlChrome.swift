@@ -104,6 +104,7 @@ enum TrawlDestination: CaseIterable {
     case qualityDefinitions
     case naming
     case libraryImport
+    case manualImport
     case subtitles
     case setupCheck
     case health
@@ -146,6 +147,7 @@ enum TrawlDestination: CaseIterable {
         case .qualityDefinitions: "Quality Definitions"
         case .naming: "Naming"
         case .libraryImport: "Library Import"
+        case .manualImport: "Manual Import"
         case .subtitles: "Subtitles"
         case .setupCheck: "Setup Check"
         case .health: "Health"
@@ -192,6 +194,7 @@ enum TrawlDestination: CaseIterable {
         case .qualityDefinitions: "nav.qualityDefinitions"
         case .naming: "nav.naming"
         case .libraryImport: "nav.libraryImport"
+        case .manualImport: "nav.manualImport"
         case .subtitles: "nav.subtitles"
         case .setupCheck: "nav.setupCheck"
         case .health: "nav.health"
@@ -224,7 +227,7 @@ enum TrawlDestination: CaseIterable {
         case .indexers, .downloadClients,
              .linkedApplications, .remotePaths, .cleanuparr, .tasks:
             .automation
-        case .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .subtitles:
+        case .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .manualImport, .subtitles:
             .libraryManagement
         case .setupCheck, .health, .logs, .diskSpace, .updates, .backups:
             .system

@@ -132,8 +132,8 @@ struct ArrDownloadClientListView: View {
         .paneAwareNavigationTitle("Download Clients", subtitle: serviceType.displayName, whenPane: selectedLabel)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        .scrollContentBackground(.hidden)
         #endif
+        .scrollContentBackground(.hidden)
         .moreDestinationBackground(.downloadClients)
         .toolbar {
             if supportsDownloadClients {

@@ -125,7 +125,10 @@ struct ProwlarrIndexerListView: View {
         applicationsViewModel: ProwlarrApplicationsViewModel?
     ) -> some View {
         @Bindable var browser = self.browser
-        List(selection: $browser.selection) {
+        List(selection: Binding(
+            get: { browser.selection },
+            set: { if !prowlarrViewModel.isEditingConfiguration { browser.selection = $0 } }
+        )) {
             if let prowlarr = undiscoveredProwlarr(directViewModel), !dismissedProwlarrNudge {
                 Section {
                     TrawlInlineCallout(
@@ -208,9 +211,16 @@ struct ProwlarrIndexerListView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        .refreshable { await reloadData() }
+        .refreshable {
+            guard !prowlarrViewModel.isEditingConfiguration else { return }
+            await reloadData()
+        }
         .searchable(text: $searchText, prompt: "Search indexers")
-        .toolbar { toolbarContent(prowlarrViewModel: prowlarrViewModel) }
+        .toolbar {
+            if !prowlarrViewModel.isEditingConfiguration {
+                toolbarContent(prowlarrViewModel: prowlarrViewModel)
+            }
+        }
         .alert(
             "Delete Indexer?",
             isPresented: Binding(

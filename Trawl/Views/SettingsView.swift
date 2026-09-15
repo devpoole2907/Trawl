@@ -628,6 +628,7 @@ struct QBittorrentSettingsView: View {
     @State private var speedLimitErrorAlert: ErrorAlertItem?
     @State private var isUpdatingAlternativeSpeed = false
     @State private var isUpdatingDefaultSavePath = false
+    @State private var isEditingSavePath = false
     
     /// One item for one sheet. Two `.sheet` modifiers on the same view is a SwiftUI
     /// trap rather than two presentations: only the last one is reliably honoured, and
@@ -728,6 +729,7 @@ struct QBittorrentSettingsView: View {
                     Text("Connect your qBittorrent server to manage torrents in Trawl.")
                 }
             }
+            .disabled(isEditingSavePath || isUpdatingDefaultSavePath)
 
             Section("Downloads") {
                 LabeledContent("Refresh Interval") {
@@ -751,23 +753,11 @@ struct QBittorrentSettingsView: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
-                    .disabled(isUpdatingDefaultSavePath)
-
-                Button {
-                    Task { await updateDefaultSavePath() }
-                } label: {
-                    if isUpdatingDefaultSavePath {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text("Update Save Location")
-                    }
-                }
-                .disabled(!canUpdateDefaultSavePath)
+                    .disabled(!isEditingSavePath || isUpdatingDefaultSavePath)
             } header: {
                 Text("Default Save Location")
             } footer: {
-                Text("Sets qBittorrent's server-wide default save path for new torrents.")
+                Text("Use Edit to change qBittorrent's server-wide default save path for new torrents.")
             }
 
             Section {
@@ -812,9 +802,9 @@ struct QBittorrentSettingsView: View {
                 if let appPreferences {
                     let down = formattedLimit(appPreferences.altDownloadLimit ?? 0)
                     let up = formattedLimit(appPreferences.altUploadLimit ?? 0)
-                    Text("Alternative mode uses \(down) down and \(up) up.")
+                    Text("Speed controls apply immediately. Alternative mode uses \(down) down and \(up) up.")
                 } else {
-                    Text("Set global download and upload caps, or toggle qBittorrent's alternative speed mode.")
+                    Text("Speed limits and alternative speed mode apply immediately.")
                 }
             }
 
@@ -865,6 +855,14 @@ struct QBittorrentSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .tint(ServiceIdentity.qbittorrent.brandColor)
+        .trawlEditingGuard(isEditing: isEditingSavePath, isSaving: isUpdatingDefaultSavePath)
+        .toolbar {
+            TrawlEditToolbar(isEditing: $isEditingSavePath, isSaving: isUpdatingDefaultSavePath,
+                canSave: canUpdateDefaultSavePath, canEdit: didLoadSpeedLimits && viewModel.serverProfile != nil,
+                onEdit: { defaultSavePath = appPreferences?.savePath ?? "" },
+                onCancel: { defaultSavePath = appPreferences?.savePath ?? "" },
+                onSave: { Task { await updateDefaultSavePath() } })
+        }
         .sheet(item: $serverEditor) { target in
             switch target {
             case .add:
@@ -1005,7 +1003,6 @@ struct QBittorrentSettingsView: View {
 
         // Store previous persisted values for rollback BEFORE any mutations
         let previousAppPreferences = appPreferences
-        let previousDefaultSavePath = appPreferences?.savePath ?? ""
         let previousSyncDefaultSavePath = syncService.defaultSavePath
         let previousProfileDefaultSavePath = viewModel.serverProfile?.defaultSavePath
 
@@ -1034,7 +1031,7 @@ struct QBittorrentSettingsView: View {
         } catch {
             // Local persistence failed - roll back all in-memory mirrors.
             appPreferences = previousAppPreferences
-            defaultSavePath = previousDefaultSavePath
+            defaultSavePath = trimmedPath
             syncService.defaultSavePath = previousSyncDefaultSavePath
             viewModel.serverProfile?.defaultSavePath = previousProfileDefaultSavePath
             inAppNotificationCenter.showError(
@@ -1063,6 +1060,7 @@ struct QBittorrentSettingsView: View {
             )
         }
 
+        isEditingSavePath = false
         inAppNotificationCenter.showSuccess(
             title: "Save Location Updated",
             message: defaultSavePath

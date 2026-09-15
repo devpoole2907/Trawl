@@ -79,7 +79,7 @@ struct BazarrBrowserView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $viewModel.searchText, prompt: "Search series & movies...")
+        .searchable(text: $viewModel.searchText, prompt: "Search series & movies…")
         .onAppear {
             selectedTab = initialTab
         }

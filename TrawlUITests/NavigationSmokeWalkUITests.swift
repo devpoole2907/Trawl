@@ -210,7 +210,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
 
         XCTAssertFalse(
-            app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Settings")).firstMatch.exists,
+            app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd")).firstMatch.exists,
             "Screen: SABnzbd settings belong in the main Settings area, not the client hub."
         )
         popBack(app, fromTitle: "SABnzbd")
@@ -372,9 +372,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         let sabnzbdRow = firstElement(labelContains: "Fixture SABnzbd", in: app)
         XCTAssertTrue(sabnzbdRow.waitForExistence(in: app, timeout: 10), "Screen: Settings should list the seeded SABnzbd profile.")
         sabnzbdRow.tap()
-        XCTAssertTrue(app.navigationBars["SABnzbd Settings"].waitForExistence(timeout: 10), "Screen: the SABnzbd row should push SABnzbdSettingsView.")
+        XCTAssertTrue(app.navigationBars["SABnzbd"].waitForExistence(timeout: 10), "Screen: the SABnzbd row should push SABnzbdSettingsView.")
         XCTAssertTrue(app.buttons["Edit Server"].waitForExistence(timeout: 10), "Screen: a configured SABnzbd should offer 'Edit Server'.")
-        popBack(app, fromTitle: "SABnzbd Settings")
+        popBack(app, fromTitle: "SABnzbd")
 
         // Radarr: never configured - the unconfigured-service settings path.
         let radarrRow = firstElement(labelContains: "Radarr", in: app)

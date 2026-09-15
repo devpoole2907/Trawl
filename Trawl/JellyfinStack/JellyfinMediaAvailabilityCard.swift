@@ -123,13 +123,13 @@ struct JellyfinMediaAvailabilityCard: View {
 
             if isExpanded {
                 if serviceManager.isConnecting {
-                    loadingRow("Connecting to Jellyfin...")
+                    loadingRow("Connecting to Jellyfin…")
                 } else {
                     switch resolverState {
                     case .idle:
                         EmptyView()
                     case .loading:
-                        loadingRow("Checking Jellyfin...")
+                        loadingRow("Checking Jellyfin…")
                     case .resolved(let items):
                         if items.isEmpty {
                             unavailableRow
@@ -193,7 +193,7 @@ struct JellyfinMediaAvailabilityCard: View {
                 if let matched = matchedEpisodeCount {
                     return "\(matched) / \(total)"
                 }
-                if case .loading = episodesState { return "Counting..." }
+                if case .loading = episodesState { return "Counting…" }
                 if case .failed = episodesState { return "Present" }
                 return "Present"
             }

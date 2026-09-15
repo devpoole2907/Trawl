@@ -7,9 +7,17 @@ struct ProwlarrIndexerDetailView: View {
     @State private var showTestResult = false
     @State private var testActionError: String?
     @State private var selectedTagIDs: Set<Int> = []
-    @State private var didSeedTags = false
     @State private var isSavingTags = false
+    @State private var isEditing = false
+    @State private var draftEnabled = false
     @Environment(\.dismiss) private var dismiss
+
+    init(indexer: ProwlarrIndexer, viewModel: ProwlarrViewModel) {
+        self.indexer = indexer
+        self.viewModel = viewModel
+        _draftEnabled = State(initialValue: indexer.enable)
+        _selectedTagIDs = State(initialValue: Set(indexer.tags ?? []))
+    }
 
     private var status: ProwlarrIndexerStatus? {
         viewModel.statusForIndexer(id: indexer.id)
@@ -62,14 +70,8 @@ struct ProwlarrIndexerDetailView: View {
 
             // MARK: Status Section
             Section("Status") {
-                Toggle("Enabled in Prowlarr", isOn: Binding(
-                    get: {
-                        currentIndexer.enable
-                    },
-                    set: { _ in
-                        Task { await viewModel.toggleIndexer(currentIndexer) }
-                    }
-                ))
+                Toggle("Enabled in Prowlarr", isOn: $draftEnabled)
+                    .disabled(!isEditing || isSavingTags)
 
                 detailRow(label: "Current State", value: currentStateLabel)
 
@@ -133,11 +135,10 @@ struct ProwlarrIndexerDetailView: View {
                                     } else {
                                         selectedTagIDs.remove(tag.id)
                                     }
-                                    Task { await saveTags() }
                                 }
                             )
                         )
-                        .disabled(isSavingTags)
+                        .disabled(!isEditing || isSavingTags)
                     }
                 }
 
@@ -199,6 +200,7 @@ struct ProwlarrIndexerDetailView: View {
                 } label: {
                     Label("Remove Indexer", systemImage: "trash")
                 }
+                .disabled(isSavingTags)
             }
         }
         .serviceSettingsFormStyle()
@@ -206,7 +208,13 @@ struct ProwlarrIndexerDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .onChange(of: isEditing) { _, editing in viewModel.isEditingConfiguration = editing }
+        .onDisappear { viewModel.isEditingConfiguration = false }
+        .trawlEditingGuard(isEditing: isEditing, isSaving: isSavingTags)
         .toolbar {
+            TrawlEditToolbar(isEditing: $isEditing, isSaving: isSavingTags,
+                canSave: draftEnabled != currentIndexer.enable || selectedTagIDs != Set(currentIndexer.tags ?? []),
+                onEdit: resetDraft, onCancel: resetDraft, onSave: { Task { await saveConfiguration() } })
             #if os(macOS)
             // macOS shares one toolbar between the split view's list and detail
             // columns. The spacer stops the list column's items from bleeding
@@ -216,14 +224,13 @@ struct ProwlarrIndexerDetailView: View {
         }
         .task {
             await viewModel.loadTags()
-            if !didSeedTags {
-                selectedTagIDs = Set(currentIndexer.tags ?? [])
-                didSeedTags = true
-            }
+            if !isEditing { resetDraft() }
         }
         .refreshable {
+            guard !isEditing && !isSavingTags else { return }
             await viewModel.loadIndexers()
             await viewModel.loadStats()
+            resetDraft()
         }
         .onChange(of: viewModel.testResult) { _, newValue in
             if newValue != nil {
@@ -268,19 +275,21 @@ struct ProwlarrIndexerDetailView: View {
         }
     }
 
-    private func saveTags() async {
+    private func resetDraft() {
+        draftEnabled = currentIndexer.enable
+        selectedTagIDs = Set(currentIndexer.tags ?? [])
+    }
+
+    private func saveConfiguration() async {
         guard !isSavingTags else { return }
         isSavingTags = true
         defer { isSavingTags = false }
-
-        let success = await viewModel.updateIndexerTags(currentIndexer, tagIDs: Array(selectedTagIDs))
-        if !success {
-            // Revert the UI to the last saved state.
-            selectedTagIDs = Set(currentIndexer.tags ?? [])
-            if let error = viewModel.indexerError, !error.isEmpty {
-                InAppNotificationCenter.shared.showError(title: "Tag Update Failed", message: error)
-                viewModel.clearIndexerError()
-            }
+        if await viewModel.saveIndexerConfiguration(currentIndexer, enabled: draftEnabled, tagIDs: Array(selectedTagIDs)) {
+            resetDraft()
+            isEditing = false
+        } else {
+            InAppNotificationCenter.shared.showError(title: "Save Failed", message: viewModel.indexerError ?? "Could not save indexer configuration.")
+            viewModel.clearIndexerError()
         }
     }
 

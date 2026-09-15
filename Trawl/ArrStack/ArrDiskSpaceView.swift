@@ -58,7 +58,7 @@ struct ArrDiskSpaceView: View {
                     message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else if browser.isLoading && browser.snapshots.isEmpty {
-                ProgressView("Loading disk space...")
+                ProgressView("Loading disk space…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if browser.snapshots.isEmpty {
                 ContentUnavailableView(
@@ -123,7 +123,7 @@ struct ArrDiskSpaceView: View {
                     message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else if browser.isLoading && browser.snapshots.isEmpty {
-                ProgressView("Loading disk space...")
+                ProgressView("Loading disk space…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if browser.snapshots.isEmpty {
                 ContentUnavailableView(

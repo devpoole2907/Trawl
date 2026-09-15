@@ -1012,7 +1012,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         let itemLabel = failures.count == 1 ? singular : plural
         let visibleFailures = failures.prefix(3).joined(separator: "\n")
         let remainingCount = failures.count - min(failures.count, 3)
-        let remainingMessage = remainingCount > 0 ? "\n...and \(remainingCount) more failed." : ""
+        let remainingMessage = remainingCount > 0 ? "\n…and \(remainingCount) more failed." : ""
         return "\(failures.count) \(itemLabel) failed:\n\(visibleFailures)\(remainingMessage)"
     }
 }

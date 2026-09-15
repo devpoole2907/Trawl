@@ -158,7 +158,7 @@ struct ConfigurationCategoryRepairView: View {
         case .running:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Applying...").font(.footnote).foregroundStyle(.secondary)
+                Text("Applying…").font(.footnote).foregroundStyle(.secondary)
             }
         case .succeeded(let message):
             Label(message, systemImage: "checkmark.circle.fill")
@@ -183,7 +183,7 @@ struct ConfigurationCategoryRepairView: View {
                 if isApplying {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Applying...")
+                        Text("Applying…")
                     }
                 } else {
                     // A retry after a partial failure is the common second press, so

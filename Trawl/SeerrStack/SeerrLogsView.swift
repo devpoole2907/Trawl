@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SeerrLogsView: View {
+    private let presentation = ServiceLogPresentation.seerr
     let apiClient: SeerrAPIClient
 
     @State private var entries: [SeerrServerLogEntry] = []
@@ -66,12 +67,12 @@ struct SeerrLogsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
-        .navigationTitle("Logs")
-        .navigationSubtitle("Seerr")
+        .navigationTitle(presentation.navigationTitle)
+        .navigationSubtitle(presentation.serviceName)
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ShareLink(item: LogExportFile(title: "Seerr Logs", text: exportText), preview: SharePreview("Seerr Logs")) {
-                    Label("Share Logs", systemImage: "square.and.arrow.up")
+                ShareLink(item: LogExportFile(title: presentation.exportTitle, text: exportText), preview: SharePreview(presentation.exportTitle)) {
+                    Label(presentation.shareTitle, systemImage: "square.and.arrow.up")
                 }
                 .disabled(entries.isEmpty)
             }
@@ -156,7 +157,7 @@ struct SeerrLogsView: View {
             }
             return components.joined(separator: " ")
         }
-        return (["Seerr Logs", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+        return ([presentation.exportTitle, "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
             .joined(separator: "\n")
     }
 }

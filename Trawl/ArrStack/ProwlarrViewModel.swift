@@ -33,6 +33,7 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
     private(set) var availableTags: [ArrTag] = []
     private(set) var appProfiles: [ProwlarrAppProfile] = []
     private(set) var isLoadingIndexers = false
+    var isEditingConfiguration = false
     private(set) var errors: [ProwlarrOperation: String] = [:]
     private(set) var testResult: String?
     private(set) var testSucceeded: Bool?
@@ -206,6 +207,28 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
         } catch {
             // Revert on failure
             indexers = previous
+            errors[.indexer] = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Commits an editor's complete draft in one request; rejected writes keep the list unchanged.
+    func saveIndexerConfiguration(_ indexer: ProwlarrIndexer, enabled: Bool, tagIDs: [Int]) async -> Bool {
+        guard let client else {
+            errors[.indexer] = "Prowlarr is not connected."
+            return false
+        }
+        var updated = indexer
+        updated.enable = enabled
+        updated.tags = tagIDs.sorted()
+        do {
+            let accepted = try await client.updateIndexer(updated)
+            if let index = indexers.firstIndex(where: { $0.id == accepted.id }) {
+                indexers[index] = accepted
+            }
+            errors[.indexer] = nil
+            return true
+        } catch {
             errors[.indexer] = error.localizedDescription
             return false
         }

@@ -138,7 +138,7 @@ struct ArrQualityDefinitionsView: View {
             selectedDefinitionDetail
         }
         .sheet(item: $sheetDefinition) { definition in
-            ArrQualityDefinitionSheet(definition: definition) { updated in
+            ArrQualityDefinitionSheet(definition: definition, onEditingChanged: { browser.isEditingDefinition = $0 }) { updated in
                 await save(updated: updated)
             }
             #if os(iOS)
@@ -170,7 +170,7 @@ struct ArrQualityDefinitionsView: View {
         .moreDestinationBackground(.qualityDefinitions)
         .safeAreaInset(edge: .top) {
             ArrInstanceScopeBar(instances: availableInstances, selection: $browser.selectedInstanceID)
-                .disabled(isSaving)
+                .disabled(isSaving || browser.isEditingDefinition)
         }
         .task(id: selectedInstance?.id) {
             #if DEBUG
@@ -206,10 +206,13 @@ struct ArrQualityDefinitionsView: View {
 
     private var definitionsList: some View {
         @Bindable var browser = browser
-        return List(selection: showsDetailPane ? $browser.selectedDefinitionID : .constant(nil)) {
+        return List(selection: showsDetailPane ? Binding(
+            get: { browser.selectedDefinitionID },
+            set: { if !browser.isEditingDefinition && !isSaving { browser.selectedDefinitionID = $0 } }
+        ) : .constant(nil)) {
             Section("How to Use") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Tap a quality row to edit its file size limits.", systemImage: "hand.tap")
+                    Label("Open a quality row, then use Edit to change its file size limits.", systemImage: "hand.tap")
                     Label("Values are MB per minute. Multiply by 60 for MB/hr, or divide by about 1024 for GB/hr.", systemImage: "speedometer")
                     Label("In the editor, choose Min, Preferred, or Max, then drag the bar or use the wheel. Max 0 means unlimited.", systemImage: "slider.horizontal.3")
                 }
@@ -231,7 +234,7 @@ struct ArrQualityDefinitionsView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .disabled(isSaving)
+                .disabled(isSaving || browser.isEditingDefinition)
             }
         }
         #if os(iOS)
@@ -248,7 +251,7 @@ struct ArrQualityDefinitionsView: View {
     @ViewBuilder
     private var selectedDefinitionDetail: some View {
         if let definition = selectedDefinition {
-            ArrQualityDefinitionSheet(definition: definition, instance: selectedInstance) { updated in
+            ArrQualityDefinitionSheet(definition: definition, instance: selectedInstance, onEditingChanged: { browser.isEditingDefinition = $0 }) { updated in
                 await save(updated: updated)
             }
             .id(ArrScopedID(selectedInstance?.id, definition.id))
@@ -269,6 +272,7 @@ struct ArrQualityDefinitionsView: View {
     }
 
     private func load() async {
+        guard !browser.isEditingDefinition && !isSaving else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -282,10 +286,9 @@ struct ArrQualityDefinitionsView: View {
         }
     }
 
-    /// Returns whether the server accepted the definitions, so a detail-pane editor
-    /// only leaves edit mode once the write has landed.
-    private func save(updated: ArrQualityDefinition) async -> Bool {
-        guard !isSaving else { return false }
+    /// Return the accepted definition so the editor uses the server-confirmed baseline.
+    private func save(updated: ArrQualityDefinition) async -> ArrQualityDefinition? {
+        guard !isSaving else { return nil }
         isSaving = true
         defer { isSaving = false }
         var toSave = definitions
@@ -298,10 +301,10 @@ struct ArrQualityDefinitionsView: View {
             let client = try currentClient()
             definitions = try await client.updateQualityDefinitions(toSave)
                 .sorted { ($0.weight ?? 0) < ($1.weight ?? 0) }
-            return true
+            return definitions.first { $0.id == updated.id }
         } catch {
             notificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
-            return false
+            return nil
         }
     }
 
@@ -513,18 +516,19 @@ private struct QualityRangeBarView: View {
 // MARK: - Edit Sheet
 
 private struct ArrQualityDefinitionSheet: View {
-    let original: ArrQualityDefinition
+    let latestDefinition: ArrQualityDefinition
+    @State private var original: ArrQualityDefinition
     /// The server the definition was loaded from, named in the detail header.
     let instance: ArrInstanceRef?
     @State private var draft: ArrQualityDefinition
     @State private var selectedField: QualitySizeField = .min
     @State private var wheelValue: Double
     @State private var isSaving = false
-    /// A detail pane opens read-only, like the indexer editor: Edit unlocks the form
-    /// and becomes Save. Sheets are opened to edit, so they start unlocked.
+    /// Existing definitions open read-only in every presentation.
     @State private var isEditing = false
-    /// Returns whether the server accepted the definition.
-    let onSave: (ArrQualityDefinition) async -> Bool
+    /// A rejected save returns nil and preserves the draft.
+    let onSave: (ArrQualityDefinition) async -> ArrQualityDefinition?
+    let onEditingChanged: (Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isDetailPane) private var isDetailPane
@@ -532,12 +536,15 @@ private struct ArrQualityDefinitionSheet: View {
     init(
         definition: ArrQualityDefinition,
         instance: ArrInstanceRef? = nil,
-        onSave: @escaping (ArrQualityDefinition) async -> Bool
+        onEditingChanged: @escaping (Bool) -> Void = { _ in },
+        onSave: @escaping (ArrQualityDefinition) async -> ArrQualityDefinition?
     ) {
-        self.original = definition
+        self.latestDefinition = definition
+        _original = State(initialValue: definition)
         self.instance = instance
         _draft = State(initialValue: definition)
         _wheelValue = State(initialValue: definition.minSize ?? 0)
+        self.onEditingChanged = onEditingChanged
         self.onSave = onSave
     }
 
@@ -545,7 +552,7 @@ private struct ArrQualityDefinitionSheet: View {
         draft.title ?? draft.quality?.name ?? "Quality"
     }
 
-    private var isEditable: Bool { !isDetailPane || isEditing }
+    private var isEditable: Bool { isEditing && !isSaving }
 
     /// The sizes the server accepts; the bar and the iOS wheel cover the same span.
     private static let sizeRange: ClosedRange<Double> = 0...400
@@ -556,7 +563,7 @@ private struct ArrQualityDefinitionSheet: View {
                 editorChrome(detailForm)
             } else {
                 NavigationStack {
-                    editorChrome(sheetContent)
+                    editorChrome(sheetContent.disabled(!isEditable))
                 }
                 .macSheetSizing(minWidth: 460, idealWidth: 500, minHeight: 380)
             }
@@ -739,37 +746,33 @@ private struct ArrQualityDefinitionSheet: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .onChange(of: [latestDefinition.minSize, latestDefinition.preferredSize, latestDefinition.maxSize]) { _, _ in
+                guard !isEditing && !isSaving else { return }
+                original = latestDefinition
+                draft = latestDefinition
+                wheelValue = fieldValue(selectedField)
+            }
+            .onChange(of: isEditing) { _, editing in onEditingChanged(editing) }
+            .onDisappear { onEditingChanged(false) }
+            .trawlEditingGuard(isEditing: isEditing, isSaving: isSaving)
             .toolbar {
-                if !isDetailPane {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
-                            .disabled(isSaving)
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else if isEditable {
-                        Button("Save") {
-                            Task {
-                                isSaving = true
-                                let saved = await onSave(draft)
-                                isSaving = false
-                                if !isDetailPane {
-                                    dismiss()
-                                } else if saved {
-                                    // A rejected save stays in edit mode, ready to retry.
-                                    withAnimation(.snappy) { isEditing = false }
-                                }
+                TrawlEditToolbar(isEditing: $isEditing, isSaving: isSaving,
+                    canSave: draft.minSize != original.minSize || draft.maxSize != original.maxSize || draft.preferredSize != original.preferredSize,
+                    onCancel: { draft = original; wheelValue = fieldValue(selectedField) },
+                    onSave: {
+                        Task {
+                            guard !isSaving else { return }
+                            isSaving = true
+                            let saved = await onSave(draft)
+                            isSaving = false
+                            if let saved {
+                                draft = saved
+                                original = saved
+                                wheelValue = fieldValue(selectedField)
+                                isEditing = false
                             }
                         }
-                        .bold()
-                    } else {
-                        Button("Edit", systemImage: "pencil") {
-                            withAnimation(.snappy) { isEditing = true }
-                        }
-                    }
-                }
+                    }, onClose: isDetailPane ? nil : { dismiss() })
             }
     }
 
@@ -1006,12 +1009,12 @@ extension ArrQualityDefinition {
 }
 
 #Preview("Quality Definition - Editor") {
-    ArrQualityDefinitionSheet(definition: .preview) { _ in true }
+    ArrQualityDefinitionSheet(definition: .preview) { definition in definition }
 }
 
 #Preview("Quality Definition - Detail Pane") {
     NavigationStack {
-        ArrQualityDefinitionSheet(definition: .preview) { _ in true }
+        ArrQualityDefinitionSheet(definition: .preview) { definition in definition }
     }
     .environment(\.isDetailPane, true)
     // Tall enough to show the size limits, which sit below the header.

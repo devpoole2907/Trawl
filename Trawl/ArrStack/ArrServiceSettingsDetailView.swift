@@ -269,7 +269,7 @@ struct ArrServiceSettingsView: View {
                     Section(systemStatusTitle) {
                         HStack {
                             ProgressView()
-                            Text("Loading system status...")
+                            Text("Loading system status…")
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -928,7 +928,7 @@ struct ArrWebhookNotificationConfigView: View {
                         HStack {
                             ProgressView()
                                 .padding(.trailing, 8)
-                            Text("Testing...")
+                            Text("Testing…")
                         }
                     } else {
                         Label("Test", systemImage: "paperplane")

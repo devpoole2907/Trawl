@@ -8,6 +8,9 @@ struct JellyfinTranscodingSettingsView: View {
     @State private var originalOptions: JellyfinEncodingOptions?
     @State private var isLoading = false
     @State private var isSaving = false
+    @State private var isEditing = false
+    var showsClose = false
+    @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
     @State private var showHardwareChangeConfirmation = false
     @State private var showNvencPresetConfirmation = false
@@ -75,10 +78,13 @@ struct JellyfinTranscodingSettingsView: View {
                 }
             } else if let options {
                 currentSection(options)
-                hardwareSection
-                decodingSection
-                qualitySection(options)
-                presetSection
+                Group {
+                    hardwareSection
+                    decodingSection
+                    qualitySection(options)
+                    presetSection
+                }
+                .disabled(!isEditing || isSaving)
             } else if errorMessage == nil {
                 ContentUnavailableView(
                     "No Transcoding Settings",
@@ -91,6 +97,7 @@ struct JellyfinTranscodingSettingsView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
+        .serviceSettingsFormStyle()
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Transcoding")
@@ -99,16 +106,12 @@ struct JellyfinTranscodingSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .refreshable { await loadEncodingOptions() }
+        .trawlEditingGuard(isEditing: isEditing, isSaving: isSaving)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button("Save", action: requestSave)
-                        .disabled(options == nil || isLoading || !hasChanges)
-                }
-            }
+            TrawlEditToolbar(isEditing: $isEditing, isSaving: isSaving,
+                canSave: hasChanges && !isLoading, canEdit: options != nil && !isLoading,
+                onCancel: { options = originalOptions }, onSave: requestSave,
+                onClose: showsClose ? { dismiss() } : nil)
         }
         .task {
             #if DEBUG
@@ -245,6 +248,7 @@ struct JellyfinTranscodingSettingsView: View {
     }
 
     private func loadEncodingOptions() async {
+        guard !isEditing && !isSaving else { return }
         isLoading = true
         errorMessage = nil
         do {
@@ -258,12 +262,12 @@ struct JellyfinTranscodingSettingsView: View {
     }
 
     private func save() async {
-        guard let options else { return }
+        guard isEditing, !isSaving, let options else { return }
 
         isSaving = true
         inAppNotificationCenter.showProgress(
             title: "Saving Transcoding",
-            message: "Updating Jellyfin playback settings...",
+            message: "Updating Jellyfin playback settings…",
             key: "jellyfin_transcoding_save",
             source: .inApp
         )
@@ -271,6 +275,7 @@ struct JellyfinTranscodingSettingsView: View {
         do {
             try await apiClient.updateEncodingOptions(options)
             originalOptions = options
+            isEditing = false
             inAppNotificationCenter.replaceProgressWithSuccess(
                 key: "jellyfin_transcoding_save",
                 title: "Transcoding Updated",

@@ -90,7 +90,7 @@ struct JellyfinUserEditorView: View {
             }
 
             if isEditing {
-                editingContent
+                editingContent.disabled(viewModel.isSaving)
             } else {
                 viewContent
             }
@@ -138,36 +138,18 @@ struct JellyfinUserEditorView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .trawlEditingGuard(isEditing: isEditing, isSaving: viewModel.isSaving)
         .toolbar {
-            if isEditing {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") {
-                        viewModel.reset()
-                        withAnimation { isEditing = false }
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if viewModel.isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            Task {
-                                if let updatedUser = await viewModel.save() {
-                                    onSave(updatedUser)
-                                    withAnimation { isEditing = false }
-                                }
-                            }
+            TrawlEditToolbar(isEditing: $isEditing, isSaving: viewModel.isSaving,
+                canSave: viewModel.hasChanges, onCancel: { viewModel.reset() },
+                onSave: {
+                    Task {
+                        if let updatedUser = await viewModel.save() {
+                            onSave(updatedUser)
+                            isEditing = false
                         }
-                        .disabled(!viewModel.hasChanges)
                     }
-                }
-            } else {
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    Button("Edit") {
-                        withAnimation { isEditing = true }
-                    }
-                }
-            }
+                })
         }
         .sheet(isPresented: $showResetPassword) {
             JellyfinResetPasswordSheet(userId: viewModel.user.id, apiClient: viewModel.apiClient)

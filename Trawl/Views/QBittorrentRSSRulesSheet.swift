@@ -303,7 +303,7 @@ private struct QBittorrentRSSRuleEditorView: View {
                 Text("Episode filter uses qBittorrent's format, for example 1x01-; matches season 1 from episode 1 onward.")
             }
 
-            Section("Behaviour") {
+            Section("Behavior") {
                 Toggle("Smart filter (skip duplicates)", isOn: $rule.smartFilter)
                 Stepper(value: $rule.ignoreDays, in: 0...365) {
                     HStack {

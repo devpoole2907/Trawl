@@ -101,10 +101,10 @@ Required properties:
 ## Draft, navigation and persistence
 
 - Edits affect a local draft only. Enable Save when the draft differs from the loaded value and passes available validation.
-- The proposed builder opens directly for local editing on all platforms. This intentionally replaces the current detail-pane Edit gate and compact editor sheet; update tests that pin those behaviors explicitly.
+- Updated configuration-editing contract: the builder opens read-only on all platforms and reuses `TrawlEditToolbar` for Edit → Save and Cancel. This supersedes the original direct-editing proposal. Accepted saves return to read-only; failed saves keep the draft.
 - Back, selection changes and server switches with unsaved edits offer Save and continue, Discard, or Keep editing. Resolve this before changing the active target. A cancelled choice leaves selection and draft intact.
 - Preserve current save confirmation in the initial implementation, with the specific server named. Do not silently remove the existing confirmation contract as part of a visual rewrite.
-- Await server acceptance before dismissing a compact editor or treating the draft as saved. On failure retain the full draft and allow retry.
+- Await server acceptance before treating the draft as saved and returning to read-only. Compact and split editors stay open after Save. On failure retain the full draft and allow retry.
 - Capture server identity and target before starting async work. A response for an old scope must not replace a newly selected server’s list or detail.
 - Update only the intended format field within its owning configuration; preserve all other naming fields and file-handling settings.
 - Reconcile with the server-accepted response after success. Update both the list example and builder baseline; do not assume the submitted value equals the accepted value.
