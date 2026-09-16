@@ -47,10 +47,15 @@ extension SharedArrClient {
     }
     func testNotification(_ notification: ArrNotification) async throws { try await base.postVoidCodable("\(apiPath)/notification/test", body: notification) }
 
+    /// `timeoutInterval` exists for the queue poller, which is the one caller that
+    /// repeats on a timer and so gains from giving up early - another cycle is along
+    /// shortly, and a request still hanging when it starts only collides with it.
+    /// Every other caller is a person waiting, and keeps the session default.
     func getQueue(
         page: Int = 1,
         pageSize: Int = ArrAPIClient.defaultPageSize,
-        includeUnknownMovieItems: Bool = true
+        includeUnknownMovieItems: Bool = true,
+        timeoutInterval: TimeInterval? = nil
     ) async throws -> ArrQueuePage {
         let params = [
             URLQueryItem(name: "page", value: String(page)),
@@ -58,7 +63,7 @@ extension SharedArrClient {
             URLQueryItem(name: "includeUnknownMovieItems", value: String(includeUnknownMovieItems)),
             URLQueryItem(name: "includeUnknownSeriesItems", value: "true")
         ]
-        return try await base.get("\(apiPath)/queue", queryItems: params)
+        return try await base.get("\(apiPath)/queue", queryItems: params, timeoutInterval: timeoutInterval)
     }
 
     func deleteQueueItem(id: Int, removeFromClient: Bool = true, blocklist: Bool = false) async throws {
@@ -71,7 +76,8 @@ extension SharedArrClient {
 
     func getHistory(
         page: Int = 1,
-        pageSize: Int = ArrAPIClient.defaultPageSize
+        pageSize: Int = ArrAPIClient.defaultPageSize,
+        timeoutInterval: TimeInterval? = nil
     ) async throws -> ArrHistoryPage {
         let params = [
             URLQueryItem(name: "page", value: String(page)),
@@ -79,7 +85,7 @@ extension SharedArrClient {
             URLQueryItem(name: "sortKey", value: "date"),
             URLQueryItem(name: "sortDirection", value: "descending")
         ]
-        return try await base.get("\(apiPath)/history", queryItems: params)
+        return try await base.get("\(apiPath)/history", queryItems: params, timeoutInterval: timeoutInterval)
     }
 
     func getLog(

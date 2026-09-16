@@ -23,6 +23,36 @@ struct ConnectionStatusCard: View {
     var onRetry: (() -> Void)?
     var onEdit: (() -> Void)?
 
+    /// Optional so previews, tests and any screen rendered outside the app root keep
+    /// working - the same shape `ConnectionRetryCountdownView` uses for the scheduler.
+    @Environment(NetworkReachability.self) private var reachability: NetworkReachability?
+
+    /// When the device itself has no network path, every configured service fails at
+    /// once and each one reports the same transport error in its own words. Naming
+    /// the servers then is actively misleading: nothing is wrong with Sonarr, and
+    /// "Sonarr Unreachable" sends someone to check a server that is fine. The card
+    /// says what is actually true instead, and because every service draws this same
+    /// card, they all say it together rather than contradicting each other.
+    ///
+    /// Only the wording changes. Retry and Edit stay exactly where they were, and the
+    /// retry countdown keeps running - a tunnel can come up at any moment, and the
+    /// scheduler is what notices.
+    private var isOffline: Bool { reachability?.isOffline == true }
+
+    private var effectiveTitle: String {
+        isOffline ? "No Internet Connection" : title
+    }
+
+    private var effectiveMessage: String {
+        isOffline
+            ? "This device is offline, so Trawl can't reach any of your servers. They're probably fine - check Wi-Fi, cellular data, or your VPN."
+            : message
+    }
+
+    private var effectiveSystemImage: String {
+        isOffline ? "wifi.slash" : (systemImage ?? identity?.systemImage ?? "network.slash")
+    }
+
     @ViewBuilder
     var body: some View {
         switch presentation {
@@ -78,9 +108,9 @@ struct ConnectionStatusCard: View {
 
     private var cardMessage: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text(effectiveTitle)
                 .font(.headline)
-            Text(message)
+            Text(effectiveMessage)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -145,11 +175,11 @@ struct ConnectionStatusCard: View {
             embeddedStatusIcon
 
             VStack(spacing: 6) {
-                Text(title)
+                Text(effectiveTitle)
                     .font(.headline)
                     .multilineTextAlignment(.center)
 
-                Text(message)
+                Text(effectiveMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -206,7 +236,7 @@ struct ConnectionStatusCard: View {
                 .fill(statusColor.opacity(0.15))
                 .frame(width: 44, height: 44)
 
-            Image(systemName: systemImage ?? identity?.systemImage ?? "network.slash")
+            Image(systemName: effectiveSystemImage)
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(statusColor)
         }
@@ -220,7 +250,7 @@ struct ConnectionStatusCard: View {
                 .controlSize(.regular)
                 .tint(statusColor)
         } else {
-            Image(systemName: systemImage ?? identity?.systemImage ?? "network.slash")
+            Image(systemName: effectiveSystemImage)
                 .font(.system(size: 102, weight: .semibold))
                 .foregroundStyle(statusColor)
                 .accessibilityHidden(true)

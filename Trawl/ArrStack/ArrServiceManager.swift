@@ -1414,8 +1414,8 @@ final class ArrServiceManager {
     ) async -> ArrQueueSnapshot {
         guard let client else { return .empty }
         do {
-            async let queue = client.getQueue(page: 1, pageSize: 100)
-            async let history = client.getHistory(page: 1, pageSize: 100)
+            async let queue = client.getQueue(page: 1, pageSize: 100, timeoutInterval: TrawlTimeout.poll)
+            async let history = client.getHistory(page: 1, pageSize: 100, timeoutInterval: TrawlTimeout.poll)
             let (queuePage, historyPage) = try await (queue, history)
             recordInstanceOutcome(ref, error: nil)
             return ArrQueueSnapshot(

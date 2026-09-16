@@ -152,6 +152,7 @@ struct ContentView: View {
     @State private var didEvaluateWelcomeState = false
     @State private var servicesTask: Task<Void, Never>?
     @State private var connectionRetryScheduler = ConnectionRetryScheduler()
+    @State private var reachability = NetworkReachability()
     @State private var downloadsNavigator = DownloadsNavigator()
     @State private var jellyfinCredentialHandoff = JellyfinCredentialHandoff()
     #if os(macOS)
@@ -194,6 +195,7 @@ struct ContentView: View {
             }
         }
         .environment(connectionRetryScheduler)
+        .environment(reachability)
         .environment(jellyfinCredentialHandoff)
         // `SyncService` and `TorrentService` are the only two service dependencies
         // not injected at the app root, because they come from `AppServices`, which
@@ -433,6 +435,27 @@ struct ContentView: View {
             await connectionRetryScheduler.start {
                 await retryDisconnectedConnections()
             }
+        }
+        .task {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
+            reachability.startMonitoring()
+        }
+        .onChange(of: reachability.pathGeneration) { _, _ in
+            // The network moved under us. Watched instead of `isOffline` because the
+            // transition worth reacting to includes the ones the flag never sees -
+            // cellular handing over to Wi-Fi, or a VPN finally coming up, are both
+            // satisfied-to-satisfied and both mean a retry is suddenly worth making.
+            //
+            // Nothing here gates on *being* reachable: a satisfied path is a hint to
+            // try again, never a promise that a LAN server is behind it.
+            guard !reachability.isOffline, scenePhase == .active, !shouldShowWelcomeScreen else { return }
+            // Every failure counted so far was against the old path, so it says
+            // nothing about this one - start the cadence and the evidence over
+            // rather than making the user wait out a backoff earned somewhere else.
+            appServices?.syncService.resetBackoff()
+            Task { await retryDisconnectedConnections() }
         }
         .onChange(of: activeServerID) { _, newValue in
             appServices?.syncService.stopPolling()
