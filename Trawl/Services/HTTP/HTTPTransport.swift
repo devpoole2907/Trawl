@@ -286,8 +286,12 @@ actor HTTPTransport {
         return try await perform(request)
     }
 
-    func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {
-        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
+    func getData(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> Data {
+        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems, timeoutInterval: timeoutInterval)
         return try await performData(request)
     }
 

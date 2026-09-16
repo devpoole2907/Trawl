@@ -41,9 +41,26 @@ final class SyncService {
     private var pollingGeneration: UInt64 = 0
     private let apiClient: any SyncDataFetching
     var pollingInterval: TimeInterval = 2.0
+    /// Stretches the automatic cadence while the server is unreachable. Read only
+    /// by the polling loop - `refreshNow()` deliberately never waits on it.
+    @ObservationIgnored private var backoff = PollBackoff()
+    private let waitForPollingInterval: @Sendable (TimeInterval) async -> Void
 
-    init(apiClient: any SyncDataFetching) {
+    init(
+        apiClient: any SyncDataFetching,
+        waitForPollingInterval: @escaping @Sendable (TimeInterval) async -> Void = { interval in
+            try? await Task.sleep(for: .seconds(interval))
+        }
+    ) {
         self.apiClient = apiClient
+        self.waitForPollingInterval = waitForPollingInterval
+    }
+
+    /// Returns the loop to base cadence without claiming a request succeeded, for
+    /// when something outside the loop makes a retry worth trying immediately -
+    /// the app returning to the foreground after an outage it slept through.
+    func resetBackoff() {
+        backoff.reset()
     }
 
     // MARK: - Sorted accessors
@@ -158,6 +175,7 @@ final class SyncService {
         isPolling = true
         rid = 0
         pollingGeneration &+= 1
+        backoff.reset()
         let generation = pollingGeneration
 
         pollingTask = Task { [weak self] in
@@ -166,14 +184,23 @@ final class SyncService {
                 do {
                     let data = try await self.apiClient.syncMainData(rid: self.rid)
                     guard !Task.isCancelled, generation == self.pollingGeneration else { break }
-                    guard data.rid >= self.rid else { continue }
-                    self.applyDelta(data)
-                    self.rid = data.rid
+                    // Recorded before the staleness check, not after: a response
+                    // that arrives out of order is still proof the server is
+                    // answering, which is the only thing the backoff measures.
+                    self.backoff.recordSuccess()
+                    // An out-of-order response is dropped rather than applied, but
+                    // it used to `continue` straight past the sleep below, so a
+                    // server stuck behind our rid was polled in a tight loop.
+                    if data.rid >= self.rid {
+                        self.applyDelta(data)
+                        self.rid = data.rid
+                    }
                     self.lastError = nil
                 } catch {
                     self.lastError = error as? QBError ?? .networkError(error.localizedDescription)
+                    self.backoff.recordFailure()
                 }
-                try? await Task.sleep(for: .seconds(self.pollingInterval))
+                await self.waitForPollingInterval(self.backoff.interval(base: self.pollingInterval))
             }
         }
     }
@@ -187,15 +214,22 @@ final class SyncService {
 
     /// Force an immediate poll cycle (e.g. pull-to-refresh).
     /// Preserves the current rid so we get a delta, not a full refresh.
+    ///
+    /// Never consults the backoff - a refresh the user asked for goes out now, at
+    /// whatever cadence the loop has stretched to - but does feed it. A success
+    /// here returns the loop to base cadence, which is what makes a Retry that
+    /// works also fix the polling behind it.
     func refreshNow() async {
         do {
             let data = try await apiClient.syncMainData(rid: rid)
+            backoff.recordSuccess()
             guard data.rid >= rid else { return }
             applyDelta(data)
             rid = data.rid
             lastError = nil
         } catch {
             lastError = error as? QBError ?? .networkError(error.localizedDescription)
+            backoff.recordFailure()
         }
     }
 

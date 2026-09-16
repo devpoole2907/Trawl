@@ -83,6 +83,39 @@ struct SyncServiceConcurrencyTests {
         #expect(!service.isPolling)
     }
 
+    /// The backoff is unit-covered in `PollBackoffTests`; what this pins is that the
+    /// polling loop actually consults it, and that a success puts the cadence back.
+    /// Asserted as the sequence of intervals the loop *asks* to wait, so nothing here
+    /// sleeps - the loop is stepped by the controlled source holding each request.
+    @Test("An unreachable server stretches the polling cadence, and recovery restores it")
+    @MainActor
+    func unreachableServerBacksOffAndRecovers() async throws {
+        let source = ControlledSyncDataSource()
+        let waits = RecordedWaits()
+        let service = SyncService(
+            apiClient: source,
+            waitForPollingInterval: { interval in await waits.record(interval) }
+        )
+        service.pollingInterval = 2
+        defer { service.stopPolling() }
+
+        service.startPolling()
+
+        for _ in 0..<4 {
+            let request = await source.nextRequest()
+            source.fail(request, with: URLError(.cannotConnectToHost))
+        }
+
+        let recovered = await source.nextRequest()
+        source.resolve(recovered, with: try syncData(rid: 5, state: "downloading", downloadSpeed: 1))
+
+        // Waited for rather than read directly: the fifth interval is only recorded
+        // once the loop has applied the successful response and come back around.
+        let recorded = await waits.first(5)
+        #expect(recorded == [5, 15, 30, 60, 2])
+        #expect(service.lastError == nil)
+    }
+
     private func syncData(rid: Int, state: String, downloadSpeed: Int64) throws -> SyncMainData {
         let json = """
         {
@@ -143,5 +176,35 @@ private final class ControlledSyncDataSource: SyncDataFetching {
     func resolve(_ request: Request, with data: SyncMainData) {
         let continuation = pending.removeValue(forKey: request.id)
         continuation?.resume(returning: data)
+    }
+
+    func fail(_ request: Request, with error: Error) {
+        let continuation = pending.removeValue(forKey: request.id)
+        continuation?.resume(throwing: error)
+    }
+}
+
+/// Records the intervals the polling loop asks to wait for and lets a test await a
+/// given number of them, so the assertion cannot run before the loop has produced them.
+private actor RecordedWaits {
+    private var intervals: [TimeInterval] = []
+    private var waiter: (count: Int, continuation: CheckedContinuation<[TimeInterval], Never>)?
+
+    func record(_ interval: TimeInterval) {
+        intervals.append(interval)
+        if let waiter, intervals.count >= waiter.count {
+            self.waiter = nil
+            waiter.continuation.resume(returning: intervals)
+        }
+    }
+
+    func first(_ count: Int) async -> [TimeInterval] {
+        if intervals.count >= count {
+            return Array(intervals.prefix(count))
+        }
+        let all = await withCheckedContinuation { continuation in
+            waiter = (count, continuation)
+        }
+        return Array(all.prefix(count))
     }
 }

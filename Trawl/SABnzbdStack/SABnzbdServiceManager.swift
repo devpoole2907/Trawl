@@ -79,6 +79,10 @@ final class SABnzbdServiceManager {
     private let didFinishRefresh: @MainActor @Sendable () -> Void
     private(set) var isPolling = false
     var pollingInterval: TimeInterval = 4.0
+    /// Stretches the automatic cadence while SABnzbd is unreachable. `refresh()`
+    /// feeds it from either caller, but only the polling loop waits on it, so a
+    /// manual refresh is never delayed by it.
+    @ObservationIgnored private var backoff = PollBackoff()
 
     init(
         sessionConfiguration: URLSessionConfiguration = .makeTrawlSecure(),
@@ -116,6 +120,9 @@ final class SABnzbdServiceManager {
 
     func connectService(_ profile: SABnzbdServiceProfile) async {
         connectionGeneration += 1
+        // A deliberate connect attempt is a fresh start for the cadence too: the
+        // failures that stretched it belong to the connection being replaced.
+        backoff.reset()
         let generation = connectionGeneration
         isConnecting = true
         connectionError = nil
@@ -265,6 +272,7 @@ final class SABnzbdServiceManager {
                 )
             }
             if connectionError != nil { connectionError = nil }
+            backoff.recordSuccess()
         } catch SABnzbdAPIError.unauthorized {
             guard isCurrentConnection(generation: generation, client: client) else { return }
             cancelPollingTask()
@@ -274,6 +282,7 @@ final class SABnzbdServiceManager {
         } catch {
             guard isCurrentConnection(generation: generation, client: client) else { return }
             connectionError = error.localizedDescription
+            backoff.recordFailure()
         }
     }
 
@@ -337,7 +346,7 @@ final class SABnzbdServiceManager {
                 }
             }
             while !Task.isCancelled {
-                await self.waitForPollingInterval(self.pollingInterval)
+                await self.waitForPollingInterval(self.backoff.interval(base: self.pollingInterval))
                 guard !Task.isCancelled else { return }
                 await self.refresh()
             }

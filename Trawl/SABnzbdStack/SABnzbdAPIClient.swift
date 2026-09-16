@@ -250,7 +250,13 @@ actor SABnzbdAPIClient {
         if !statuses.isEmpty {
             extra.append(URLQueryItem(name: "status", value: statuses.joined(separator: ",")))
         }
-        let envelope: SABnzbdQueueEnvelope = try await request(mode: "queue", extra: extra)
+        // Polled every few seconds, so it gives up early rather than stacking up
+        // against the next cycle. Every other mode here is a user action.
+        let envelope: SABnzbdQueueEnvelope = try await request(
+            mode: "queue",
+            extra: extra,
+            timeoutInterval: TrawlTimeout.poll
+        )
         return envelope.queue
     }
 
@@ -272,7 +278,11 @@ actor SABnzbdAPIClient {
         if let lastHistoryUpdate {
             extra.append(URLQueryItem(name: "last_history_update", value: String(lastHistoryUpdate)))
         }
-        let envelope: SABnzbdHistoryEnvelope = try await request(mode: "history", extra: extra)
+        let envelope: SABnzbdHistoryEnvelope = try await request(
+            mode: "history",
+            extra: extra,
+            timeoutInterval: TrawlTimeout.poll
+        )
         return envelope.history
     }
 
@@ -387,9 +397,14 @@ actor SABnzbdAPIClient {
     private func request<T: Decodable>(
         mode: String,
         name: String? = nil,
-        extra: [URLQueryItem] = []
+        extra: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
     ) async throws -> T {
-        let data = try await transport.getData(apiPath, queryItems: queryItems(mode: mode, name: name, extra: extra))
+        let data = try await transport.getData(
+            apiPath,
+            queryItems: queryItems(mode: mode, name: name, extra: extra),
+            timeoutInterval: timeoutInterval
+        )
         if let apiError = try? JSONDecoder().decode(SABnzbdErrorResponse.self, from: data),
            apiError.status == false {
             throw SABnzbdAPIError.api(message: apiError.error ?? "The operation failed.")

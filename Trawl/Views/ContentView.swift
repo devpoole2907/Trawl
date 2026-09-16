@@ -460,6 +460,12 @@ struct ContentView: View {
                 let needsRestart = appServices == nil || appServices?.syncService.isPolling == false
                 if needsRestart {
                     initializeServices()
+                } else {
+                    // Still polling, but possibly deep in a backoff it earned while
+                    // the server was unreachable. Coming back to the app is the
+                    // clearest signal there is that now is worth another try, so the
+                    // next tick goes out at base cadence instead of up to a minute later.
+                    appServices?.syncService.resetBackoff()
                 }
                 // Re-attempt service managers that failed to connect (e.g. VPN was off at launch).
                 // These don't reset already-connected services - only retry disconnected ones.

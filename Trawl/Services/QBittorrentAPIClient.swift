@@ -63,7 +63,7 @@ actor QBittorrentAPIClient {
             let config = URLSessionConfiguration.ephemeral
             config.httpShouldSetCookies = false
             config.httpCookieAcceptPolicy = .never
-            config.timeoutIntervalForRequest = 30
+            config.timeoutIntervalForRequest = TrawlTimeout.userAction
             self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
             self.ownsSession = true
         }
@@ -536,7 +536,13 @@ actor QBittorrentAPIClient {
     // MARK: - Sync
 
     func syncMainData(rid: Int) async throws -> SyncMainData {
-        let request = try buildRequest(path: "/api/v2/sync/maindata", queryItems: [.init(name: "rid", value: String(rid))])
+        // The only request in this client that repeats on a timer, so it is the
+        // only one that gains from giving up early: another cycle is along shortly.
+        let request = try buildRequest(
+            path: "/api/v2/sync/maindata",
+            queryItems: [.init(name: "rid", value: String(rid))],
+            timeoutInterval: TrawlTimeout.poll
+        )
         let (data, _) = try await performRequest(request)
         return try decode(SyncMainData.self, from: data)
     }
@@ -746,7 +752,12 @@ actor QBittorrentAPIClient {
         )
     }
 
-    private func buildRequest(path: String, method: String = "GET", queryItems: [URLQueryItem] = []) throws -> URLRequest {
+    private func buildRequest(
+        path: String,
+        method: String = "GET",
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) throws -> URLRequest {
         guard var components = URLComponents(string: "\(baseURL)\(path)") else {
             throw QBError.invalidResponse
         }
@@ -758,6 +769,9 @@ actor QBittorrentAPIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
         return request
     }
 

@@ -754,6 +754,11 @@ final class ArrServiceManager {
     /// instance is retried even while another instance of the same type is healthy.
     func retryDisconnected() async {
         guard !isInitializing else { return }
+        // Something outside the poller decided now is worth another try - the
+        // retry scheduler firing, or the app coming back to the foreground. Let
+        // the queue cadence start over with it rather than serving out a backoff
+        // accumulated during an outage that may well be finished.
+        queueBackoff.reset()
         for serviceType in ArrServiceType.allCases {
             let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
             guard !profiles.isEmpty else { continue }
@@ -1298,6 +1303,17 @@ final class ArrServiceManager {
         let errors = sv.errors + rv.errors
         let newError = errors.isEmpty ? nil : errors.joined(separator: "\n")
         if queueError != newError { queueError = newError }
+
+        // Only a clean sweep counts as a failure. `fanOutQueueSnapshots` reports
+        // one error per instance it could not reach, so as long as a single server
+        // answered there is live data worth refreshing at the normal cadence, and
+        // slowing the poll would punish the healthy instance for the sick one's
+        // outage - exactly the HD/4K case the fan-out exists to handle.
+        if errors.count == sonarr.count + radarr.count {
+            queueBackoff.recordFailure()
+        } else {
+            queueBackoff.recordSuccess()
+        }
     }
 
 
@@ -1327,7 +1343,7 @@ final class ArrServiceManager {
         guard queuePollingTask == nil else { return }
         queuePollingTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let interval = self?.queuePollingInterval else { return }
+                guard let interval = self?.currentQueuePollingInterval else { return }
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled, let self else { return }
                 await self.refreshQueues()
@@ -1358,6 +1374,16 @@ final class ArrServiceManager {
 
     private var queuePollingInterval: TimeInterval {
         fastQueuePollingRequests > 0 ? fastQueuePollingInterval : slowQueuePollingInterval
+    }
+
+    /// Stretches the automatic cadence while *every* visible instance is failing.
+    /// In practice this only ever moves the fast cadence: `PollBackoff` never
+    /// returns less than the base, and the slow tick is already a minute - the
+    /// ladder's own ceiling - so a backgrounded Downloads tab is unaffected.
+    @ObservationIgnored private var queueBackoff = PollBackoff()
+
+    private var currentQueuePollingInterval: TimeInterval {
+        queueBackoff.interval(base: queuePollingInterval)
     }
 
     /// A cadence change only lands on the next tick, and the slow tick is a minute
