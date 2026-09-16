@@ -234,6 +234,10 @@ extension ArrServiceManager {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                // Failures only. `ArrLibraryCache.load` can satisfy a caller from
+                // cache without making a request, so a success here would not prove
+                // the server answered - the queue poller owns that half.
+                recordInstanceOutcome(ref, error: error)
                 if firstError == nil { firstError = error }
             }
         }

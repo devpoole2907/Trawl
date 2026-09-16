@@ -759,6 +759,9 @@ final class ArrServiceManager {
         // the queue cadence start over with it rather than serving out a backoff
         // accumulated during an outage that may well be finished.
         queueBackoff.reset()
+        // Same for the evidence behind a disconnect: failures counted before the
+        // app was backgrounded say nothing about the network it has woken up on.
+        instanceTransportFailures.removeAll()
         for serviceType in ArrServiceType.allCases {
             let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
             guard !profiles.isEmpty else { continue }
@@ -788,6 +791,10 @@ final class ArrServiceManager {
         }
 
         setConnecting(true, for: serviceType, id: profile.id)
+        // Whatever this attempt concludes supersedes the failures that led here: a
+        // success clears the outage, and a failure is recorded by `setError` on its
+        // own terms rather than by a counter left over from the previous client.
+        instanceTransportFailures.removeValue(forKey: profile.id)
         defer { setConnecting(false, for: serviceType, id: profile.id) }
 
         do {
@@ -1329,7 +1336,7 @@ final class ArrServiceManager {
         var errors: [String] = []
 
         for (ref, client) in instances {
-            let snapshot = await fetchQueueSnapshot(client, serviceName: ref.displayName)
+            let snapshot = await fetchQueueSnapshot(client, ref: ref)
             queue += snapshot.queue.instanced(on: ref)
             history += snapshot.history.instanced(on: ref)
             if let error = snapshot.error { errors.append(error) }
@@ -1396,25 +1403,32 @@ final class ArrServiceManager {
         startQueuePolling()
     }
 
+    /// The queue poller is the manager's own periodic request against every connected
+    /// instance, which makes it the one place that sees a server stop answering without
+    /// anybody having to open a screen. It reports both outcomes to
+    /// `recordInstanceOutcome(_:error:)` - unlike the library loads, which can be served
+    /// from cache and so cannot testify that a server is up.
     private func fetchQueueSnapshot<C: SharedArrClient>(
         _ client: C?,
-        serviceName: String
+        ref: ArrInstanceRef
     ) async -> ArrQueueSnapshot {
         guard let client else { return .empty }
         do {
             async let queue = client.getQueue(page: 1, pageSize: 100)
             async let history = client.getHistory(page: 1, pageSize: 100)
             let (queuePage, historyPage) = try await (queue, history)
+            recordInstanceOutcome(ref, error: nil)
             return ArrQueueSnapshot(
                 queue: queuePage.records ?? [],
                 history: historyPage.records ?? [],
                 error: nil
             )
         } catch {
+            recordInstanceOutcome(ref, error: error)
             return ArrQueueSnapshot(
                 queue: [],
                 history: [],
-                error: "\(serviceName): \(error.localizedDescription)"
+                error: "\(ref.displayName): \(error.localizedDescription)"
             )
         }
     }
@@ -1711,6 +1725,104 @@ final class ArrServiceManager {
         case .bazarr:
             updateEntry(in: &bazarrInstances, id: id) { $0.isConnecting = value }
         }
+    }
+
+    // MARK: - Mid-session reachability
+
+    /// How many consecutive transport failures mark a connected instance unreachable.
+    ///
+    /// Three rather than one because flipping an instance to disconnected is not a
+    /// cosmetic change: `pair(_:with:)` filters every fan-out on `isConnected`, so a
+    /// disconnected server drops straight out of the blended library, the queue and
+    /// the calendar. A single dropped request during a Wi-Fi handover would empty a
+    /// library the user was reading. Three consecutive failures against a poller that
+    /// is itself backing off is roughly twenty seconds of a server saying nothing at
+    /// all, which no longer looks like a blip.
+    static let unreachableFailureThreshold = 3
+
+    /// Consecutive transport failures per instance, keyed by profile ID. Kept out of
+    /// observation: no view renders a failure count, and it moves on every poll.
+    @ObservationIgnored private var instanceTransportFailures: [UUID: Int] = [:]
+
+    /// True when this error means the server never answered, as opposed to answering
+    /// with something we did not like.
+    ///
+    /// The distinction is the whole point of the counter. A 500, a decode failure or
+    /// a rejected API key all prove the server is up and talking, so none of them is
+    /// evidence of an outage and none should disconnect anything - a wrong API key in
+    /// particular would be disconnected and immediately reconnected by the retry loop,
+    /// forever, which is the trap `SABnzbdServiceManager.didRejectCredentials` documents.
+    /// `HTTPTransport` maps every genuine transport failure through `errorMapper.transport`,
+    /// which for Arr is `ArrError.networkError`, and converts cancellation before it
+    /// gets there - so this stays a single case check.
+    nonisolated static func isTransportFailure(_ error: any Error) -> Bool {
+        guard let arrError = error as? ArrError else { return false }
+        if case .networkError = arrError { return true }
+        return false
+    }
+
+    /// Records how one request against a connected instance turned out, and marks the
+    /// instance unreachable once it has failed to answer `unreachableFailureThreshold`
+    /// times running.
+    ///
+    /// Cancellation is neither: a view that went away tells us nothing about the
+    /// server, so it must not count toward an outage *or* clear one that is underway.
+    func recordInstanceOutcome(_ ref: ArrInstanceRef, error: (any Error)?) {
+        guard let error else {
+            instanceTransportFailures.removeValue(forKey: ref.id)
+            return
+        }
+        if error is CancellationError { return }
+        guard Self.isTransportFailure(error) else {
+            // The server answered, badly. That is still proof it is there.
+            instanceTransportFailures.removeValue(forKey: ref.id)
+            return
+        }
+
+        let failures = (instanceTransportFailures[ref.id] ?? 0) + 1
+        instanceTransportFailures[ref.id] = failures
+        guard failures >= Self.unreachableFailureThreshold else { return }
+        markInstanceUnreachable(ref, message: error.localizedDescription)
+    }
+
+    /// Flips a *connected* instance to disconnected after a run of transport failures,
+    /// so the retry scheduler starts trying to get it back and the screens that key off
+    /// `isConnected` stop pretending it is there.
+    ///
+    /// Deliberately lighter than `setError(_:for:id:)`, which is the connect-time
+    /// failure path. That one nils `client` and rerolls `clientRevision`, and both
+    /// would be wrong here. The client is one that worked until moments ago and will
+    /// almost certainly work again once the network returns, and `clientRevision` is
+    /// what views watch to throw away screen state that belonged to a previous server -
+    /// rerolling it on a transient outage discards scroll position and loaded detail
+    /// for a server that has not actually changed. `pair(_:with:)` already gates every
+    /// fan-out on `isConnected`, so keeping the client costs nothing while it is down,
+    /// and `connectService` replaces it on reconnect anyway.
+    ///
+    /// Prowlarr and Bazarr are not handled: nothing polls them on a timer, so there is
+    /// no periodic signal that could drive this and no honest way to tell a server that
+    /// is down from one nobody has asked about.
+    private func markInstanceUnreachable(_ ref: ArrInstanceRef, message: String) {
+        instanceTransportFailures.removeValue(forKey: ref.id)
+
+        switch ref.serviceType {
+        case .sonarr:
+            guard sonarrInstances.first(where: { $0.id == ref.id })?.isConnected == true else { return }
+            updateEntry(in: &sonarrInstances, id: ref.id) {
+                $0.isConnected = false
+                $0.connectionError = message
+            }
+        case .radarr:
+            guard radarrInstances.first(where: { $0.id == ref.id })?.isConnected == true else { return }
+            updateEntry(in: &radarrInstances, id: ref.id) {
+                $0.isConnected = false
+                $0.connectionError = message
+            }
+        case .prowlarr, .bazarr:
+            return
+        }
+
+        connectionErrors[ref.id.uuidString] = message
     }
 
     private func setError(_ message: String?, for serviceType: ArrServiceType, id: UUID) {

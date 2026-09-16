@@ -17,8 +17,8 @@ import Testing
 struct ArrRetryDisconnectedTests {
     @Test("retryDisconnected reconnects a failed secondary Sonarr profile without touching the already-connected one")
     func retryDisconnectedRetriesOnlyFailedProfile() async throws {
-        let healthyServer = try await RetryArrTestServer(label: "sonarr-healthy", statusCode: 200)
-        let failingServer = try await RetryArrTestServer(label: "sonarr-failing", statusCode: 401)
+        let healthyServer = try await RetryArrTestServer(label: "sonarr-healthy", mode: .healthy)
+        let failingServer = try await RetryArrTestServer(label: "sonarr-failing", mode: .rejecting(401))
         defer { healthyServer.stop(); failingServer.stop() }
 
         let healthyProfile = ArrServiceProfile(displayName: "Sonarr Healthy", hostURL: healthyServer.baseURL, serviceType: .sonarr)
@@ -67,6 +67,91 @@ struct ArrRetryDisconnectedTests {
         }
     }
 
+    /// A server that dies *after* connecting used to keep `isConnected == true`
+    /// forever: `setError` is only reachable from `connectService`, so nothing
+    /// downgraded a live instance. The "Sonarr Unreachable" screen therefore only
+    /// ever appeared for a server that was already down at launch, and
+    /// `retryDisconnected()` skipped the instance because it did not look
+    /// disconnected - so the app sat on stale data until it was relaunched.
+    @Test("A connected Sonarr that stops answering is marked unreachable, and the retry brings it back")
+    func transportFailuresDisconnectAConnectedInstanceAndTheRetryRecoversIt() async throws {
+        let server = try await RetryArrTestServer(label: "sonarr-flaky", mode: .healthy)
+        defer { server.stop() }
+
+        let profile = ArrServiceProfile(displayName: "Sonarr", hostURL: server.baseURL, serviceType: .sonarr)
+        let manager = ArrServiceManager()
+
+        try await withSavedAPIKey(for: profile) {
+            await manager.initialize(from: [profile])
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == true)
+
+            server.setMode(.unreachable)
+
+            // One short of the threshold is a blip, not an outage. It must not
+            // disconnect anything: `pair(_:with:)` gates every fan-out on
+            // `isConnected`, so flipping here would empty a library mid-scroll for
+            // what may be a single dropped request during a Wi-Fi handover.
+            for _ in 0..<(ArrServiceManager.unreachableFailureThreshold - 1) {
+                await manager.refreshQueues()
+            }
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == true)
+
+            await manager.refreshQueues()
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == false)
+            #expect(manager.connectionError(.sonarr) != nil)
+
+            // Which is what puts it in front of the retry scheduler's sweep.
+            server.setMode(.healthy)
+            let statusRequestsBeforeRetry = server.statusRequestCount
+            await manager.retryDisconnected()
+
+            #expect(server.statusRequestCount > statusRequestsBeforeRetry)
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == true)
+            #expect(manager.connectionError(.sonarr) == nil)
+        }
+    }
+
+    /// The counter must measure reachability, not displeasure. A server returning
+    /// 500s is up, talking, and reachable - disconnecting it would drop it out of
+    /// the blended library over an error its own screens are already reporting, and
+    /// the retry loop would reconnect it moments later, forever. The same reasoning
+    /// covers a rejected API key, which is the trap
+    /// `SABnzbdServiceManager.didRejectCredentials` exists to document.
+    @Test("A server answering with errors is never treated as unreachable")
+    func serverErrorsDoNotDisconnectAConnectedInstance() async throws {
+        let server = try await RetryArrTestServer(label: "sonarr-erroring", mode: .healthy)
+        defer { server.stop() }
+
+        let profile = ArrServiceProfile(displayName: "Sonarr", hostURL: server.baseURL, serviceType: .sonarr)
+        let manager = ArrServiceManager()
+
+        try await withSavedAPIKey(for: profile) {
+            await manager.initialize(from: [profile])
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == true)
+
+            server.setMode(.rejecting(500))
+            for _ in 0..<(ArrServiceManager.unreachableFailureThreshold + 2) {
+                await manager.refreshQueues()
+            }
+
+            #expect(manager.isConnected(.sonarr, profileID: profile.id) == true)
+            // The failure is still reported - it is just reported as what it is.
+            #expect(manager.queueError != nil)
+        }
+    }
+
+    @Test("Only a transport failure counts as evidence that a server is unreachable")
+    func onlyTransportFailuresCountAsUnreachable() {
+        #expect(ArrServiceManager.isTransportFailure(ArrError.networkError(URLError(.cannotConnectToHost))))
+        #expect(ArrServiceManager.isTransportFailure(ArrError.networkError(URLError(.timedOut))))
+
+        #expect(!ArrServiceManager.isTransportFailure(ArrError.serverError(statusCode: 500, message: nil)))
+        #expect(!ArrServiceManager.isTransportFailure(ArrError.invalidAPIKey))
+        #expect(!ArrServiceManager.isTransportFailure(ArrError.decodingError(URLError(.badServerResponse))))
+        #expect(!ArrServiceManager.isTransportFailure(ArrError.invalidResponse))
+        #expect(!ArrServiceManager.isTransportFailure(CancellationError()))
+    }
+
     private func withSavedAPIKey(
         for profile: ArrServiceProfile,
         operation: () async throws -> Void
@@ -93,17 +178,30 @@ private struct RetryRequest: Sendable, Equatable {
 /// 200s; a failing server answers every call with the given non-200 status so
 /// `connectService` throws right after the system-status call, exactly like a
 /// rejected API key.
+/// How the loopback server behaves for the next request.
+///
+/// `unreachable` accepts the connection and drops it without answering, which is
+/// what URLSession reports as a transport failure. It is used in place of stopping
+/// the listener because a stopped listener frees its port, and rebinding the same
+/// port afterwards to simulate the server coming back is exactly the kind of thing
+/// that fails once a week on a busy machine. Flipping a mode is instant and total.
+private enum RetryArrServerMode: Sendable {
+    case healthy
+    case rejecting(Int)
+    case unreachable
+}
+
 private final class RetryArrTestServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue: DispatchQueue
-    private let statusCode: Int
     private let lock = NSLock()
+    private var currentMode: RetryArrServerMode
     private var recordedRequests: [RetryRequest] = []
 
-    init(label: String, statusCode: Int) async throws {
+    init(label: String, mode: RetryArrServerMode) async throws {
         self.queue = DispatchQueue(label: "RetryArrTestServer.\(label)")
         self.listener = try NWListener(using: .tcp, on: .any)
-        self.statusCode = statusCode
+        self.currentMode = mode
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
         }
@@ -136,6 +234,18 @@ private final class RetryArrTestServer: @unchecked Sendable {
         return recordedRequests
     }
 
+    private var mode: RetryArrServerMode {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentMode
+    }
+
+    func setMode(_ mode: RetryArrServerMode) {
+        lock.lock()
+        currentMode = mode
+        lock.unlock()
+    }
+
     func stop() { listener.cancel() }
 
     private func respond(to connection: NWConnection) {
@@ -150,19 +260,32 @@ private final class RetryArrTestServer: @unchecked Sendable {
             self.recordedRequests.append(request)
             self.lock.unlock()
 
+            let statusCode: Int
             let body: String
-            if self.statusCode == 200 {
+            switch self.mode {
+            case .unreachable:
+                // Answer nothing at all. URLSession surfaces this as a URLError,
+                // which is what `HTTPTransport` maps to `ArrError.networkError`.
+                connection.cancel()
+                return
+            case .healthy:
+                statusCode = 200
                 switch request.path {
                 case "/api/v3/system/status": body = "{}"
                 case "/api/v3/qualityprofile", "/api/v3/rootfolder", "/api/v3/tag": body = "[]"
                 case "/api/v3/command": body = "{}"
+                // The queue poller decodes a paged envelope; a bare array would fail
+                // to decode and register as the server answering badly rather than
+                // answering well, which is a different branch of what is under test.
+                case "/api/v3/queue", "/api/v3/history": body = #"{"records":[]}"#
                 default: body = "[]"
                 }
-            } else {
-                body = #"{"message":"credentials rejected"}"#
+            case .rejecting(let code):
+                statusCode = code
+                body = #"{"message":"the server is unhappy"}"#
             }
             connection.send(
-                content: Self.httpResponse(statusCode: self.statusCode, body: body),
+                content: Self.httpResponse(statusCode: statusCode, body: body),
                 contentContext: .finalMessage,
                 isComplete: true,
                 completion: .contentProcessed { _ in connection.cancel() }
@@ -182,7 +305,7 @@ private final class RetryArrTestServer: @unchecked Sendable {
     }
 
     private static func httpResponse(statusCode: Int, body: String) -> Data {
-        let status = statusCode == 200 ? "200 OK" : "\(statusCode) Unauthorized"
+        let status = statusCode == 200 ? "200 OK" : "\(statusCode) Error"
         let bytes = Data(body.utf8)
         return Data("HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n".utf8) + bytes
     }
