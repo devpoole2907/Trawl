@@ -61,7 +61,7 @@ struct JellyfinMediaAvailabilityCard: View {
     @Environment(JellyfinServiceManager.self) private var serviceManager
     @State private var refreshedItemIDs: Set<String> = []
     @State private var isExpanded = false
-    @State private var didTriggerRescan = false
+    @State private var isRescanning = false
 
     private var key: JellyfinAvailabilityResolver.Key? {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
@@ -71,31 +71,30 @@ struct JellyfinMediaAvailabilityCard: View {
         key.map { serviceManager.availability.state(for: $0) } ?? .idle
     }
 
-    private var matchedSeriesItem: JellyfinLibraryItem? {
+    private var matchedSeriesItems: [JellyfinLibraryItem] {
         guard case .series = media,
               case .resolved(let items) = resolverState
-        else { return nil }
-        return items.first
+        else { return [] }
+        return items
     }
 
-    private var episodesKey: JellyfinAvailabilityResolver.EpisodesKey? {
-        guard let profileID = serviceManager.activeProfileID,
-              let seriesItemID = matchedSeriesItem?.id
-        else { return nil }
-        return .init(profileID: profileID, seriesItemID: seriesItemID)
+    private var episodesKeys: [JellyfinAvailabilityResolver.EpisodesKey] {
+        guard let profileID = serviceManager.activeProfileID else { return [] }
+        return matchedSeriesItems.map {
+            .init(profileID: profileID, seriesItemID: $0.id)
+        }
     }
 
-    private var episodesState: JellyfinAvailabilityResolver.State {
-        episodesKey.map { serviceManager.availability.episodesState(for: $0) } ?? .idle
+    private var episodesStates: [JellyfinAvailabilityResolver.State] {
+        episodesKeys.map { serviceManager.availability.episodesState(for: $0) }
     }
 
-    /// Non-special episodes Jellyfin reports for the matched series, used as the
-    /// numerator of the "X / Y" badge. Specials (season 0 or missing season)
-    /// are excluded so the count lines up with Sonarr's `episodeCount` which
-    /// only counts aired non-special episodes.
+    /// Non-special logical episodes across every matching Jellyfin Series item.
+    /// When Default and 4K libraries both hold an episode it is counted once.
     private var matchedEpisodeCount: Int? {
-        guard case .resolved(let items) = episodesState else { return nil }
-        return items.filter { ($0.parentIndexNumber ?? 0) > 0 }.count
+        JellyfinEpisodeAvailabilityAggregate.uniqueNonSpecialEpisodeCount(
+            in: episodesStates
+        )
     }
 
     var body: some View {
@@ -104,15 +103,16 @@ struct JellyfinMediaAvailabilityCard: View {
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
                     refreshedItemIDs = []
-                    didTriggerRescan = false
+                    isRescanning = false
                     guard let key, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(key, media: media, client: client)
                 }
-                .task(id: episodesKey?.seriesItemID) {
+                .task(id: episodesKeys) {
                     guard media.totalEpisodes != nil,
-                          let episodesKey,
                           let client = serviceManager.activeClient else { return }
-                    serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+                    for key in episodesKeys {
+                        serviceManager.availability.ensureEpisodesLoaded(key, client: client)
+                    }
                 }
         }
     }
@@ -193,8 +193,12 @@ struct JellyfinMediaAvailabilityCard: View {
                 if let matched = matchedEpisodeCount {
                     return "\(matched) / \(total)"
                 }
-                if case .loading = episodesState { return "Counting…" }
-                if case .failed = episodesState { return "Present" }
+                if JellyfinEpisodeAvailabilityAggregate.isLoading(episodesStates) {
+                    return "Counting…"
+                }
+                if JellyfinEpisodeAvailabilityAggregate.firstFailure(in: episodesStates) != nil {
+                    return "Present"
+                }
                 return "Present"
             }
             return "Present"
@@ -302,15 +306,16 @@ struct JellyfinMediaAvailabilityCard: View {
             Button {
                 Task { await rescanLibrary() }
             } label: {
-                if didTriggerRescan {
-                    Image(systemName: "checkmark.circle.fill")
+                if isRescanning {
+                    ProgressView()
+                        .controlSize(.small)
                 } else {
                     Image(systemName: "arrow.clockwise")
                 }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(didTriggerRescan)
+            .disabled(isRescanning)
             .accessibilityLabel("Rescan Jellyfin library")
         }
     }
@@ -349,10 +354,11 @@ struct JellyfinMediaAvailabilityCard: View {
         do {
             try await client.refreshItem(id: item.id)
             refreshedItemIDs.insert(item.id)
+            let oldEpisodeKeys = episodesKeys
             serviceManager.availability.invalidate(key)
             serviceManager.availability.ensureLoaded(key, media: media, client: client)
-            if let episodesKey {
-                serviceManager.availability.invalidateEpisodes(episodesKey)
+            for episodeKey in oldEpisodeKeys {
+                serviceManager.availability.invalidateEpisodes(episodeKey)
             }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Refresh Started",
@@ -368,20 +374,39 @@ struct JellyfinMediaAvailabilityCard: View {
         }
     }
 
-    /// Triggers a full Jellyfin library scan when no matching item was found -
-    /// covers the case where a file downloaded after Jellyfin's last scan.
+    /// Starts a Jellyfin library scan and keeps re-checking while the server's
+    /// asynchronous scan catches up. A successful POST means "queued", not
+    /// "the new file is already visible through /Items".
     private func rescanLibrary() async {
         guard let client = serviceManager.activeClient, let key else { return }
+        isRescanning = true
+        defer { isRescanning = false }
+
         do {
             try await client.refreshAllLibraries()
-            didTriggerRescan = true
-            serviceManager.availability.invalidate(key)
-            serviceManager.availability.ensureLoaded(key, media: media, client: client)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Library Scan Started",
                 message: "Jellyfin is rescanning your libraries for \(media.title).",
                 source: .inApp
             )
+
+            for attempt in 0..<12 {
+                if attempt > 0 {
+                    try await Task.sleep(for: .milliseconds(2500))
+                }
+                try Task.checkCancellation()
+
+                serviceManager.availability.invalidate(key)
+                serviceManager.availability.ensureLoaded(key, media: media, client: client)
+                await waitForLookupToSettle(key)
+
+                if case .resolved(let items) = serviceManager.availability.state(for: key),
+                   !items.isEmpty {
+                    return
+                }
+            }
+        } catch is CancellationError {
+            return
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Jellyfin Scan Failed",
@@ -390,4 +415,16 @@ struct JellyfinMediaAvailabilityCard: View {
             )
         }
     }
+
+    private func waitForLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
+        for _ in 0..<100 {
+            switch serviceManager.availability.state(for: key) {
+            case .idle, .loading:
+                try? await Task.sleep(for: .milliseconds(20))
+            case .resolved, .failed:
+                return
+            }
+        }
+    }
+
 }
