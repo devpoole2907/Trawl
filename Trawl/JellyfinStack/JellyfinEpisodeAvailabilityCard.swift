@@ -13,7 +13,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
     @Environment(JellyfinServiceManager.self) private var serviceManager
     @State private var isExpanded = false
     @State private var didRefresh = false
-    @State private var didTriggerRescan = false
+    @State private var isRescanning = false
 
     private var seriesKey: JellyfinAvailabilityResolver.Key? {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
@@ -23,29 +23,31 @@ struct JellyfinEpisodeAvailabilityCard: View {
         seriesKey.map { serviceManager.availability.state(for: $0) } ?? .idle
     }
 
-    private var matchedSeriesItemID: String? {
-        if case .resolved(let items) = seriesState, let first = items.first {
-            return first.id
+    /// Every Jellyfin Series item that represents this show. Two libraries can
+    /// legitimately expose the same TVDB series (for example Default and 4K),
+    /// and the requested episode may exist in only one of them.
+    private var matchedSeriesItemIDs: [String] {
+        guard case .resolved(let items) = seriesState else { return [] }
+        return items.map(\.id)
+    }
+
+    private var episodesKeys: [JellyfinAvailabilityResolver.EpisodesKey] {
+        guard let profileID = serviceManager.activeProfileID else { return [] }
+        return matchedSeriesItemIDs.map {
+            .init(profileID: profileID, seriesItemID: $0)
         }
-        return nil
     }
 
-    private var episodesKey: JellyfinAvailabilityResolver.EpisodesKey? {
-        guard let profileID = serviceManager.activeProfileID,
-              let seriesItemID = matchedSeriesItemID
-        else { return nil }
-        return .init(profileID: profileID, seriesItemID: seriesItemID)
-    }
-
-    private var episodesState: JellyfinAvailabilityResolver.State {
-        episodesKey.map { serviceManager.availability.episodesState(for: $0) } ?? .idle
+    private var episodesStates: [JellyfinAvailabilityResolver.State] {
+        episodesKeys.map { serviceManager.availability.episodesState(for: $0) }
     }
 
     private var matchedEpisode: JellyfinLibraryItem? {
-        guard case .resolved(let episodes) = episodesState else { return nil }
-        return episodes.first {
-            $0.parentIndexNumber == seasonNumber && $0.indexNumber == episodeNumber
-        }
+        JellyfinEpisodeAvailabilityAggregate.matchingEpisode(
+            in: episodesStates,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber
+        )
     }
 
     private enum Stage {
@@ -65,15 +67,16 @@ struct JellyfinEpisodeAvailabilityCard: View {
         case .failed(let msg): return .failed(msg)
         case .resolved(let items):
             if items.isEmpty { return .seriesMissing }
-            switch episodesState {
-            case .idle, .loading: return .loadingEpisodes
-            case .failed(let msg): return .failed(msg)
-            case .resolved:
-                if let episode = matchedEpisode {
-                    return .present(episode)
-                }
-                return .episodeMissing
+            if let episode = matchedEpisode {
+                return .present(episode)
             }
+            if JellyfinEpisodeAvailabilityAggregate.isLoading(episodesStates) {
+                return .loadingEpisodes
+            }
+            if let message = JellyfinEpisodeAvailabilityAggregate.firstFailure(in: episodesStates) {
+                return .failed(message)
+            }
+            return .episodeMissing
         }
     }
 
@@ -83,13 +86,15 @@ struct JellyfinEpisodeAvailabilityCard: View {
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
                     didRefresh = false
-                    didTriggerRescan = false
+                    isRescanning = false
                     guard let seriesKey, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
                 }
-                .task(id: episodesKey?.seriesItemID) {
-                    guard let episodesKey, let client = serviceManager.activeClient else { return }
-                    serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+                .task(id: episodesKeys) {
+                    guard let client = serviceManager.activeClient else { return }
+                    for key in episodesKeys {
+                        serviceManager.availability.ensureEpisodesLoaded(key, client: client)
+                    }
                 }
         }
     }
@@ -255,15 +260,16 @@ struct JellyfinEpisodeAvailabilityCard: View {
             Button {
                 Task { await rescanLibrary() }
             } label: {
-                if didTriggerRescan {
-                    Image(systemName: "checkmark.circle.fill")
+                if isRescanning {
+                    ProgressView()
+                        .controlSize(.small)
                 } else {
                     Image(systemName: "arrow.clockwise")
                 }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(didTriggerRescan)
+            .disabled(isRescanning)
             .accessibilityLabel("Rescan Jellyfin library")
         }
     }
@@ -293,9 +299,9 @@ struct JellyfinEpisodeAvailabilityCard: View {
                     serviceManager.availability.invalidate(seriesKey)
                     serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
                 }
-                if let episodesKey {
-                    serviceManager.availability.invalidateEpisodes(episodesKey)
-                    serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+                for key in episodesKeys {
+                    serviceManager.availability.invalidateEpisodes(key)
+                    serviceManager.availability.ensureEpisodesLoaded(key, client: client)
                 }
             }
             .buttonStyle(.bordered)
@@ -308,9 +314,9 @@ struct JellyfinEpisodeAvailabilityCard: View {
         do {
             try await client.refreshItem(id: episode.id)
             didRefresh = true
-            if let episodesKey {
-                serviceManager.availability.invalidateEpisodes(episodesKey)
-                serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+            for key in episodesKeys {
+                serviceManager.availability.invalidateEpisodes(key)
+                serviceManager.availability.ensureEpisodesLoaded(key, client: client)
             }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Refresh Started",
@@ -326,26 +332,50 @@ struct JellyfinEpisodeAvailabilityCard: View {
         }
     }
 
-    /// Triggers a full Jellyfin library scan when the series or episode wasn't
-    /// found - covers the case where a file downloaded after Jellyfin's last scan.
+    /// Starts a Jellyfin library scan, then re-checks while that asynchronous
+    /// scan catches up. The POST only queues work on Jellyfin; treating its 204 as
+    /// "the new file is indexed now" races the scan and re-caches the stale answer.
     private func rescanLibrary() async {
         guard let client = serviceManager.activeClient else { return }
+        isRescanning = true
+        defer { isRescanning = false }
+
         do {
             try await client.refreshAllLibraries()
-            didTriggerRescan = true
-            if let seriesKey {
-                serviceManager.availability.invalidate(seriesKey)
-                serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
-            }
-            if let episodesKey {
-                serviceManager.availability.invalidateEpisodes(episodesKey)
-                serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
-            }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Library Scan Started",
                 message: "Jellyfin is rescanning your libraries.",
                 source: .inApp
             )
+
+            // Re-query for roughly 30 seconds. A small library usually resolves on
+            // the first few passes; a busy server still gets enough time to finish
+            // the asynchronous scan instead of being sampled immediately.
+            for attempt in 0..<12 {
+                if attempt > 0 {
+                    try await Task.sleep(for: .milliseconds(2500))
+                }
+                try Task.checkCancellation()
+
+                if let seriesKey {
+                    serviceManager.availability.invalidate(seriesKey)
+                    serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
+                    await waitForSeriesLookupToSettle(seriesKey)
+                }
+
+                let currentKeys = episodesKeys
+                for key in currentKeys {
+                    serviceManager.availability.invalidateEpisodes(key)
+                    serviceManager.availability.ensureEpisodesLoaded(key, client: client)
+                }
+                await waitForEpisodeLookupsToSettle(currentKeys)
+
+                if matchedEpisode != nil {
+                    return
+                }
+            }
+        } catch is CancellationError {
+            return
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Jellyfin Scan Failed",
@@ -354,4 +384,29 @@ struct JellyfinEpisodeAvailabilityCard: View {
             )
         }
     }
+
+    private func waitForSeriesLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
+        for _ in 0..<100 {
+            switch serviceManager.availability.state(for: key) {
+            case .idle, .loading:
+                try? await Task.sleep(for: .milliseconds(20))
+            case .resolved, .failed:
+                return
+            }
+        }
+    }
+
+    private func waitForEpisodeLookupsToSettle(
+        _ keys: [JellyfinAvailabilityResolver.EpisodesKey]
+    ) async {
+        guard !keys.isEmpty else { return }
+        for _ in 0..<100 {
+            let states = keys.map { serviceManager.availability.episodesState(for: $0) }
+            if !JellyfinEpisodeAvailabilityAggregate.isLoading(states) {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
 }
