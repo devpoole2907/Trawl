@@ -16,28 +16,29 @@ struct JellyfinEpisodePresenceIcon: View {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
     }
 
-    private var matchedSeriesItemID: String? {
+    private var matchedSeriesItemIDs: [String] {
         guard let seriesKey,
-              case .resolved(let items) = serviceManager.availability.state(for: seriesKey),
-              let first = items.first
-        else { return nil }
-        return first.id
+              case .resolved(let items) = serviceManager.availability.state(for: seriesKey)
+        else { return [] }
+        return items.map(\.id)
     }
 
-    private var episodesKey: JellyfinAvailabilityResolver.EpisodesKey? {
-        guard let profileID = serviceManager.activeProfileID,
-              let seriesItemID = matchedSeriesItemID
-        else { return nil }
-        return .init(profileID: profileID, seriesItemID: seriesItemID)
+    private var episodesKeys: [JellyfinAvailabilityResolver.EpisodesKey] {
+        guard let profileID = serviceManager.activeProfileID else { return [] }
+        return matchedSeriesItemIDs.map {
+            .init(profileID: profileID, seriesItemID: $0)
+        }
     }
 
     private var isInJellyfin: Bool {
-        guard let episodesKey,
-              case .resolved(let episodes) = serviceManager.availability.episodesState(for: episodesKey)
-        else { return false }
-        return episodes.contains {
-            $0.parentIndexNumber == seasonNumber && $0.indexNumber == episodeNumber
+        let states = episodesKeys.map {
+            serviceManager.availability.episodesState(for: $0)
         }
+        return JellyfinEpisodeAvailabilityAggregate.matchingEpisode(
+            in: states,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber
+        ) != nil
     }
 
     var body: some View {
@@ -56,12 +57,13 @@ struct JellyfinEpisodePresenceIcon: View {
             else { return }
             serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
         }
-        .task(id: episodesKey?.seriesItemID) {
+        .task(id: episodesKeys) {
             guard serviceManager.isConnected,
-                  let episodesKey,
                   let client = serviceManager.activeClient
             else { return }
-            serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+            for key in episodesKeys {
+                serviceManager.availability.ensureEpisodesLoaded(key, client: client)
+            }
         }
     }
 }
