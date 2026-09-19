@@ -386,7 +386,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
     }
 
     private func waitForSeriesLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
-        for _ in 0..<100 {
+        for _ in 0..<250 {
             switch serviceManager.availability.state(for: key) {
             case .idle, .loading:
                 try? await Task.sleep(for: .milliseconds(20))
@@ -400,7 +400,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
         _ keys: [JellyfinAvailabilityResolver.EpisodesKey]
     ) async {
         guard !keys.isEmpty else { return }
-        for _ in 0..<100 {
+        for _ in 0..<250 {
             let states = keys.map { serviceManager.availability.episodesState(for: $0) }
             if !JellyfinEpisodeAvailabilityAggregate.isLoading(states) {
                 return
