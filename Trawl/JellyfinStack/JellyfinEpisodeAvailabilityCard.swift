@@ -360,7 +360,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
                 if let seriesKey {
                     serviceManager.availability.invalidate(seriesKey)
                     serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
-                    await waitForSeriesLookupToSettle(seriesKey)
+                    try await waitForSeriesLookupToSettle(seriesKey)
                 }
 
                 let currentKeys = episodesKeys
@@ -368,7 +368,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
                     serviceManager.availability.invalidateEpisodes(key)
                     serviceManager.availability.ensureEpisodesLoaded(key, client: client)
                 }
-                await waitForEpisodeLookupsToSettle(currentKeys)
+                try await waitForEpisodeLookupsToSettle(currentKeys)
 
                 if matchedEpisode != nil {
                     return
@@ -385,11 +385,11 @@ struct JellyfinEpisodeAvailabilityCard: View {
         }
     }
 
-    private func waitForSeriesLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
+    private func waitForSeriesLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async throws {
         for _ in 0..<250 {
             switch serviceManager.availability.state(for: key) {
             case .idle, .loading:
-                try? await Task.sleep(for: .milliseconds(20))
+                try await Task.sleep(for: .milliseconds(20))
             case .resolved, .failed:
                 return
             }
@@ -398,14 +398,14 @@ struct JellyfinEpisodeAvailabilityCard: View {
 
     private func waitForEpisodeLookupsToSettle(
         _ keys: [JellyfinAvailabilityResolver.EpisodesKey]
-    ) async {
+    ) async throws {
         guard !keys.isEmpty else { return }
         for _ in 0..<250 {
             let states = keys.map { serviceManager.availability.episodesState(for: $0) }
             if !JellyfinEpisodeAvailabilityAggregate.isLoading(states) {
                 return
             }
-            try? await Task.sleep(for: .milliseconds(20))
+            try await Task.sleep(for: .milliseconds(20))
         }
     }
 
