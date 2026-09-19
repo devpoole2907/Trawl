@@ -398,7 +398,7 @@ struct JellyfinMediaAvailabilityCard: View {
 
                 serviceManager.availability.invalidate(key)
                 serviceManager.availability.ensureLoaded(key, media: media, client: client)
-                await waitForLookupToSettle(key)
+                try await waitForLookupToSettle(key)
 
                 if case .resolved(let items) = serviceManager.availability.state(for: key),
                    !items.isEmpty {
@@ -416,11 +416,11 @@ struct JellyfinMediaAvailabilityCard: View {
         }
     }
 
-    private func waitForLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
+    private func waitForLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async throws {
         for _ in 0..<250 {
             switch serviceManager.availability.state(for: key) {
             case .idle, .loading:
-                try? await Task.sleep(for: .milliseconds(20))
+                try await Task.sleep(for: .milliseconds(20))
             case .resolved, .failed:
                 return
             }
