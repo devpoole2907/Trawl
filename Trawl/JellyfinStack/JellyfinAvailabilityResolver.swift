@@ -290,3 +290,76 @@ final class JellyfinAvailabilityResolver {
             .joined()
     }
 }
+
+
+/// Combines episode lookup results from every Jellyfin Series item that matched
+/// the same Sonarr show. A Jellyfin server can legitimately expose two copies of
+/// one show (for example Default and 4K libraries), so episode presence must not
+/// depend on whichever Series item happened to sort first.
+@MainActor
+enum JellyfinEpisodeAvailabilityAggregate {
+    private struct EpisodeCoordinate: Hashable {
+        let season: Int
+        let episode: Int
+    }
+
+    static func matchingEpisode(
+        in states: [JellyfinAvailabilityResolver.State],
+        seasonNumber: Int,
+        episodeNumber: Int
+    ) -> JellyfinLibraryItem? {
+        for state in states {
+            guard case .resolved(let episodes) = state else { continue }
+            if let match = episodes.first(where: {
+                $0.parentIndexNumber == seasonNumber && $0.indexNumber == episodeNumber
+            }) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    /// Counts logical episodes across all matching Jellyfin series without
+    /// double-counting the same SxxExx when both libraries contain it.
+    ///
+    /// Nil means the aggregate is not complete yet (or one copy failed), which
+    /// lets callers keep a neutral "Present"/"Counting" state instead of showing
+    /// a confidently wrong partial count.
+    static func uniqueNonSpecialEpisodeCount(
+        in states: [JellyfinAvailabilityResolver.State]
+    ) -> Int? {
+        guard !states.isEmpty else { return nil }
+
+        var coordinates = Set<EpisodeCoordinate>()
+        for state in states {
+            guard case .resolved(let episodes) = state else { return nil }
+            for episode in episodes {
+                guard let season = episode.parentIndexNumber,
+                      season > 0,
+                      let number = episode.indexNumber
+                else { continue }
+                coordinates.insert(.init(season: season, episode: number))
+            }
+        }
+        return coordinates.count
+    }
+
+    static func isLoading(_ states: [JellyfinAvailabilityResolver.State]) -> Bool {
+        guard !states.isEmpty else { return true }
+        return states.contains { state in
+            switch state {
+            case .idle, .loading: true
+            case .resolved, .failed: false
+            }
+        }
+    }
+
+    static func firstFailure(in states: [JellyfinAvailabilityResolver.State]) -> String? {
+        for state in states {
+            if case .failed(let message) = state {
+                return message
+            }
+        }
+        return nil
+    }
+}
