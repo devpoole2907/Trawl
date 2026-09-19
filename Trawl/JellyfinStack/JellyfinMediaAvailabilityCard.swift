@@ -417,7 +417,7 @@ struct JellyfinMediaAvailabilityCard: View {
     }
 
     private func waitForLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async {
-        for _ in 0..<100 {
+        for _ in 0..<250 {
             switch serviceManager.availability.state(for: key) {
             case .idle, .loading:
                 try? await Task.sleep(for: .milliseconds(20))
