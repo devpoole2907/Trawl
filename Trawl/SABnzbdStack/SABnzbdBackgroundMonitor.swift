@@ -11,6 +11,8 @@ nonisolated enum SABnzbdMonitorError: LocalizedError, Equatable {
     case alreadyMonitoring
     case nothingToMonitor
     case notConnected
+    case schedulerUnavailable
+    case schedulerBusy
 
     var errorDescription: String? {
         switch self {
@@ -18,9 +20,44 @@ nonisolated enum SABnzbdMonitorError: LocalizedError, Equatable {
         case .alreadyMonitoring: "Trawl is already monitoring a download."
         case .nothingToMonitor: "That download is no longer in the SABnzbd queue."
         case .notConnected: "Connect to SABnzbd before monitoring a download."
+        case .schedulerUnavailable:
+            "iOS won't run background work for Trawl right now. Check that Background App Refresh is turned on for Trawl in Settings."
+        case .schedulerBusy:
+            "iOS is already running as much background work as it allows. Try again once something finishes."
         }
     }
+
+    #if os(iOS)
+    /// `BGTaskScheduler`'s own errors surface as
+    /// "The operation couldn't be completed. (BGTaskSchedulerErrorDomain error 1.)",
+    /// which tells somebody staring at a banner nothing at all.
+    ///
+    /// `unavailable` is the one worth translating: on a device it almost always
+    /// means Background App Refresh is switched off for Trawl, which the person
+    /// can fix. It is also what the Simulator returns unconditionally - it does
+    /// not implement background processing - so this path is the *only* thing
+    /// that ever happens there.
+    static func translating(_ error: any Error) -> any Error {
+        guard let code = (error as NSError).bgTaskSchedulerCode else { return error }
+        switch code {
+        case .unavailable: return SABnzbdMonitorError.schedulerUnavailable
+        case .tooManyPendingTaskRequests: return SABnzbdMonitorError.schedulerBusy
+        default: return error
+        }
+    }
+    #endif
 }
+
+#if os(iOS)
+private extension NSError {
+    // The project defaults to main-actor isolation, and this is read from the
+    // nonisolated error translator.
+    nonisolated var bgTaskSchedulerCode: BGTaskScheduler.Error.Code? {
+        guard domain == BGTaskScheduler.Error.errorDomain else { return nil }
+        return BGTaskScheduler.Error.Code(rawValue: code)
+    }
+}
+#endif
 
 /// Keeps a SABnzbd download's progress on screen after the person leaves Trawl,
 /// using `BGContinuedProcessingTask`.
@@ -151,7 +188,7 @@ final class SABnzbdBackgroundMonitor {
         } catch {
             pendingSession = nil
             monitoredJobIDs = []
-            throw error
+            throw SABnzbdMonitorError.translating(error)
         }
         #endif
     }

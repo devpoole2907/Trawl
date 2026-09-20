@@ -74,14 +74,25 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
     /// regardless of `mode` - matching a real SABnzbd server rejecting every call
     /// once its API key no longer matches, not just the next poll.
     private var isUnauthorized = false
+    /// Megabytes to knock off the queue slot on each `mode=queue` poll. Zero - the
+    /// default - serves the same frozen slot every time, which is what every
+    /// journey but the background-monitor one wants.
+    private let drainsPerPoll: Double
+    private var megabytesLeft: Double = 580
 
-    /// - Parameter queueJobName: the `filename` of the single queue slot this fixture
-    ///   serves for `mode=queue` while authorized - the job the journey's first
-    ///   assertion looks for on screen.
-    init(queueJobName: String) async throws {
+    /// - Parameters:
+    ///   - queueJobName: the `filename` of the single queue slot this fixture
+    ///     serves for `mode=queue` while authorized - the job the journey's first
+    ///     assertion looks for on screen.
+    ///   - drainsPerPoll: when greater than zero, each poll reports the job closer
+    ///     to done and eventually drops it from the queue entirely, the way a real
+    ///     download finishes and moves to history. A monitor that only ever sees a
+    ///     frozen slot cannot show progress advancing or a session completing.
+    init(queueJobName: String, drainsPerPoll: Double = 0) async throws {
         self.queue = DispatchQueue(label: "SABnzbdFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.queueJobName = queueJobName
+        self.drainsPerPoll = drainsPerPoll
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
@@ -187,9 +198,7 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
         case "version":
             return #"{"version":"4.5.0"}"#
         case "queue":
-            return #"""
-            {"queue":{"status":"Downloading","paused":false,"slots":[{"nzo_id":"SABnzbd_nzo_fixture1","filename":"\#(queueJobName)","status":"Downloading","index":0,"priority":"Normal","cat":"movies","time_added":0,"timeleft":"0:10:00","percentage":42,"mb":1000,"mbleft":580,"mbmissing":0,"size":"1000 MB","sizeleft":"580 MB","labels":[]}]}}
-            """#
+            return queueBody()
         case "history":
             return #"{"history":{"slots":[]}}"#
         case "get_cats":
@@ -201,6 +210,28 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
         default:
             return "{}"
         }
+    }
+
+    /// Advances the slot when draining is on, so successive polls see a download
+    /// shrinking rather than the same frozen figures, and once it reaches zero
+    /// the slot leaves the queue - which is how SABnzbd reports a finished job,
+    /// by moving it to history. Called outside `lock`, so it takes its own.
+    private func queueBody() -> String {
+        lock.lock()
+        if drainsPerPoll > 0 {
+            megabytesLeft = max(0, megabytesLeft - drainsPerPoll)
+        }
+        let remaining = megabytesLeft
+        lock.unlock()
+
+        guard remaining > 0 else {
+            return #"{"queue":{"status":"Idle","paused":false,"slots":[]}}"#
+        }
+
+        let percentage = Int(((1000 - remaining) / 1000 * 100).rounded())
+        return #"""
+        {"queue":{"status":"Downloading","paused":false,"slots":[{"nzo_id":"SABnzbd_nzo_fixture1","filename":"\#(queueJobName)","status":"Downloading","index":0,"priority":"Normal","cat":"movies","time_added":0,"timeleft":"0:10:00","percentage":\#(percentage),"mb":1000,"mbleft":\#(remaining),"mbmissing":0,"size":"1000 MB","sizeleft":"\#(Int(remaining)) MB","labels":[]}]}}
+        """#
     }
 
     private static func parseRequest(from data: Data) -> RecordedRequest {
