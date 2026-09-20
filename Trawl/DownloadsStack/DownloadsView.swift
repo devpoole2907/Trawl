@@ -80,6 +80,7 @@ struct DownloadsView: View {
     @State private var showAddTorrent = false
     @State private var torrentPendingDeletion: Torrent?
     @State private var sabJobPendingDeletion: SABnzbdJob?
+    @State private var backgroundMonitor = SABnzbdBackgroundMonitor.shared
     @State private var queueActionTarget: ArrQueueActionTarget?
     /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
     @State private var queueActionInFlightIDs: Set<String> = []
@@ -1138,6 +1139,11 @@ struct DownloadsView: View {
                             }
                             .tint(.orange)
                         }
+                        // After Pause/Resume deliberately: this edge allows a full
+                        // swipe, which fires whichever button is first, and that
+                        // has always been the pause control.
+                        backgroundMonitorAction(for: job)
+                            .tint(.indigo)
                     } else if job.normalizedStatus == .failed {
                         Button("Retry", systemImage: "arrow.clockwise") {
                             performSABAction(successTitle: "Retrying", successMessage: job.name) {
@@ -1346,6 +1352,7 @@ struct DownloadsView: View {
     @ViewBuilder
     private func sabActions(for job: SABnzbdJob, includesSeparators: Bool = true) -> some View {
         if job.source == .queue {
+            backgroundMonitorAction(for: job)
             if job.normalizedStatus == .paused {
                 Button("Resume", systemImage: "play.fill") {
                     performSABAction(successTitle: "Resumed", successMessage: job.name) {
@@ -1370,6 +1377,43 @@ struct DownloadsView: View {
         if includesSeparators { Divider() }
         Button("Remove", systemImage: "trash", role: .destructive) {
             sabJobPendingDeletion = job
+        }
+    }
+
+    /// Keeps a SABnzbd download's progress on screen after the person leaves
+    /// Trawl. Offered one session at a time, and only for SABnzbd: the system
+    /// reads a progress bar that stalls or reverses as a stuck task worth
+    /// prompting the person to cancel, which is every torrent's normal life.
+    ///
+    /// "Monitoring" rather than a download verb throughout, because the system's
+    /// own Cancel button ends the *monitoring* - it cannot reach the server.
+    @ViewBuilder
+    private func backgroundMonitorAction(for job: SABnzbdJob) -> some View {
+        if backgroundMonitor.isAvailable {
+            if backgroundMonitor.monitoredJobIDs.contains(job.id) {
+                Button("Stop Monitoring", systemImage: "timer") {
+                    backgroundMonitor.stopMonitoring()
+                }
+            } else if !backgroundMonitor.isMonitoring, !job.normalizedStatus.isTerminal {
+                Button("Monitor in Background", systemImage: "timer") {
+                    startBackgroundMonitoring(of: job)
+                }
+            }
+        }
+    }
+
+    private func startBackgroundMonitoring(of job: SABnzbdJob) {
+        do {
+            try backgroundMonitor.startMonitoring(
+                jobs: [job],
+                client: sabnzbdServiceManager.activeClient
+            )
+            notificationCenter.showSuccess(title: "Monitoring", message: job.name)
+        } catch {
+            notificationCenter.showError(
+                title: "Couldn't Monitor Download",
+                message: error.localizedDescription
+            )
         }
     }
 

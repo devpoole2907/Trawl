@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Every identifier submitted to BGTaskScheduler has to be declared here or
+	     submit() throws notPermitted. Declared verbatim rather than as a
+	     "com.poole.james.Trawl.*" wildcard: wildcards are documented, but
+	     currently fail to match a registered launch handler and throw "No launch
+	     handler registered for task with identifier" at submit time. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.poole.james.Trawl.sabnzbd-monitor</string>
+	</array>
 	<!-- Trawl uses only standard, exempt cryptography: HTTPS/TLS to reach the
 	     user's own servers, and the system Keychain for credentials. No
 	     proprietary or non-exempt encryption is shipped. Declaring this here
@@ -82,6 +91,14 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Carried solely by BGContinuedProcessingTask, which keeps a SABnzbd
+	     download's progress on screen after the person leaves Trawl. Trawl runs
+	     no unattended background work: the task exists only while a session the
+	     person started by hand is still going. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIStatusBarStyle</key>

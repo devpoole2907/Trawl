@@ -8,6 +8,10 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Has to happen before launch finishes: BGTaskScheduler rejects a submit
+        // whose identifier has no handler registered, and the gesture that
+        // submits one can come from the first screen the person lands on.
+        SABnzbdBackgroundMonitor.shared.register()
         return true
     }
 
