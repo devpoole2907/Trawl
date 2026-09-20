@@ -529,7 +529,7 @@ struct DownloadsView: View {
                     managementDestination(route)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { utilitySheetRoute = nil }
+                                Button(platformReadOnlySheetDismissTitle) { utilitySheetRoute = nil }
                             }
                         }
                 }

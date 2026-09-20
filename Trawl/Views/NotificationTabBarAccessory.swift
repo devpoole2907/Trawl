@@ -525,7 +525,13 @@ struct RecentNotificationsSheet: View {
             title: "Notifications",
             subtitle: subtitleText,
             cancelTitle: "Close",
-            cancelSystemImage: "xmark",
+            cancelSystemImage: {
+                #if os(macOS)
+                nil
+                #else
+                "xmark"
+                #endif
+            }(),
             showsCancel: showsClose,
             usesInlineLargeTitle: true,
             minContentHeight: 520,

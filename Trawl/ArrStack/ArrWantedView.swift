@@ -296,12 +296,16 @@ struct ArrWantedView: View {
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: platformCancellationPlacement) {
+                    #if os(macOS)
+                    Button("Close") { dismiss() }
+                    #else
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
                     }
                     .accessibilityLabel("Close")
+                    #endif
                 }
             }
             if hasConfiguredService {

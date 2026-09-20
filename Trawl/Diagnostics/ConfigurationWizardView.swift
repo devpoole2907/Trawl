@@ -117,7 +117,7 @@ struct ConfigurationWizardView: View {
                     #endif
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { dismiss() }
+                            Button(platformReadOnlySheetDismissTitle) { dismiss() }
                         }
                     }
                     #if os(macOS)

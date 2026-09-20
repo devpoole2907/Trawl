@@ -150,8 +150,8 @@ struct ArrUpdatesView: View {
                     ArrServiceSettingsView(serviceType: service)
                         .environment(serviceManager)
                         .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { showSettings = false }
+                            ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                                Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                             }
                         }
                 }

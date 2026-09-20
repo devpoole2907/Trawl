@@ -407,7 +407,7 @@ struct ArrServiceSettingsView: View {
                     .environment(serviceManager)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { activeSheet = nil }
+                            Button(platformReadOnlySheetDismissTitle) { activeSheet = nil }
                         }
                     }
                 }

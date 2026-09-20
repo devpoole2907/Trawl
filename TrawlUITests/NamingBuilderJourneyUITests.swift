@@ -283,6 +283,8 @@ final class NamingBuilderJourneyUITests: XCTestCase {
         XCTAssertTrue(tapWhenHittable(row, timeout: 20), "The \(rowTitle) row should be offered once the server has answered.")
         let builder = app.navigationBars[title]
         XCTAssertTrue(builder.waitForExistence(timeout: 10), "\(rowTitle) must push its builder.")
+        XCTAssertFalse(builder.buttons["Save"].exists, "An existing naming format must open read-only.")
+        XCTAssertTrue(tapWhenHittable(builder.buttons["Edit"]), "Edit should unlock the naming draft.")
         return builder
     }
 

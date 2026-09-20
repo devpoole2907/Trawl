@@ -955,7 +955,7 @@ private struct JellyfinPolicyTagEditorSheet: View {
     }
 
     var body: some View {
-        AppSheetShell(title: context.kind.title, cancelTitle: "Done", minContentHeight: 520) {
+        AppSheetShell(title: context.kind.title, cancelTitle: platformReadOnlySheetDismissTitle, minContentHeight: 520) {
             List {
                 Section(context.kind.selectedSectionTitle) {
                     if selected.isEmpty {
@@ -1115,7 +1115,7 @@ private struct JellyfinPolicySelectorSheet: View {
     }
 
     var body: some View {
-        AppSheetShell(title: title, cancelTitle: "Done", minContentHeight: 520, detents: [.medium]) {
+        AppSheetShell(title: title, cancelTitle: platformReadOnlySheetDismissTitle, minContentHeight: 520, detents: [.medium]) {
             List {
                 Section(selectedSectionTitle) {
                     if selectedIds.isEmpty {

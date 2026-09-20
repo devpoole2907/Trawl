@@ -83,12 +83,31 @@ struct DownloadsBatchSelectionTests {
         return SABnzbdJob(queueSlot: try decoder.decode(SABnzbdQueueSlot.self, from: Data(json.utf8)))
     }
 
-    private static func arrQueueItem(status: String? = nil) throws -> ArrQueueItem {
+    private static func arrQueueItem(id: Int = 1, downloadID: String? = nil, status: String? = nil) throws -> ArrQueueItem {
         let statusField = status.map { ", \"status\": \"\($0)\"" } ?? ""
+        let downloadField = downloadID.map { ", \"downloadId\": \"\($0)\"" } ?? ""
         let json = """
-        { "id": 1, "title": "Example", "size": 1000, "sizeleft": 500, "movieId": 7\(statusField) }
+        { "id": \(id), "title": "Example", "size": 1000, "sizeleft": 500, "movieId": 7\(statusField)\(downloadField) }
         """
         return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    @Test("A season pack occupies one blended row per server, while missing IDs remain separate")
+    func seasonPackRowsRepresentOnePhysicalJob() throws {
+        let firstServer = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let secondServer = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr 4K", tier: .uhd)
+        let rows = try (1...8).map { episode in
+            DownloadListItem.arrQueue(
+                item: try Self.arrQueueItem(id: episode, downloadID: episode.isMultiple(of: 2) ? " PACK-ID " : "pack-id"),
+                source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: firstServer
+            )
+        } + [
+            .arrQueue(item: try Self.arrQueueItem(id: 9, downloadID: "pack-id"), source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: secondServer),
+            .arrQueue(item: try Self.arrQueueItem(id: 10), source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: firstServer),
+            .arrQueue(item: try Self.arrQueueItem(id: 11), source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: firstServer)
+        ]
+
+        #expect(DownloadsViewModel.oneRowPerDownload(rows).map(\.id) == [rows[0].id, rows[8].id, rows[9].id, rows[10].id])
     }
 
     // MARK: - Which client a row actually names

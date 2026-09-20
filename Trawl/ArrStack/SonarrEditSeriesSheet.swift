@@ -11,6 +11,8 @@ struct SonarrEditSeriesSheet: View {
     @State private var seasonFolder: Bool
     @State private var rootFolderPath: String
     @State private var selectedTags: Set<Int>
+    @State private var monitoredSeasons: [Int: Bool]
+    @State private var seasonsExpanded = true
     @State private var moveFiles: Bool
     @State private var isSaving = false
     @State private var showMonitorAllEpisodesAlert = false
@@ -26,6 +28,9 @@ struct SonarrEditSeriesSheet: View {
         _seasonFolder = State(initialValue: series.seasonFolder ?? true)
         _rootFolderPath = State(initialValue: series.rootFolderPath ?? viewModel.rootFolders.first?.path ?? "")
         _selectedTags = State(initialValue: Set(series.tags ?? []))
+        _monitoredSeasons = State(initialValue: Dictionary(uniqueKeysWithValues: (series.seasons ?? []).map {
+            ($0.seasonNumber, $0.monitored ?? true)
+        }))
         _moveFiles = State(initialValue: (series.statistics?.episodeFileCount ?? 0) > 0)
     }
 
@@ -53,6 +58,19 @@ struct SonarrEditSeriesSheet: View {
                 Text("Standard").tag("standard")
                 Text("Daily").tag("daily")
                 Text("Anime").tag("anime")
+            }
+            if let seasons = series.seasons, !seasons.isEmpty {
+                DisclosureGroup("Seasons", isExpanded: $seasonsExpanded) {
+                    ForEach(seasons.sorted { $0.seasonNumber < $1.seasonNumber }, id: \.seasonNumber) { season in
+                        Toggle(
+                            season.seasonNumber == 0 ? "Specials" : "Season \(season.seasonNumber)",
+                            isOn: Binding(
+                                get: { monitoredSeasons[season.seasonNumber] ?? season.monitored ?? true },
+                                set: { monitoredSeasons[season.seasonNumber] = $0 }
+                            )
+                        )
+                    }
+                }
             }
         }
         .task {
@@ -97,6 +115,13 @@ struct SonarrEditSeriesSheet: View {
             seasonFolder: seasonFolder,
             rootFolderPath: rootFolderPath,
             tags: Array(selectedTags).sorted(),
+            seasons: series.seasons?.map { season in
+                SonarrSeason(
+                    seasonNumber: season.seasonNumber,
+                    monitored: monitoredSeasons[season.seasonNumber] ?? season.monitored ?? true,
+                    statistics: season.statistics
+                )
+            },
             moveFiles: folderChanged && hasFiles && moveFiles,
             monitorAllSeasons: monitorAllEpisodes
         )

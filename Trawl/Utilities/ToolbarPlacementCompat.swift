@@ -16,6 +16,24 @@ var platformCancellationPlacement: ToolbarItemPlacement {
     #endif
 }
 
+/// Read-only sheets keep the existing iOS Done action while using Mac's
+/// bottom-leading cancellation position and Close label.
+var platformReadOnlySheetDismissPlacement: ToolbarItemPlacement {
+    #if os(macOS)
+    .cancellationAction
+    #else
+    .confirmationAction
+    #endif
+}
+
+var platformReadOnlySheetDismissTitle: String {
+    #if os(macOS)
+    "Close"
+    #else
+    "Done"
+    #endif
+}
+
 var platformTopBarTrailingPlacement: ToolbarItemPlacement {
     #if os(iOS)
     .topBarTrailing

@@ -122,8 +122,8 @@ struct ArrOfflineServicesSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                    Button(platformReadOnlySheetDismissTitle) {
                         withAnimation(.snappy) {
                             isPresented = false
                         }
@@ -172,8 +172,8 @@ struct ArrServiceSettingsSheet: View {
             ArrServiceSettingsView(serviceType: serviceType)
                 .environment(serviceManager)
                 .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
+                    ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                        Button(platformReadOnlySheetDismissTitle) {
                             withAnimation(.snappy) {
                                 isPresented = false
                             }

@@ -158,6 +158,7 @@ struct SearchView: View {
             // content column rather than a stack of its own - the field disappeared
             // entirely, which is the exact defect the two-chrome work fixed.
             .configurationAttention(.search)
+            .onAppear { resumeVisibleArrLookup() }
         }
     }
 
@@ -221,7 +222,7 @@ struct SearchView: View {
             // Reuses whatever the Series/Movies tabs already fetched, rather than
             // pulling both full libraries again just to build match badges.
             await refreshLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
-            createLookupViewModels()
+            resumeVisibleArrLookup()
             await reconcileTrendingMatches()
         }
         .refreshable {
@@ -280,7 +281,7 @@ struct SearchView: View {
             // Reuses whatever the Series/Movies tabs already fetched, rather than
             // pulling both full libraries again just to build match badges.
             await refreshLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
-            createLookupViewModels()
+            resumeVisibleArrLookup()
             await reconcileTrendingMatches()
         }
         .refreshable {
@@ -948,6 +949,13 @@ struct SearchView: View {
 
     private func createLookupViewModels() {
         viewModel.createLookupViewModels(arrServiceManager: arrServiceManager)
+    }
+
+    private func resumeVisibleArrLookup() {
+        createLookupViewModels()
+        guard viewModel.scope == .arr,
+              !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        startArrLookup(immediate: true)
     }
 
     private func reconcileTrendingMatches() async {

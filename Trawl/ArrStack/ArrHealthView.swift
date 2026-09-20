@@ -186,8 +186,8 @@ struct ArrHealthView: View {
             NavigationStack {
                 HealthDetailSheet(item: item)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { selectedItem = nil }
+                        ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                            Button(platformReadOnlySheetDismissTitle) { selectedItem = nil }
                         }
                     }
             }
@@ -207,8 +207,8 @@ struct ArrHealthView: View {
                 ArrServiceSettingsView(serviceType: healthSettingsService)
                     .environment(serviceManager)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
+                        ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                            Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                         }
                     }
             }

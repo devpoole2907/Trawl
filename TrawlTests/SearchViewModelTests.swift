@@ -249,6 +249,7 @@ struct SearchViewModelTests {
         let serverB = try await SearchLookupTestServer(label: "profile-b")
         defer { serverA.stop(); serverB.stop() }
         serverA.setLookupResponse(term: "Alpha", body: #"[{"id":1,"title":"Alpha Series"}]"#)
+        serverB.setLookupResponse(term: "Alpha", body: #"[{"id":2,"title":"Alpha on B"}]"#)
 
         let profileA = ArrServiceProfile(displayName: "Sonarr A", hostURL: serverA.baseURL, serviceType: .sonarr)
         let profileB = ArrServiceProfile(displayName: "Sonarr B", hostURL: serverB.baseURL, serviceType: .sonarr)
@@ -260,6 +261,7 @@ struct SearchViewModelTests {
             #expect(manager.activeSonarrInstanceID == profileA.id)
 
             let viewModel = SearchViewModel()
+            viewModel.searchText = "Alpha"
             viewModel.createLookupViewModels(arrServiceManager: manager)
             let firstVM = try #require(viewModel.sonarrLookupVM)
 
@@ -273,6 +275,14 @@ struct SearchViewModelTests {
             #expect(secondVM !== firstVM)
             #expect(secondVM.searchResults.isEmpty)
             #expect(secondVM.isSearching == false)
+            #expect(viewModel.hasSearchedArr == false)
+
+            // The same visible query must run again against the new server. A
+            // completed-term cache from A cannot turn B's empty VM into a false
+            // "No Results" screen on return to Search.
+            viewModel.startArrLookup(arrServiceManager: manager, immediate: true)
+            await viewModel.arrLookupTask?.value
+            #expect(secondVM.searchResults.map(\.title) == ["Alpha on B"])
         }
     }
 

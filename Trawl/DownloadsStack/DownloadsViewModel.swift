@@ -232,7 +232,7 @@ final class DownloadsViewModel {
             let activeSAB = unmatchedSABJobs
                 .filter { Self.isActive($0) }
                 .map(DownloadListItem.sab)
-            result = activeQueue + activeTorrents + activeSAB
+            result = Self.oneRowPerDownload(activeQueue) + activeTorrents + activeSAB
 
         case .queue:
             let waitingQueue = queueItems.filter { item in
@@ -247,7 +247,7 @@ final class DownloadsViewModel {
             let waitingSAB = unmatchedSABJobs
                 .filter { Self.isWaiting($0) }
                 .map(DownloadListItem.sab)
-            result = waitingQueue + waitingTorrents + waitingSAB
+            result = Self.oneRowPerDownload(waitingQueue) + waitingTorrents + waitingSAB
 
         case .completed:
             // Finished but not uploading - paused or stopped on the seeding side.
@@ -461,6 +461,23 @@ final class DownloadsViewModel {
             unmatchedSABJobs: sabActiveJobs.filter { !linkedSABIDs.contains($0.id.lowercased()) },
             unmatchedSABHistoryJobs: sabHistoryJobs.filter { !linkedSABIDs.contains($0.id.lowercased()) }
         )
+    }
+
+    /// Sonarr reports a season pack once per episode, but the download client has
+    /// one job. Keep one row in Active/Queue for that job on each Arr instance.
+    /// Import issues still use the complete queue so distinct episode failures
+    /// remain visible in Issues.
+    static func oneRowPerDownload(_ items: [DownloadListItem]) -> [DownloadListItem] {
+        var seen: Set<String> = []
+        return items.filter { item in
+            guard case .arrQueue(let record, let source, _, _, let instance) = item,
+                  let downloadID = record.downloadId?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased(),
+                  !downloadID.isEmpty else { return true }
+            let key = "\(instance?.id.uuidString ?? source.rawValue):\(downloadID)"
+            return seen.insert(key).inserted
+        }
     }
 
     /// The single definition of "needs attention", rendered by the Issues segment

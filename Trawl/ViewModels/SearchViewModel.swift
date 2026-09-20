@@ -75,15 +75,18 @@ final class SearchViewModel {
     }
 
     func createLookupViewModels(arrServiceManager: ArrServiceManager) {
+        var lookupContextChanged = false
         let nextSonarrKey = sonarrLookupKey(
             isConnected: arrServiceManager.sonarrConnected,
             connectionKey: arrServiceManager.arrConnectionKey,
             activeInstanceID: arrServiceManager.activeSonarrInstanceID
         )
         if !arrServiceManager.sonarrConnected {
+            lookupContextChanged = lookupContextChanged || sonarrLookupVM != nil
             sonarrLookupVM = nil
             sonarrLookupContextKey = nextSonarrKey
         } else if sonarrLookupVM == nil || sonarrLookupContextKey != nextSonarrKey {
+            lookupContextChanged = true
             sonarrLookupVM = SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: sonarrSeries)
             sonarrLookupContextKey = nextSonarrKey
         } else {
@@ -96,13 +99,21 @@ final class SearchViewModel {
             activeInstanceID: arrServiceManager.activeRadarrInstanceID
         )
         if !arrServiceManager.radarrConnected {
+            lookupContextChanged = lookupContextChanged || radarrLookupVM != nil
             radarrLookupVM = nil
             radarrLookupContextKey = nextRadarrKey
         } else if radarrLookupVM == nil || radarrLookupContextKey != nextRadarrKey {
+            lookupContextChanged = true
             radarrLookupVM = RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: radarrMovies)
             radarrLookupContextKey = nextRadarrKey
         } else {
             radarrLookupVM?.setLibraryItems(radarrMovies)
+        }
+        if lookupContextChanged {
+            arrLookupTask?.cancel()
+            activeArrLookupTerm = ""
+            lastCompletedArrLookupTerm = ""
+            hasSearchedArr = false
         }
     }
 

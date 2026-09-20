@@ -589,6 +589,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         seasonFolder: Bool,
         rootFolderPath: String,
         tags: [Int],
+        seasons: [SonarrSeason]? = nil,
         moveFiles: Bool = false,
         monitorAllSeasons: Bool = false
     ) async -> Bool {
@@ -602,6 +603,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 seasonFolder: seasonFolder,
                 rootFolderPath: rootFolderPath,
                 tags: tags,
+                seasons: seasons,
                 monitorAllSeasons: monitorAllSeasons
             )
             _ = try await client.updateSeries(updatedSeries, moveFiles: moveFiles)

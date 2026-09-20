@@ -194,8 +194,8 @@ struct ArrQualityDefinitionsView: View {
                 ArrServiceSettingsView(serviceType: selectedService)
                     .environment(serviceManager)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
+                        ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                            Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                         }
                     }
             }

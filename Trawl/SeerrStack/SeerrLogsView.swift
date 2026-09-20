@@ -266,7 +266,7 @@ private struct SeerrLogDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        AppSheetShell(title: "Log Details") {
+        AppSheetShell(title: "Log Details", cancelTitle: "Close") {
             Form {
                 Section("Timestamp") {
                     Text(timestampText)

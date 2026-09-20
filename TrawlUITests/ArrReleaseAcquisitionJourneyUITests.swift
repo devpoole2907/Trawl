@@ -116,6 +116,16 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
             releaseRow.waitForExistence(in: app, timeout: 20),
             "Interactive Search should render the release returned through the real Sonarr client. Requests: \(server.requests)"
         )
+        let qualityBar = app.scrollViews["Quality"]
+        XCTAssertTrue(qualityBar.waitForExistence(timeout: 5), "The Quality filter should remain available above interactive results.")
+        let qualityBarY = qualityBar.frame.minY
+        let releaseList = app.descendants(matching: .any)["interactive-release-results"]
+        XCTAssertTrue(releaseList.waitForExistence(timeout: 5), "Interactive releases should render in their own results list.")
+        releaseList.swipeDown()
+        XCTAssertEqual(
+            qualityBar.frame.minY, qualityBarY, accuracy: 3,
+            "Pulling the release list must not drag the Quality filter with it."
+        )
         let releaseLookup = try XCTUnwrap(
             server.requests.last { $0.method == "GET" && $0.path == "/api/v3/release" }
         )

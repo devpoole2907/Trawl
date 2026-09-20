@@ -139,6 +139,7 @@ struct AppSheetShell<Content: View>: View {
         .frame(minWidth: 540, idealWidth: 580)
         .frame(minHeight: minContentHeight)
         #endif
+        .interactiveDismissDisabled(isConfirmLoading)
         #if os(iOS)
         // A detent is a height a sheet can be dragged to on a phone; a Mac sheet is
         // sized by its content instead, which the frame above does.

@@ -129,6 +129,8 @@ struct FileListView: View {
     #if os(macOS)
     private var macBottomBar: some View {
         HStack(spacing: 10) {
+            Button("Close") { dismiss() }
+
             Spacer()
 
             if editMode.isEditing {
@@ -142,9 +144,6 @@ struct FileListView: View {
                 editButton
                     .fixedSize()
             }
-
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

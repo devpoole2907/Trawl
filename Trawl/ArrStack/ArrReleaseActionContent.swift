@@ -900,43 +900,44 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         // recomputing it. See `makeDerivedReleases()`.
         let derived = makeDerivedReleases()
         return NavigationStack {
-            Group {
-                if let error = searchError, !error.isEmpty {
-                    ServiceErrorView(title: "Search Failed", message: error, onRetry: {
-                        searchError = nil
-                        hasLoaded = false
-                        await loadReleases()
-                    })
-                } else if releases.isEmpty && hasLoaded {
-                    ContentUnavailableView {
-                        Label("No Releases Found", systemImage: "magnifyingglass")
-                    } description: {
-                        Text(emptyDescription)
-                    } actions: {
-                        Button("Search Again", systemImage: "arrow.clockwise", action: searchAgain)
-                    }
-                } else if !releases.isEmpty && derived.displayed.isEmpty {
-                    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if query.isEmpty {
-                        ContentUnavailableView {
-                            Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
-                        } description: {
-                            Text("Some releases are hidden by the selected filters.")
-                        } actions: {
-                            Button("Clear Filters") { clearFilters() }
-                        }
-                    } else {
-                        ContentUnavailableView.search(text: query)
-                    }
-                } else {
-                    releaseList(derived)
-                }
-            }
-            .safeAreaInset(edge: .top) {
+            VStack(spacing: 0) {
                 if !releases.isEmpty {
                     qualityFilterBar
-                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+
+                Group {
+                    if let error = searchError, !error.isEmpty {
+                        ServiceErrorView(title: "Search Failed", message: error, onRetry: {
+                            searchError = nil
+                            hasLoaded = false
+                            await loadReleases()
+                        })
+                    } else if releases.isEmpty && hasLoaded {
+                        ContentUnavailableView {
+                            Label("No Releases Found", systemImage: "magnifyingglass")
+                        } description: {
+                            Text(emptyDescription)
+                        } actions: {
+                            Button("Search Again", systemImage: "arrow.clockwise", action: searchAgain)
+                        }
+                    } else if !releases.isEmpty && derived.displayed.isEmpty {
+                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if query.isEmpty {
+                            ContentUnavailableView {
+                                Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
+                            } description: {
+                                Text("Some releases are hidden by the selected filters.")
+                            } actions: {
+                                Button("Clear Filters") { clearFilters() }
+                            }
+                        } else {
+                            ContentUnavailableView.search(text: query)
+                        }
+                    } else {
+                        releaseList(derived)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .safeAreaInset(edge: .bottom) { macBottomBar }
             .navigationTitle(title)
@@ -988,6 +989,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         #else
         .listStyle(.inset)
         #endif
+        .accessibilityIdentifier("interactive-release-results")
     }
 
     @ViewBuilder
@@ -1088,6 +1090,8 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     private var macBottomBar: some View {
         #if os(macOS)
         HStack(spacing: 10) {
+            Button("Close") { dismiss() }
+
             Spacer()
 
             sortMenu
@@ -1095,9 +1099,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
 
             filterMenu
                 .fixedSize()
-
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

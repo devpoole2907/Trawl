@@ -206,8 +206,8 @@ struct ArrEventsView: View {
                     ArrServiceSettingsView(serviceType: service)
                         .environment(serviceManager)
                         .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { showSettings = false }
+                            ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                                Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                             }
                         }
                 }
@@ -561,8 +561,8 @@ private struct ArrEventDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+            ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                Button(platformReadOnlySheetDismissTitle) { dismiss() }
             }
         }
     }

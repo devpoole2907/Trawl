@@ -94,6 +94,10 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
             "Confirming Clear should reconcile the real notification center to its empty state."
         )
         XCTAssertFalse(app.staticTexts["Library Removed"].exists)
+        #if os(macOS)
+        XCTAssertTrue(tapWhenHittable(sheet.buttons["Close"], in: app, timeout: 5))
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        #endif
     }
 
     @discardableResult

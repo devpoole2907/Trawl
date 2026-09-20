@@ -167,6 +167,30 @@ struct ArrDualInstanceTests {
         #expect(edited.instanceID == instance)
     }
 
+    @Test("Editing monitored seasons preserves the other seasons and server identity")
+    func editSeriesStagesSelectedSeasons() throws {
+        let json = #"{"id":7,"title":"Off Campus","qualityProfileId":1,"seriesType":"standard","seasonFolder":true,"rootFolderPath":"/tv","seasons":[{"seasonNumber":0,"monitored":false},{"seasonNumber":1,"monitored":true},{"seasonNumber":2,"monitored":true}]}"#
+        let instanceID = UUID()
+        let series = try JSONDecoder().decode(SonarrSeries.self, from: Data(json.utf8)).stamped(with: instanceID)
+        let selectedSeasons = series.seasons?.map { season in
+            SonarrSeason(seasonNumber: season.seasonNumber, monitored: season.seasonNumber == 1, statistics: season.statistics)
+        }
+
+        let edited = series.updatingForEdit(
+            monitored: true,
+            qualityProfileId: 1,
+            seriesType: "standard",
+            seasonFolder: true,
+            rootFolderPath: "/tv",
+            tags: [],
+            seasons: selectedSeasons
+        )
+
+        #expect(edited.instanceID == instanceID)
+        #expect(edited.seasons?.map(\.monitored) == [false, true, false])
+        #expect(series.seasons?.map(\.monitored) == [false, true, true])
+    }
+
     // MARK: - Merging
 
     @Test("The same film on two servers becomes one row carrying both copies")

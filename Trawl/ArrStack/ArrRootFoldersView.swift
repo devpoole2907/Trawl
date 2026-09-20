@@ -203,8 +203,8 @@ struct ArrRootFoldersView: View {
                 ArrServiceSettingsView(serviceType: rootFoldersSettingsService)
                     .environment(serviceManager)
                     .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
+                        ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                            Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                         }
                     }
             }

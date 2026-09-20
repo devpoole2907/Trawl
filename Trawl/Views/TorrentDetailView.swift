@@ -141,14 +141,14 @@ struct TorrentDetailView: View {
                 AppSheetShell(
                     title: "Files",
                     subtitle: torrent.name,
-                    cancelTitle: "Done",
+                    cancelTitle: platformReadOnlySheetDismissTitle,
                     showsCancel: showsFilesShellDone,
                     minContentHeight: 520
                 ) {
                     FileListView(viewModel: vm)
                 }
             case .trackers:
-                AppSheetShell(title: "Trackers", subtitle: torrent.name, cancelTitle: "Done", minContentHeight: 520) {
+                AppSheetShell(title: "Trackers", subtitle: torrent.name, cancelTitle: platformReadOnlySheetDismissTitle, minContentHeight: 520) {
                     TrackerListView(viewModel: vm)
                 }
             }

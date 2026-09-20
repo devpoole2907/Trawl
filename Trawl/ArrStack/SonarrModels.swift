@@ -262,6 +262,7 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
         seasonFolder: Bool,
         rootFolderPath: String,
         tags: [Int],
+        seasons: [SonarrSeason]? = nil,
         monitorAllSeasons: Bool = false
     ) -> SonarrSeries {
         let updatedPath = rebasedLibraryPath(
@@ -270,8 +271,8 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
             newRoot: rootFolderPath
         )
         let updatedSeasons = monitorAllSeasons
-            ? seasons?.map { SonarrSeason(seasonNumber: $0.seasonNumber, monitored: true, statistics: $0.statistics) }
-            : seasons
+            ? (seasons ?? self.seasons)?.map { SonarrSeason(seasonNumber: $0.seasonNumber, monitored: true, statistics: $0.statistics) }
+            : seasons ?? self.seasons
 
         return SonarrSeries(
             id: id,

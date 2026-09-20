@@ -888,8 +888,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                     ArrServiceSettingsView(serviceType: serviceType)
                         .environment(serviceManager)
                         .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { showSettings = false }
+                            ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                                Button(platformReadOnlySheetDismissTitle) { showSettings = false }
                             }
                         }
                 }

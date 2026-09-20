@@ -129,11 +129,13 @@ struct CastPersonSheet: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button("Close", systemImage: "xmark") {
-                    dismiss()
-                }
-                .labelStyle(.iconOnly)
+            ToolbarItem(placement: platformCancellationPlacement) {
+                #if os(macOS)
+                Button("Close") { dismiss() }
+                #else
+                Button("Close", systemImage: "xmark") { dismiss() }
+                    .labelStyle(.iconOnly)
+                #endif
             }
         }
     }

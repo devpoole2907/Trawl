@@ -51,6 +51,10 @@ final class NamingBuilderCaptureUITests: XCTestCase {
         XCTAssertTrue(preview.waitForExistence(timeout: 10))
         capture(app, "2-builder")
 
+        let edit = app.navigationBars["Standard Episode Format"].buttons["Edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+
         let episodeNumber = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "naming.block", "Episode number"))
             .firstMatch

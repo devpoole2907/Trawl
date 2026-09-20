@@ -519,12 +519,16 @@ struct ArrCalendarView: View {
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: platformCancellationPlacement) {
+                    #if os(macOS)
+                    Button("Close") { dismiss() }
+                    #else
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
                     }
                     .accessibilityLabel("Close")
+                    #endif
                 }
             }
             if hasConfiguredService {
@@ -567,7 +571,9 @@ struct ArrCalendarView: View {
             }
         }
         .sheet(isPresented: $showiCalAlert) {
-            ICalSubscribeSheet(availableServices: subscribableServices)
+            NavigationStack {
+                ICalSubscribeSheet(availableServices: subscribableServices)
+            }
         }
         .onChange(of: subscribableServices.isEmpty) { _, isEmpty in
             ArrCalendarSubscribeTip.isEligible = !isEmpty

@@ -129,8 +129,8 @@ struct SettingsView: View {
             #endif
             .toolbar {
                 if showsDoneButton {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
+                    ToolbarItem(placement: platformReadOnlySheetDismissPlacement) {
+                        Button(platformReadOnlySheetDismissTitle) { dismiss() }
                     }
                 }
             }
@@ -1380,6 +1380,5 @@ extension QBittorrentSettingsView {
     }
 }
 #endif
-
 
 
