@@ -181,6 +181,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 onBulkDelete: bulkDeleteItems
             ))
             .refreshableIfEnabled(!editMode.isEditing) {
+                await serviceManager.retryDisconnected(limitedTo: serviceType)
                 async let loadItems = viewModel.loadLibraryItems()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadItems, loadQueue)

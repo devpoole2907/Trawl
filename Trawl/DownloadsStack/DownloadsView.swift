@@ -476,7 +476,7 @@ struct DownloadsView: View {
             // Attached after the inset it also propagates into the segment bar, which then
             // becomes pull-to-refreshable itself.
             .refreshable {
-                async let arrRefresh: Void = viewModel.refresh(serviceManager: arrServiceManager)
+                async let arrRefresh: Void = viewModel.refresh(serviceManager: arrServiceManager, retryDisconnected: true)
                 async let torrentRefresh: Void = syncService.refreshNow()
                 async let sabRefresh: Void = sabnzbdServiceManager.refresh()
                 _ = await (arrRefresh, torrentRefresh, sabRefresh)
@@ -701,7 +701,7 @@ struct DownloadsView: View {
             ServiceErrorView(
                 title: "Downloads Unavailable",
                 message: errorMessage,
-                onRetry: { await viewModel.refresh(serviceManager: arrServiceManager) }
+                onRetry: { await viewModel.refresh(serviceManager: arrServiceManager, retryDisconnected: true) }
             )
         } else {
             // Keep the List mounted even when filtering yields zero results so the

@@ -15,6 +15,62 @@ import Testing
 @Suite("Arr retry disconnected", .serialized)
 @MainActor
 struct ArrRetryDisconnectedTests {
+    @Test("Refreshing Downloads reconnects a failed secondary Sonarr before loading its queue")
+    func downloadsRefreshRetriesSecondaryInstance() async throws {
+        let healthyServer = try await RetryArrTestServer(label: "downloads-healthy", mode: .healthy)
+        let secondaryServer = try await RetryArrTestServer(label: "downloads-secondary", mode: .rejecting(503))
+        defer { healthyServer.stop(); secondaryServer.stop() }
+
+        let healthyProfile = ArrServiceProfile(displayName: "Sonarr HD", hostURL: healthyServer.baseURL, serviceType: .sonarr)
+        let secondaryProfile = ArrServiceProfile(displayName: "Sonarr 4K", hostURL: secondaryServer.baseURL, serviceType: .sonarr)
+        let manager = ArrServiceManager()
+
+        try await withSavedAPIKey(for: healthyProfile) {
+            try await withSavedAPIKey(for: secondaryProfile) {
+                await manager.initialize(from: [healthyProfile, secondaryProfile])
+                #expect(manager.isConnected(.sonarr, profileID: healthyProfile.id))
+                #expect(!manager.isConnected(.sonarr, profileID: secondaryProfile.id))
+
+                secondaryServer.setMode(.healthy)
+                let healthyHandshakes = healthyServer.statusRequestCount
+                let downloads = DownloadsViewModel()
+                await downloads.refresh(serviceManager: manager, retryDisconnected: true)
+
+                #expect(secondaryServer.statusRequestCount == 2)
+                #expect(healthyServer.statusRequestCount == healthyHandshakes)
+                #expect(manager.isConnected(.sonarr, profileID: secondaryProfile.id))
+                #expect(secondaryServer.requests.contains(.init(method: "GET", path: "/api/v3/queue")))
+            }
+        }
+    }
+
+    @Test("Series refresh retries only disconnected Sonarr instances before loading the library")
+    func seriesRefreshLimitsRetriesToSonarr() async throws {
+        let sonarrServer = try await RetryArrTestServer(label: "series-secondary", mode: .rejecting(503))
+        let radarrServer = try await RetryArrTestServer(label: "movies-offline", mode: .rejecting(503))
+        defer { sonarrServer.stop(); radarrServer.stop() }
+
+        let sonarrProfile = ArrServiceProfile(displayName: "Sonarr 4K", hostURL: sonarrServer.baseURL, serviceType: .sonarr)
+        let radarrProfile = ArrServiceProfile(displayName: "Radarr", hostURL: radarrServer.baseURL, serviceType: .radarr)
+        let manager = ArrServiceManager()
+
+        try await withSavedAPIKey(for: sonarrProfile) {
+            try await withSavedAPIKey(for: radarrProfile) {
+                await manager.initialize(from: [sonarrProfile, radarrProfile])
+                let radarrHandshakes = radarrServer.statusRequestCount
+                sonarrServer.setMode(.healthy)
+
+                await manager.retryDisconnected(limitedTo: .sonarr)
+                _ = try await manager.loadSeriesUnion()
+
+                #expect(manager.isConnected(.sonarr, profileID: sonarrProfile.id))
+                #expect(sonarrServer.statusRequestCount == 2)
+                #expect(sonarrServer.requests.contains(.init(method: "GET", path: "/api/v3/series")))
+                #expect(radarrServer.statusRequestCount == radarrHandshakes)
+            }
+        }
+    }
+
     @Test("retryDisconnected reconnects a failed secondary Sonarr profile without touching the already-connected one")
     func retryDisconnectedRetriesOnlyFailedProfile() async throws {
         let healthyServer = try await RetryArrTestServer(label: "sonarr-healthy", mode: .healthy)

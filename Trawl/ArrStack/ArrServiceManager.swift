@@ -752,7 +752,9 @@ final class ArrServiceManager {
     /// Safe to call on foreground return - does not reset already-connected profiles.
     /// The decision is per profile (not per service type) so a failed secondary
     /// instance is retried even while another instance of the same type is healthy.
-    func retryDisconnected() async {
+    /// A library pull limits the sweep to its own service; Downloads and the app
+    /// lifecycle use the default to retry every configured Arr service.
+    func retryDisconnected(limitedTo requestedType: ArrServiceType? = nil) async {
         guard !isInitializing else { return }
         // Something outside the poller decided now is worth another try - the
         // retry scheduler firing, or the app coming back to the foreground. Let
@@ -761,8 +763,14 @@ final class ArrServiceManager {
         queueBackoff.reset()
         // Same for the evidence behind a disconnect: failures counted before the
         // app was backgrounded say nothing about the network it has woken up on.
-        instanceTransportFailures.removeAll()
+        if let requestedType {
+            let profileIDs = Set(storedProfiles.filter { $0.resolvedServiceType == requestedType }.map(\.id))
+            instanceTransportFailures = instanceTransportFailures.filter { !profileIDs.contains($0.key) }
+        } else {
+            instanceTransportFailures.removeAll()
+        }
         for serviceType in ArrServiceType.allCases {
+            if let requestedType, requestedType != serviceType { continue }
             let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
             guard !profiles.isEmpty else { continue }
             for profile in profiles {

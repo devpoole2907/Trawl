@@ -34,7 +34,10 @@ final class DownloadsViewModel {
         serviceManager.endFastQueuePolling()
     }
 
-    func refresh(serviceManager: ArrServiceManager) async {
+    func refresh(serviceManager: ArrServiceManager, retryDisconnected: Bool = false) async {
+        if retryDisconnected {
+            await serviceManager.retryDisconnected()
+        }
         await serviceManager.refreshQueues()
         pruneRemovedQueueItems(serviceManager: serviceManager)
     }
