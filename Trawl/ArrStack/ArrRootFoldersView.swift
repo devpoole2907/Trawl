@@ -738,7 +738,7 @@ fileprivate struct AddRootFolderSheet: View {
                             path = selectedPath
                         }
                     }
-                    .macSheetSizing()
+                    .macSheetSizing(minHeight: 380)
                 }
             }
         }

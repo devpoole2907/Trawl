@@ -104,6 +104,7 @@ struct AppSheetShell<Content: View>: View {
                                     Text(cancelTitle)
                                 }
                             }
+                            .disabled(isConfirmLoading)
                         }
                     }
 

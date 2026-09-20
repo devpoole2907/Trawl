@@ -185,6 +185,7 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
 
                 if isSearchExpanded, let searchText {
                     TextField(searchHint ?? "", text: searchText)
+                        .textFieldStyle(.plain)
                         .focused($isKeyboardActive)
                 }
             }

@@ -19,6 +19,9 @@ struct RemotePathBrowserView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var manualPath: String
+    #if os(macOS)
+    @State private var macPathHistory: [String] = []
+    #endif
 
     init(
         title: String = "Browse Folder",
@@ -36,10 +39,17 @@ struct RemotePathBrowserView: View {
     }
 
     private var currentPath: String {
+        #if os(macOS)
+        macPathHistory.last ?? initialPath
+        #else
         initialPath
+        #endif
     }
 
     var body: some View {
+        #if os(macOS)
+        macBrowser
+        #else
         List {
             Section {
                 if isLoading {
@@ -151,26 +161,142 @@ struct RemotePathBrowserView: View {
         .refreshable {
             await loadEntries()
         }
-        #if os(macOS)
-        .frame(minWidth: 540, idealWidth: 580, minHeight: 400)
         #endif
     }
+
+    #if os(macOS)
+    private var macBrowser: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button("Back", systemImage: "chevron.left") {
+                    if !macPathHistory.isEmpty {
+                        macPathHistory.removeLast()
+                        manualPath = currentPath
+                    } else {
+                        macPathHistory = [""]
+                        manualPath = ""
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .disabled(currentPath.isEmpty)
+
+                Text(title)
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            HStack(spacing: 10) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                TextField("Server path", text: $manualPath, prompt: Text("/media"))
+                    .labelsHidden()
+                    .autocorrectionDisabled()
+                    .onSubmit { browseManualPath() }
+                Button("Go", systemImage: "arrow.right") { browseManualPath() }
+                    .labelStyle(.iconOnly)
+                    .disabled(trimmedManualPath.isEmpty || trimmedManualPath == currentPath)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            Group {
+                if isLoading {
+                    TrawlInitialLoadingView(label: "Loading folders")
+                } else if let errorMessage {
+                    ServiceErrorView(
+                        title: "Cannot Browse Folder",
+                        message: errorMessage,
+                        systemImage: "folder",
+                        onRetry: { await loadEntries() }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No Folders",
+                        systemImage: "folder",
+                        description: Text("No folders were returned for this path.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(entries) { entry in
+                                Button {
+                                    macPathHistory.append(entry.path)
+                                    manualPath = entry.path
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: iconName(for: entry))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 20)
+                                        Text(entry.name.isEmpty ? entry.path : entry.name)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        Image(systemName: "chevron.right")
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 9)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!entry.isDirectory)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Text(currentPath.isEmpty ? "Choose a folder" : currentPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 12)
+                Button("Cancel") { closeBrowser() }
+                Button("Use This Folder") { useFolder(currentPath) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(currentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(20)
+        }
+        .task(id: currentPath) { await loadEntries() }
+    }
+
+    private func browseManualPath() {
+        guard !trimmedManualPath.isEmpty, trimmedManualPath != currentPath else { return }
+        macPathHistory.append(trimmedManualPath)
+        manualPath = trimmedManualPath
+    }
+    #endif
 
     private var trimmedManualPath: String {
         manualPath.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func loadEntries() async {
+        let requestedPath = currentPath
         isLoading = true
         errorMessage = nil
         do {
-            let loaded = try await (currentPath.isEmpty ? source.loadRoots() : source.loadChildren(currentPath))
+            let loaded = try await (requestedPath.isEmpty ? source.loadRoots() : source.loadChildren(requestedPath))
+            guard currentPath == requestedPath else { return }
             entries = loaded
                 .filter(\.isDirectory)
                 .sorted { lhs, rhs in
                     lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
         } catch {
+            guard currentPath == requestedPath else { return }
             entries = []
             errorMessage = error.localizedDescription
         }

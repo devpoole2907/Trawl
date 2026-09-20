@@ -815,7 +815,7 @@ private struct JellyfinAddLibrarySheet: View {
                         appendPath(path)
                     }
                 }
-                .macSheetSizing()
+                .macSheetSizing(minHeight: 380)
             }
         }
     }
@@ -898,7 +898,7 @@ private struct JellyfinAddPathSheet: View {
                         path = selectedPath
                     }
                 }
-                .macSheetSizing()
+                .macSheetSizing(minHeight: 380)
             }
         }
     }

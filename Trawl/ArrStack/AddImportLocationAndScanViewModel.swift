@@ -80,7 +80,7 @@ struct AddImportLocationSheet: View {
                             path = selectedPath
                         }
                     }
-                    .macSheetSizing()
+                    .macSheetSizing(minHeight: 380)
                 }
             }
         }

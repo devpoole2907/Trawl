@@ -87,6 +87,11 @@ struct ArrEditItemSheet<TypeFields: View>: View {
         .sheet(item: $qualityProfileForDetails) { profile in
             NavigationStack {
                 ArrQualityProfileDetailView(serviceType: serviceType, profile: profile)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { qualityProfileForDetails = nil }
+                        }
+                    }
             }
             .macSheetSizing()
         }

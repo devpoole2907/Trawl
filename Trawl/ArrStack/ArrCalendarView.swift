@@ -1399,6 +1399,11 @@ private struct ICalSubscribeSheet: View {
         .macSheetSizing(minWidth: 540, idealWidth: 580, minHeight: 520)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }
+            }
+        }
         .onAppear {
             if selectedInstanceID == nil, availableInstances.count == 1 {
                 selectedInstanceID = availableInstances.first?.id
