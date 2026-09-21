@@ -1385,17 +1385,20 @@ struct DownloadsView: View {
     /// reads a progress bar that stalls or reverses as a stuck task worth
     /// prompting the person to cancel, which is every torrent's normal life.
     ///
-    /// "Monitoring" rather than a download verb throughout, because the system's
-    /// own Cancel button ends the *monitoring* - it cannot reach the server.
+    /// Named for the thing the person gets - a Live Activity - rather than for
+    /// the polling behind it. The activity's own title keeps a verb
+    /// ("Monitoring <job>"), because the Cancel button the system puts beside it
+    /// ends the activity and cannot reach the server; a bare job name there
+    /// would read as "cancel this download".
     @ViewBuilder
     private func backgroundMonitorAction(for job: SABnzbdJob) -> some View {
         if backgroundMonitor.isAvailable {
             if backgroundMonitor.monitoredJobIDs.contains(job.id) {
-                Button("Stop Monitoring", systemImage: "timer") {
+                Button("Stop Live Activity", systemImage: "timer") {
                     backgroundMonitor.stopMonitoring()
                 }
             } else if !backgroundMonitor.isMonitoring, !job.normalizedStatus.isTerminal {
-                Button("Monitor in Background", systemImage: "timer") {
+                Button("Start Live Activity", systemImage: "timer") {
                     startBackgroundMonitoring(of: job)
                 }
             }
@@ -1408,10 +1411,10 @@ struct DownloadsView: View {
                 jobs: [job],
                 client: sabnzbdServiceManager.activeClient
             )
-            notificationCenter.showSuccess(title: "Monitoring", message: job.name)
+            notificationCenter.showSuccess(title: "Live Activity Started", message: job.name)
         } catch {
             notificationCenter.showError(
-                title: "Couldn't Monitor Download",
+                title: "Couldn't Start Live Activity",
                 message: error.localizedDescription
             )
         }

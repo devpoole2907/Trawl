@@ -16,10 +16,10 @@ nonisolated enum SABnzbdMonitorError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unsupported: "Background monitoring needs iOS 26 or later."
-        case .alreadyMonitoring: "Trawl is already monitoring a download."
+        case .unsupported: "Live Activities for downloads need iOS 26 or later."
+        case .alreadyMonitoring: "Trawl already has a Live Activity running."
         case .nothingToMonitor: "That download is no longer in the SABnzbd queue."
-        case .notConnected: "Connect to SABnzbd before monitoring a download."
+        case .notConnected: "Connect to SABnzbd before starting a Live Activity."
         case .schedulerUnavailable:
             "iOS won't run background work for Trawl right now. Check that Background App Refresh is turned on for Trawl in Settings."
         case .schedulerBusy:

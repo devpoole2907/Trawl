@@ -2,8 +2,8 @@
 //  SABnzbdBackgroundMonitorJourneyUITests.swift
 //  TrawlUITests
 //
-//  Drives the Monitor action end to end against a real loopback SABnzbd that
-//  actually drains.
+//  Drives the Start Live Activity action end to end against a real loopback
+//  SABnzbd that actually drains.
 //
 //  **This suite cannot witness a running session on the Simulator, and that is
 //  not a gap in the test.** `BGTaskScheduler` refuses every submission there
@@ -12,7 +12,7 @@
 //  cause. So the property pinned here is the one that is true on both:
 //  **whatever the scheduler actually did, the app's recorded state matches it.**
 //  A refusal must be reported in words the person can act on and must leave no
-//  session behind; an acceptance must leave the row offering Stop Monitoring.
+//  session behind; an acceptance must leave the row offering Stop Live Activity.
 //
 //  That refusal path is not Simulator-only trivia - it is exactly what a device
 //  does when Background App Refresh is switched off for Trawl.
@@ -58,7 +58,7 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
         let jobRow = app.staticTexts[jobName]
         XCTAssertTrue(
             jobRow.waitForExistence(in: app, timeout: 20),
-            "The seeded SABnzbd job should reach the Downloads list before anything is monitored."
+            "The seeded SABnzbd job should reach the Downloads list before any Live Activity is started."
         )
         capture(app, "1-downloads-row")
 
@@ -72,25 +72,25 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
 
         rowTarget.press(forDuration: 1.2)
 
-        let monitorAction = app.buttons["Monitor in Background"]
+        let monitorAction = app.buttons["Start Live Activity"]
         XCTAssertTrue(
             monitorAction.waitForExistence(timeout: 10),
-            "A queued SABnzbd job should offer background monitoring. Torrent rows deliberately do not."
+            "A queued SABnzbd job should offer a Live Activity. Torrent rows deliberately do not."
         )
         capture(app, "2-context-menu")
         monitorAction.tap()
 
         // MARK: The attempt resolves one way or the other, and says which.
 
-        let startedBanner = app.staticTexts["Monitoring"]
-        let failureBanner = app.staticTexts["Couldn't Monitor Download"]
+        let startedBanner = app.staticTexts["Live Activity Started"]
+        let failureBanner = app.staticTexts["Couldn't Start Live Activity"]
         let resolved = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in startedBanner.exists || failureBanner.exists },
             object: nil
         )
         XCTAssertEqual(
             XCTWaiter().wait(for: [resolved], timeout: 15), .completed,
-            "Tapping Monitor should report an outcome rather than appearing to do nothing."
+            "Starting a Live Activity should report an outcome rather than appearing to do nothing."
         )
         capture(app, "3-after-start")
 
@@ -102,10 +102,10 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
         // MARK: Accepted - the row records the session.
 
         rowTarget.press(forDuration: 1.2)
-        let stopAction = app.buttons["Stop Monitoring"]
+        let stopAction = app.buttons["Stop Live Activity"]
         XCTAssertTrue(
             stopAction.waitForExistence(timeout: 10),
-            "Once a session is running, its row should offer Stop Monitoring instead of starting a second one."
+            "Once a session is running, its row should offer Stop Live Activity instead of starting a second one."
         )
         capture(app, "4-stop-offered")
         dismissMenu(in: app)
@@ -126,7 +126,7 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
             )
             XCTAssertEqual(
                 XCTWaiter().wait(for: [polled], timeout: 40), .completed,
-                "A backgrounded monitor session should still be polling SABnzbd (round \(round))."
+                "A backgrounded Live Activity should still be polling SABnzbd (round \(round))."
             )
 
             let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -135,20 +135,22 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
             add(screen)
         }
 
-        // MARK: Coming back to Trawl ends the session, and the row says so.
+        // MARK: The activity survives coming back to Trawl.
         //
-        // Measured on an iPhone 15 Pro Max (iOS 27.0): polling survived every
-        // background round above and then stopped within a second of the app
-        // returning to the foreground, with the app resumed rather than
-        // relaunched (one `Launch` at t=0, an `Activate` at t≈60). The system
-        // appears to end a continued-processing task once its app is frontmost
-        // again, which is coherent - the task exists to carry work *past*
-        // backgrounding, and a visible Downloads tab polls on its own anyway.
+        // Measured on an iPhone 15 Pro Max (iOS 27.0): the row still offers Stop
+        // after the app returns to the foreground.
         //
-        // Whatever the cause, the invariant the app owes the person is the same
-        // one this suite pins throughout: the row's affordance matches whether a
-        // session is actually running. A row still offering Stop for a session
-        // that has ended would lock monitoring out for the rest of the launch.
+        // Two earlier runs appeared to show the opposite - no Stop action on
+        // return - and that nearly went down as "iOS ends the task once the app
+        // is frontmost". It was wrong: the screenshot showed no context menu had
+        // opened at all. The long press was being swallowed while the app
+        // settled after `activate()`, so the assertion was reporting on a menu
+        // that was never up. Hence `openMenu(on:in:)` below.
+        //
+        // The invariant this pins is the same one the suite pins throughout: the
+        // row's affordance matches whether a session is actually running. A row
+        // still offering Stop for a session that has ended would lock the
+        // feature out for the rest of the launch.
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "The app should come back to the foreground.")
 
@@ -162,11 +164,11 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
         )
         capture(app, "6-menu-on-return")
 
-        let offersStart = app.buttons["Monitor in Background"].exists
-        let offersStop = app.buttons["Stop Monitoring"].exists
+        let offersStart = app.buttons["Start Live Activity"].exists
+        let offersStop = app.buttons["Stop Live Activity"].exists
         XCTAssertNotEqual(
             offersStart, offersStop,
-            "The row should offer exactly one of Monitor/Stop - never both, never neither."
+            "The row should offer exactly one of Start/Stop - never both, never neither."
         )
 
         // The session survives coming back to the foreground, so Stop is the
@@ -179,17 +181,17 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
 
         // MARK: Stopping releases the session.
 
-        app.buttons["Stop Monitoring"].tap()
+        app.buttons["Stop Live Activity"].tap()
         XCTAssertTrue(
             openMenu(on: rowTarget, in: app),
             "The row's context menu should still open after stopping."
         )
         XCTAssertTrue(
-            app.buttons["Monitor in Background"].exists,
+            app.buttons["Start Live Activity"].exists,
             "Stopping should release the session so another can be started."
         )
         XCTAssertFalse(
-            app.buttons["Stop Monitoring"].exists,
+            app.buttons["Stop Live Activity"].exists,
             "A stopped session should not still be offering to stop."
         )
         dismissMenu(in: app)
@@ -215,7 +217,7 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
             row.press(forDuration: 1.2)
             let appeared = XCTNSPredicateExpectation(
                 predicate: NSPredicate { _, _ in
-                    app.buttons["Monitor in Background"].exists || app.buttons["Stop Monitoring"].exists
+                    app.buttons["Start Live Activity"].exists || app.buttons["Stop Live Activity"].exists
                 },
                 object: nil
             )
@@ -239,11 +241,11 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
 
         jobRow.press(forDuration: 1.2)
         XCTAssertTrue(
-            app.buttons["Monitor in Background"].waitForExistence(timeout: 10),
+            app.buttons["Start Live Activity"].waitForExistence(timeout: 10),
             "A refused submission must leave no session behind - the row should still offer to start one."
         )
         XCTAssertFalse(
-            app.buttons["Stop Monitoring"].exists,
+            app.buttons["Stop Live Activity"].exists,
             "A refused submission must not record a session the scheduler never accepted."
         )
         capture(app, "4-refusal-leaves-no-session")
