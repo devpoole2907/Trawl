@@ -36,9 +36,9 @@ struct LibraryHealthProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<LibraryHealthEntry>) -> Void) {
         Task {
             let entry = await fetchEntry()
-            let interval = WidgetTimelinePolicy.libraryHealthRefreshInterval(
-                issueCount: entry.snapshot.totalIssueCount
-            )
+            let interval = entry.snapshot.errorMessage == nil
+                ? WidgetTimelinePolicy.libraryHealthRefreshInterval(issueCount: entry.snapshot.totalIssueCount)
+                : WidgetTimelinePolicy.failedFetchRefreshInterval
             completion(Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval))))
         }
     }

@@ -36,6 +36,7 @@ enum WidgetDataFetcher {
     private struct ArrCalendarResult: Sendable {
         let events: [WidgetCalendarEvent]
         let answered: Bool
+        let failure: WidgetFetchError?
     }
 
     struct SABnzbdProfileSnapshot: Sendable {
@@ -285,7 +286,7 @@ enum WidgetDataFetcher {
         _ snapshot: ServerSnapshot?
     ) async -> (info: TransferInfo, name: String)? {
         guard let snapshot else { return nil }
-        return await withWidgetTimeout {
+        return await WidgetDeadline.run {
             let client = try await makeQBittorrentClient(from: snapshot)
             return (try await client.getTransferInfo(), snapshot.displayName)
         }
@@ -295,7 +296,7 @@ enum WidgetDataFetcher {
         _ snapshot: ServerSnapshot?
     ) async -> (items: [WidgetActiveDownloadSnapshot], name: String)? {
         guard let snapshot else { return nil }
-        return await withWidgetTimeout {
+        return await WidgetDeadline.run {
             let client = try await makeQBittorrentClient(from: snapshot)
             let torrents = try await client.getTorrentSummaries()
             // `isActiveTorrent` and `widgetETAText` are main-actor isolated.
@@ -327,7 +328,7 @@ enum WidgetDataFetcher {
         ) { group in
             for profile in profiles {
                 group.addTask {
-                    await withWidgetTimeout {
+                    await WidgetDeadline.run {
                         let client = try await makeSABnzbdClient(from: profile)
                         return (profile, try await client.getQueue(limit: 100))
                     }
@@ -411,25 +412,6 @@ enum WidgetDataFetcher {
         names.count == 1 ? names[0] : "\(names.count) Clients"
     }
 
-    /// Races `operation` against a deadline so a stalled server cannot hold up
-    /// the timeline entry. Returns `nil` on timeout or failure.
-    private static func withWidgetTimeout<T: Sendable>(
-        seconds: TimeInterval = 12,
-        operation: @escaping @Sendable () async throws -> T
-    ) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { try? await operation() }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(seconds))
-                return nil
-            }
-
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-    }
-
     // MARK: - Seerr
 
     /// Pending requests and open issues for the selected Seerr server (or every
@@ -442,9 +424,13 @@ enum WidgetDataFetcher {
         await withTaskGroup(of: SeerrInboxProfileResult.self) { group in
             for profile in profiles {
                 group.addTask {
-                    async let pending = fetchSeerrPendingRequests(for: profile)
-                    async let issues = fetchSeerrOpenIssues(for: profile)
-                    return SeerrInboxProfileResult(pending: await pending, issues: await issues)
+                    async let pending = WidgetDeadline.run {
+                        await fetchSeerrPendingRequests(for: profile)
+                    }
+                    async let issues = WidgetDeadline.run {
+                        await fetchSeerrOpenIssues(for: profile)
+                    }
+                    return SeerrInboxProfileResult(pending: await pending ?? nil, issues: await issues ?? nil)
                 }
             }
 
@@ -575,7 +561,7 @@ enum WidgetDataFetcher {
         _ snapshot: ServerSnapshot?
     ) async -> (running: Int, stopped: Int)? {
         guard let snapshot else { return nil }
-        return await withWidgetTimeout {
+        return await WidgetDeadline.run {
             let client = try await makeQBittorrentClient(from: snapshot)
             let torrents = try await client.getTorrentSummaries()
             // `TorrentState` is main-actor isolated, so the raw values are read there
@@ -599,7 +585,11 @@ enum WidgetDataFetcher {
         var services: [WidgetLibraryHealthServiceSnapshot] = []
         await withTaskGroup(of: WidgetLibraryHealthServiceSnapshot.self) { group in
             for profile in profiles {
-                group.addTask { await fetchArrLibraryHealth(for: profile) }
+                group.addTask {
+                    await WidgetDeadline.run(seconds: 18) {
+                        await fetchArrLibraryHealth(for: profile)
+                    } ?? unavailableHealth(for: profile)
+                }
             }
 
             for await service in group {
@@ -651,20 +641,24 @@ enum WidgetDataFetcher {
         var events: [WidgetCalendarEvent] = []
 
         var answeredCount = 0
+        var failures: [WidgetFetchError] = []
         await withTaskGroup(of: ArrCalendarResult.self) { group in
             for profile in profiles {
                 group.addTask {
-                    await fetchArrEvents(
-                        profile: profile,
-                        apiStart: apiStart,
-                        filterStart: filterStart,
-                        end: end,
-                        includeUnmonitored: includeUnmonitored
-                    )
+                    await WidgetDeadline.run(seconds: 18) {
+                        await fetchArrEvents(
+                            profile: profile,
+                            apiStart: apiStart,
+                            filterStart: filterStart,
+                            end: end,
+                            includeUnmonitored: includeUnmonitored
+                        )
+                    } ?? ArrCalendarResult(events: [], answered: false, failure: .timedOut)
                 }
             }
             for await result in group {
                 if result.answered { answeredCount += 1 }
+                if let failure = result.failure { failures.append(failure) }
                 events.append(contentsOf: result.events)
             }
         }
@@ -672,10 +666,17 @@ enum WidgetDataFetcher {
         guard !WidgetTimelinePolicy.calendarFetchIsUnavailable(
             configuredCount: profiles.count,
             answeredCount: answeredCount
-        ) else { throw WidgetError.noServerConfigured }
+        ) else {
+            if failures.contains(.missingCredentials) { throw WidgetError.missingCredentials }
+            if failures.contains(.invalidResponse) { throw WidgetError.invalidResponse }
+            if failures.contains(.serverError) { throw WidgetError.serverError }
+            if failures.contains(.timedOut) { throw WidgetError.timedOut }
+            if failures.contains(.connectionFailed) { throw WidgetError.connectionFailed }
+            throw WidgetError.noServerConfigured
+        }
 
         let sorted = events.sorted { $0.date < $1.date }
-        return await prefetchPosters(for: sorted)
+        return await WidgetDeadline.run(seconds: 8) { await prefetchPosters(for: sorted) } ?? sorted
     }
 
     // MARK: - Poster prefetch
@@ -703,7 +704,7 @@ enum WidgetDataFetcher {
 
         // Fetch unique posters in the order they'll be displayed, capped.
         var seen = Set<URL>()
-        let uniqueURLs = events.compactMap(\.posterURL).filter { seen.insert($0).inserted }.prefix(20)
+        let uniqueURLs = events.compactMap(\.posterURL).filter { seen.insert($0).inserted }.prefix(7)
 
         var pathByURL: [URL: String] = [:]
         await withTaskGroup(of: (URL, String?).self) { group in
@@ -1011,6 +1012,22 @@ enum WidgetDataFetcher {
         }
     }
 
+    nonisolated private static func unavailableHealth(for profile: ArrProfileSnapshot) -> WidgetLibraryHealthServiceSnapshot {
+        WidgetLibraryHealthServiceSnapshot(
+            serviceName: profile.displayName,
+            serviceType: profile.serviceType.displayName,
+            healthIssueCount: 1,
+            queueIssueCount: 0,
+            worstOffender: WidgetLibraryHealthOffender(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                title: "\(profile.serviceType.displayName) Unavailable",
+                detail: "The server did not respond in time.",
+                severity: .error
+            )
+        )
+    }
+
     private static func fetchArrLibraryHealth<Client: SharedArrClient>(
         profile: ArrProfileSnapshot,
         client: Client
@@ -1141,7 +1158,7 @@ enum WidgetDataFetcher {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
                   !apiKey.isEmpty else {
                 logger.error("Missing ARR API key for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public)")
-                return ArrCalendarResult(events: [], answered: false)
+                return ArrCalendarResult(events: [], answered: false, failure: .missingCredentials)
             }
 
             let profileQualifier = profile.hostURL.replacingOccurrences(of: "://", with: "-").replacingOccurrences(of: "/", with: "-")
@@ -1169,7 +1186,7 @@ enum WidgetDataFetcher {
                         isDownloaded: ep.hasFile == true
                     )
                 }
-                return ArrCalendarResult(events: events, answered: true)
+                return ArrCalendarResult(events: events, answered: true, failure: nil)
 
             case .radarr:
                 let client = RadarrAPIClient(
@@ -1201,14 +1218,22 @@ enum WidgetDataFetcher {
                         )
                     }
                 }
-                return ArrCalendarResult(events: events, answered: true)
+                return ArrCalendarResult(events: events, answered: true, failure: nil)
 
             case .prowlarr, .bazarr:
-                return ArrCalendarResult(events: [], answered: true)
+                return ArrCalendarResult(events: [], answered: true, failure: nil)
             }
         } catch {
             logger.error("ARR fetch failed for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
-            return ArrCalendarResult(events: [], answered: false)
+            let failure: WidgetFetchError
+            switch error as? ArrError {
+            case .invalidAPIKey: failure = .missingCredentials
+            case .decodingError, .invalidResponse: failure = .invalidResponse
+            case .serverError: failure = .serverError
+            case .networkError, .connectionFailed: failure = .connectionFailed
+            default: failure = .connectionFailed
+            }
+            return ArrCalendarResult(events: [], answered: false, failure: failure)
         }
     }
 

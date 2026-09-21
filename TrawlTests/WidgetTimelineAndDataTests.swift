@@ -12,7 +12,8 @@ struct WidgetTimelineAndDataTests {
         #expect(WidgetTimelinePolicy.activeDownloadsRefreshInterval(activeCount: 0) == 30 * 60)
         #expect(WidgetTimelinePolicy.calendarRefreshInterval(hasEntries: true, isFailure: false) == 5 * 60 * 60)
         #expect(WidgetTimelinePolicy.calendarRefreshInterval(hasEntries: false, isFailure: false) == 6 * 60 * 60)
-        #expect(WidgetTimelinePolicy.calendarRefreshInterval(hasEntries: false, isFailure: true) == 12 * 60 * 60)
+        #expect(WidgetTimelinePolicy.calendarRefreshInterval(hasEntries: false, isFailure: true) == 15 * 60)
+        #expect(WidgetTimelinePolicy.failedFetchRefreshInterval == 15 * 60)
         #expect(WidgetTimelinePolicy.libraryHealthRefreshInterval(issueCount: 1) == 15 * 60)
         #expect(WidgetTimelinePolicy.libraryHealthRefreshInterval(issueCount: 0) == 60 * 60)
         #expect(WidgetTimelinePolicy.seerrInboxRefreshInterval(pendingCount: 1, openIssueCount: 0) == 10 * 60)
@@ -20,6 +21,23 @@ struct WidgetTimelineAndDataTests {
         #expect(WidgetTimelinePolicy.seerrInboxRefreshInterval(pendingCount: 0, openIssueCount: 0) == 30 * 60)
         // A pending decision outranks an open issue when the inbox holds both.
         #expect(WidgetTimelinePolicy.seerrInboxRefreshInterval(pendingCount: 2, openIssueCount: 3) == 10 * 60)
+    }
+
+    @Test("A widget deadline returns even when the operation remains suspended")
+    func deadlineDoesNotWaitForCancelledWork() async {
+        let gate = NonCooperativeWidgetOperation()
+        let result = await WidgetDeadline.run(seconds: 0) {
+            await gate.wait()
+            return 42
+        }
+        await gate.release()
+        #expect(result == nil)
+    }
+
+    @Test("A completed widget fetch wins its deadline")
+    func deadlineKeepsCompletedValue() async {
+        let result = await WidgetDeadline.run(seconds: 12) { 42 }
+        #expect(result == 42)
     }
 
     @Test("The small calendar tile tightens its refresh as the next release approaches")
@@ -327,6 +345,10 @@ struct WidgetTimelineAndDataTests {
             WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.missingCredentials)
                 == "Sign-In Needed"
         )
+        #expect(WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.timedOut) == "Timed Out")
+        #expect(WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.connectionFailed) == "Connection Failed")
+        #expect(WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.serverError) == "Server Error")
+        #expect(WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.invalidResponse) == "Invalid Response")
         #expect(
             WidgetTimelinePolicy.calendarUnavailableMessage(for: WidgetFetchError.noServerConfigured)
                 == "Unavailable"
@@ -483,5 +505,23 @@ struct WidgetTimelineAndDataTests {
             badgeLabel: nil,
             isDownloaded: false
         )
+    }
+}
+
+/// Deliberately ignores task cancellation, like a stalled client that has not
+/// returned from an actor hop. Releasing after the assertion avoids leaked work.
+private actor NonCooperativeWidgetOperation {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        if isReleased { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
     }
 }

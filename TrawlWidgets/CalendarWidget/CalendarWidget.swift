@@ -242,7 +242,7 @@ struct CalendarWidgetEntryView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Text("Open Trawl to set up")
+            Text("Open Trawl to check")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

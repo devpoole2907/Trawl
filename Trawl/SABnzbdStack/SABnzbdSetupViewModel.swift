@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import OSLog
 import SwiftData
+import WidgetKit
 
 @MainActor
 @Observable
@@ -133,6 +134,7 @@ final class SABnzbdSetupViewModel {
         do {
             try await KeychainHelper.shared.save(key: keychainKey, value: apiKey)
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             if isNewProfile {
                 modelContext.rollback()
@@ -209,4 +211,3 @@ private enum SABnzbdSetupError: LocalizedError {
         "SABnzbd rejected the key. Use the full API key from Config > General, not the NZB key."
     }
 }
-

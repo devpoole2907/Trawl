@@ -3,6 +3,8 @@ import Foundation
 /// Centralized refresh policy for every Trawl widget. Keeping these decisions
 /// pure makes them deterministic to test without asking WidgetKit to wait.
 enum WidgetTimelinePolicy {
+    static let failedFetchRefreshInterval: TimeInterval = 15 * 60
+
     struct CalendarSlice: Sendable {
         let date: Date
         let events: [WidgetCalendarEvent]
@@ -17,7 +19,7 @@ enum WidgetTimelinePolicy {
     }
 
     static func calendarRefreshInterval(hasEntries: Bool, isFailure: Bool) -> TimeInterval {
-        if isFailure { return 12 * 60 * 60 }
+        if isFailure { return failedFetchRefreshInterval }
         return hasEntries ? 5 * 60 * 60 : 6 * 60 * 60
     }
 
@@ -54,6 +56,10 @@ enum WidgetTimelinePolicy {
         switch error as? WidgetFetchError {
         case .noArrServicesConfigured: "No Sonarr or Radarr"
         case .missingCredentials: "Sign-In Needed"
+        case .timedOut: "Timed Out"
+        case .connectionFailed: "Connection Failed"
+        case .serverError: "Server Error"
+        case .invalidResponse: "Invalid Response"
         default: "Unavailable"
         }
     }
@@ -86,5 +92,38 @@ enum WidgetTimelinePolicy {
         }
 
         return [CalendarSlice(date: now, events: events.filter { $0.date >= now })] + perDay
+    }
+}
+
+/// Returns at the deadline even if a network client does not cooperate with
+/// cancellation. A task group cannot do this: it waits for every child on exit.
+enum WidgetDeadline {
+    static func run<Value: Sendable>(
+        seconds: TimeInterval = 12,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async -> Value? {
+        await withCheckedContinuation { continuation in
+            let gate = WidgetDeadlineGate(continuation)
+            let work = Task { await gate.finish(try? await operation()) }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                await gate.finish(nil)
+                work.cancel()
+            }
+        }
+    }
+}
+
+private actor WidgetDeadlineGate<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value?, Never>?
+
+    init(_ continuation: CheckedContinuation<Value?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ value: Value?) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: value)
     }
 }

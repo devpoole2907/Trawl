@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import WidgetKit
 
 struct SABnzbdSettingsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -300,6 +301,7 @@ struct SABnzbdSettingsView: View {
         do {
             try modelContext.save()
             serviceManager.disconnect()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             modelContext.rollback()
             InAppNotificationCenter.shared.showError(

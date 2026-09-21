@@ -33,9 +33,9 @@ struct ActiveDownloadsProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectServerIntent, in context: Context) async -> Timeline<ActiveDownloadsEntry> {
         let entry = await fetchEntry(serverID: configuration.server?.id)
-        let interval = WidgetTimelinePolicy.activeDownloadsRefreshInterval(
-            activeCount: entry.snapshot.activeCount
-        )
+        let interval = entry.snapshot.errorMessage == nil
+            ? WidgetTimelinePolicy.activeDownloadsRefreshInterval(activeCount: entry.snapshot.activeCount)
+            : WidgetTimelinePolicy.failedFetchRefreshInterval
         return Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval)))
     }
 

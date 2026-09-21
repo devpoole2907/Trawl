@@ -3,6 +3,7 @@ import OSLog
 import Observation
 import SwiftData
 import SwiftUI
+import WidgetKit
 
 @MainActor
 @Observable
@@ -269,6 +270,7 @@ final class ArrSetupViewModel {
 
             // Connect the new service
             await serviceManager.connectService(profile)
+            WidgetCenter.shared.reloadAllTimelines()
 
             isValidating = false
             return true
@@ -342,6 +344,7 @@ final class ArrSetupViewModel {
         }
 
         serviceManager.disconnectService(serviceType, profileID: profile.id)
+        WidgetCenter.shared.reloadAllTimelines()
 
         do {
             try await KeychainHelper.shared.delete(key: keychainKey)

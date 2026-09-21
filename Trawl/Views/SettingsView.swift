@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 #if os(macOS)
 import AppKit
 #endif
@@ -677,6 +678,7 @@ struct QBittorrentSettingsView: View {
 
         do {
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Couldn't Delete Server",
@@ -1380,5 +1382,4 @@ extension QBittorrentSettingsView {
     }
 }
 #endif
-
 

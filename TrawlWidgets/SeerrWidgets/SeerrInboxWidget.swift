@@ -41,10 +41,12 @@ struct SeerrInboxProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectSeerrServerIntent, in context: Context) async -> Timeline<SeerrInboxEntry> {
         let entry = await fetchEntry(serverID: configuration.server?.id)
-        let interval = WidgetTimelinePolicy.seerrInboxRefreshInterval(
-            pendingCount: entry.snapshot.totalPending,
-            openIssueCount: entry.snapshot.totalOpenIssues
-        )
+        let interval = entry.snapshot.errorMessage == nil
+            ? WidgetTimelinePolicy.seerrInboxRefreshInterval(
+                pendingCount: entry.snapshot.totalPending,
+                openIssueCount: entry.snapshot.totalOpenIssues
+            )
+            : WidgetTimelinePolicy.failedFetchRefreshInterval
         return Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval)))
     }
 

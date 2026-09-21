@@ -199,6 +199,22 @@ struct SonarrAPIClientContractTests {
         ])
     }
 
+    @Test("All Releases reaches Sonarr with unmonitored episodes included")
+    func allReleasesCalendarRequest() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-all-releases",
+            routes: ["/api/v3/calendar": .json("[]")]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        let episodes = try await client.getCalendar(unmonitored: CalendarScopeOption.all.includeUnmonitored)
+        #expect(episodes.isEmpty)
+        let request = try #require(server.requests.first)
+        #expect(request.queryItems.contains(URLQueryItem(name: "unmonitored", value: "true")))
+        #expect(request.queryItems.contains(URLQueryItem(name: "includeSeries", value: "true")))
+    }
+
     @Test("Interactive release search sends every identifier and decodes a mixed-shape release payload")
     func releaseSearchDecodesMixedShapePayload() async throws {
         let payload = """
@@ -487,6 +503,21 @@ struct SonarrAPIClientContractTests {
 @Suite("Radarr API client HTTP contracts", .serialized)
 @MainActor
 struct RadarrAPIClientContractTests {
+    @Test("All Releases reaches Radarr with unmonitored movies included")
+    func allReleasesCalendarRequest() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "radarr-all-releases",
+            routes: ["/api/v3/calendar": .json("[]")]
+        )
+        defer { server.stop() }
+        let client = RadarrAPIClient(baseURL: server.baseURL, apiKey: "radarr-contract-key")
+
+        let movies = try await client.getCalendar(unmonitored: CalendarScopeOption.all.includeUnmonitored)
+        #expect(movies.isEmpty)
+        let request = try #require(server.requests.first)
+        #expect(request.queryItems.contains(URLQueryItem(name: "unmonitored", value: "true")))
+    }
+
     @Test("TMDb lookup targets the dedicated path with a single tmdbId query item")
     func tmdbLookupRequest() async throws {
         let server = try await ArrContractTestServer.routed(

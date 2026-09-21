@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 
 struct ServerListView: View {
     @Environment(\.modelContext) private var modelContext
@@ -134,6 +135,7 @@ struct ServerListView: View {
         }
         do {
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Couldn't Switch Server",
@@ -168,6 +170,7 @@ struct ServerListView: View {
 
         do {
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Couldn't Delete Server",

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Observation
+import WidgetKit
 
 @MainActor
 @Observable
@@ -190,6 +191,7 @@ final class SeerrSetupViewModel {
                 throw error
             }
 
+            WidgetCenter.shared.reloadAllTimelines()
             return true
         } catch {
             self.error = error.localizedDescription

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 
 struct SeerrSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -355,6 +356,7 @@ struct SeerrSettingsView: View {
         modelContext.delete(profile)
         do {
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             InAppNotificationCenter.shared.showError(title: "Failed to Save Changes", message: error.localizedDescription)
         }

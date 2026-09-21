@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import WidgetKit
 
 @MainActor
 @Observable
@@ -185,6 +186,7 @@ final class OnboardingViewModel {
             }
 
             try modelContext.save()
+            WidgetCenter.shared.reloadAllTimelines()
 
             committed = true
             isValid = true
