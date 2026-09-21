@@ -37,9 +37,11 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
     @MainActor
     func testMonitoringAQueuedJobLeavesTheAppAgreeingWithTheScheduler() async throws {
         let jobName = "Fixture NZB Alpha"
-        // Drains slowly enough that the job is still in flight once the journey
-        // has navigated and opened the menu.
-        let server = try await SABnzbdFixtureServer(queueJobName: jobName, drainsPerPoll: 20)
+        // Slow enough that the job outlasts the whole journey. At 20 MB a poll
+        // the fixture drained to zero in 29 polls, which a device reached before
+        // the Stop step - the session had already finished by itself, correctly,
+        // and the stop path went untested. 5 MB a poll leaves ample headroom.
+        let server = try await SABnzbdFixtureServer(queueJobName: jobName, drainsPerPoll: 5)
         fixtureServer = server
 
         let app = XCUIApplication()
@@ -60,9 +62,15 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
         )
         capture(app, "1-downloads-row")
 
+        // Presses go to the row *inside the list*, not to `app.staticTexts[name]`.
+        // Starting a session raises a banner carrying the job's name as its
+        // message, so the unscoped query matches twice the moment the feature
+        // works and the press fails with "Multiple matching elements found".
+        let rowTarget = app.collectionViews.staticTexts[jobName].firstMatch
+
         // MARK: The action is offered on a queued SABnzbd job.
 
-        jobRow.press(forDuration: 1.2)
+        rowTarget.press(forDuration: 1.2)
 
         let monitorAction = app.buttons["Monitor in Background"]
         XCTAssertTrue(
@@ -87,13 +95,13 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
         capture(app, "3-after-start")
 
         guard !failureBanner.exists else {
-            try assertRefusalIsHonest(in: app, jobRow: jobRow)
+            try assertRefusalIsHonest(in: app, jobRow: rowTarget)
             return
         }
 
         // MARK: Accepted - the row records the session.
 
-        jobRow.press(forDuration: 1.2)
+        rowTarget.press(forDuration: 1.2)
         let stopAction = app.buttons["Stop Monitoring"]
         XCTAssertTrue(
             stopAction.waitForExistence(timeout: 10),
@@ -126,6 +134,94 @@ final class SABnzbdBackgroundMonitorJourneyUITests: XCTestCase {
             screen.lifetime = .keepAlways
             add(screen)
         }
+
+        // MARK: Coming back to Trawl ends the session, and the row says so.
+        //
+        // Measured on an iPhone 15 Pro Max (iOS 27.0): polling survived every
+        // background round above and then stopped within a second of the app
+        // returning to the foreground, with the app resumed rather than
+        // relaunched (one `Launch` at t=0, an `Activate` at t≈60). The system
+        // appears to end a continued-processing task once its app is frontmost
+        // again, which is coherent - the task exists to carry work *past*
+        // backgrounding, and a visible Downloads tab polls on its own anyway.
+        //
+        // Whatever the cause, the invariant the app owes the person is the same
+        // one this suite pins throughout: the row's affordance matches whether a
+        // session is actually running. A row still offering Stop for a session
+        // that has ended would lock monitoring out for the rest of the launch.
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "The app should come back to the foreground.")
+
+        // Retried, because a long press issued while the app is still settling
+        // after `activate()` is swallowed and opens nothing - which reads as
+        // "the action is missing" and invites a conclusion about the session
+        // that the screenshot flatly contradicts.
+        XCTAssertTrue(
+            openMenu(on: rowTarget, in: app),
+            "The row's context menu should open once Trawl is back in the foreground."
+        )
+        capture(app, "6-menu-on-return")
+
+        let offersStart = app.buttons["Monitor in Background"].exists
+        let offersStop = app.buttons["Stop Monitoring"].exists
+        XCTAssertNotEqual(
+            offersStart, offersStop,
+            "The row should offer exactly one of Monitor/Stop - never both, never neither."
+        )
+
+        // The session survives coming back to the foreground, so Stop is the
+        // expected branch; the other is taken only if the download finished
+        // while the app was away, which the slow drain above makes unlikely.
+        guard offersStop else {
+            dismissMenu(in: app)
+            return
+        }
+
+        // MARK: Stopping releases the session.
+
+        app.buttons["Stop Monitoring"].tap()
+        XCTAssertTrue(
+            openMenu(on: rowTarget, in: app),
+            "The row's context menu should still open after stopping."
+        )
+        XCTAssertTrue(
+            app.buttons["Monitor in Background"].exists,
+            "Stopping should release the session so another can be started."
+        )
+        XCTAssertFalse(
+            app.buttons["Stop Monitoring"].exists,
+            "A stopped session should not still be offering to stop."
+        )
+        dismissMenu(in: app)
+
+        // The system's half of a deliberate stop: the task is completed with
+        // success, so no red "Task failed" card is left behind. Captured rather
+        // than asserted - that card belongs to the system, not to Trawl, and
+        // XCTest cannot read it.
+        XCUIDevice.shared.press(.home)
+        _ = app.wait(for: .runningBackground, timeout: 10)
+        let afterStop = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        afterStop.name = "7-after-stop"
+        afterStop.lifetime = .keepAlways
+        add(afterStop)
+    }
+
+    /// Long-presses until the row's context menu is actually up, and reports
+    /// whether it ever appeared.
+    @MainActor
+    private func openMenu(on row: XCUIElement, in app: XCUIApplication, attempts: Int = 5) -> Bool {
+        for _ in 1...attempts {
+            guard row.waitForExistence(timeout: 5) else { continue }
+            row.press(forDuration: 1.2)
+            let appeared = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    app.buttons["Monitor in Background"].exists || app.buttons["Stop Monitoring"].exists
+                },
+                object: nil
+            )
+            if XCTWaiter().wait(for: [appeared], timeout: 5) == .completed { return true }
+        }
+        return false
     }
 
     /// A refusal has to be legible and has to leave nothing behind. Both halves

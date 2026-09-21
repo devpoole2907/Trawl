@@ -121,6 +121,9 @@ final class SABnzbdBackgroundMonitor {
     /// of the context the submitting gesture had.
     @ObservationIgnored private var pendingSession: Session?
     @ObservationIgnored private var activeSignal: ExpirationSignal?
+    /// Set by `stopMonitoring()` so the run loop can tell the person ending
+    /// the session from the system reclaiming it.
+    @ObservationIgnored private var wasStoppedDeliberately = false
 
     private struct Session {
         let plan: SABnzbdMonitorPlan
@@ -137,14 +140,27 @@ final class SABnzbdBackgroundMonitor {
         let registered = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.taskIdentifier,
             using: nil
-        ) { task in
+        // `@Sendable` is load-bearing, not decoration. This target builds with
+        // SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor, so an unannotated closure
+        // here is inferred `@MainActor` and the compiler plants a runtime
+        // isolation check in it. BGTaskScheduler invokes the launch handler on
+        // its own queue (`com.apple.BGTaskScheduler`), so that check fails and
+        // traps - `dispatch_assert_queue` → SIGTRAP, killing the app the first
+        // time a task ever launches. Marking it `@Sendable` makes it nonisolated,
+        // which is the truth: it runs wherever the scheduler calls it, and hops
+        // to the main actor itself below.
+        //
+        // The Simulator cannot catch this. It refuses every submission with
+        // `unavailable`, so the handler never runs there; the crash only appears
+        // on a device, on the very first launch of a task.
+        ) { @Sendable task in
             guard let continued = task as? BGContinuedProcessingTask else {
                 task.setTaskCompleted(success: false)
                 return
             }
-            // The scheduler calls this on its own queue and keeps the task alive
-            // for the handler's lifetime; from here on only the monitor's main
-            // actor touches it, so the hand-off is the only unchecked step.
+            // The scheduler keeps the task alive for the handler's lifetime;
+            // from here on only the monitor's main actor touches it, so the
+            // hand-off is the only unchecked step.
             let box = TaskBox(task: continued)
             Task { @MainActor in
                 await SABnzbdBackgroundMonitor.shared.run(box.task)
@@ -195,7 +211,12 @@ final class SABnzbdBackgroundMonitor {
 
     /// Ends the session from inside the app. Like the system's Cancel, this
     /// stops watching and leaves the download alone.
+    ///
+    /// Recorded as deliberate so the task is completed successfully. Ending it
+    /// with `success: false` leaves a red "Task failed" card in the system UI,
+    /// which is a lie when the person is the one who asked it to stop.
     func stopMonitoring() {
+        wasStoppedDeliberately = true
         activeSignal?.signal()
         pendingSession = nil
         monitoredJobIDs = []
@@ -208,6 +229,7 @@ final class SABnzbdBackgroundMonitor {
             return
         }
         pendingSession = nil
+        wasStoppedDeliberately = false
 
         let signal = ExpirationSignal()
         activeSignal = signal
@@ -247,17 +269,32 @@ final class SABnzbdBackgroundMonitor {
         if finishedNormally {
             task.progress.completedUnitCount = session.plan.totalUnits
         }
-        task.setTaskCompleted(success: finishedNormally)
+        // A session the person ended on purpose is a success, not a failure -
+        // only the system reclaiming the task or the server going away is.
+        task.setTaskCompleted(success: finishedNormally || wasStoppedDeliberately)
 
         activeSignal = nil
+        wasStoppedDeliberately = false
         monitoredJobIDs = []
     }
 
-    private struct TaskBox: @unchecked Sendable {
-        let task: BGContinuedProcessingTask
-    }
     #endif
 }
+
+#if os(iOS)
+/// Carries the scheduler's task from the nonisolated launch handler to the
+/// monitor's main actor. `nonisolated` for the same reason the handler is: a
+/// type nested in a main-actor class gets a main-actor initializer under this
+/// target's default isolation, which the handler cannot call.
+///
+/// `@unchecked` because `BGContinuedProcessingTask` is not `Sendable` and the
+/// hand-off is the one place that has to be taken on trust - the scheduler
+/// holds the task for the handler's lifetime, and nothing but `run(_:)` touches
+/// it afterwards.
+private nonisolated struct TaskBox: @unchecked Sendable {
+    let task: BGContinuedProcessingTask
+}
+#endif
 
 /// Settable from whatever thread the expiration handler runs on, readable from
 /// the polling loop.
