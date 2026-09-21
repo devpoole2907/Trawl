@@ -72,6 +72,84 @@ struct ArrMediaDestinationTests {
         #expect(ArrMediaDestination.series(id: 7, instanceID: hd) == .series(id: 7, instanceID: hd))
     }
 
+    // MARK: - scrollToImportIssues is presentation, not address
+
+    /// `scrollToImportIssues` tells the detail view to scroll to - and open - its
+    /// Import Issues card. It is a *hint about presentation*, and the Downloads tab's
+    /// issue rows set it while every other entry point to the same film does not.
+    ///
+    /// It is therefore excluded from identity, and that exclusion is load-bearing in
+    /// both directions. Were it counted, a `NavigationStack` and any `Set`/dictionary
+    /// keyed on these values would treat "film 211" and "film 211, scrolled" as two
+    /// different addresses for one screen. These tests pin it at the level navigation
+    /// actually compares: `==`, `hashValue`, and set membership.
+    @Test("The import-issue scroll hint does not change a movie's identity")
+    func movieScrollHintExcludedFromIdentity() {
+        let instance = UUID()
+
+        #expect(ArrMediaDestination.movie(id: 211, scrollToImportIssues: true) == .movie(id: 211))
+        #expect(
+            ArrMediaDestination.movie(id: 211, instanceID: instance, scrollToImportIssues: true)
+                == .movie(id: 211, instanceID: instance)
+        )
+        #expect(
+            ArrMediaDestination.movie(id: 211, scrollToImportIssues: true).hashValue
+                == ArrMediaDestination.movie(id: 211).hashValue
+        )
+    }
+
+    @Test("The import-issue scroll hint does not change a series' identity")
+    func seriesScrollHintExcludedFromIdentity() {
+        let instance = UUID()
+
+        #expect(ArrMediaDestination.series(id: 7, scrollToImportIssues: true) == .series(id: 7))
+        #expect(
+            ArrMediaDestination.series(id: 7, instanceID: instance, scrollToImportIssues: true)
+                == .series(id: 7, instanceID: instance)
+        )
+        #expect(
+            ArrMediaDestination.series(id: 7, scrollToImportIssues: true).hashValue
+                == ArrMediaDestination.series(id: 7).hashValue
+        )
+    }
+
+    /// Equality and hashing agreeing is not the same claim as a `Set` collapsing them:
+    /// a type whose `==` ignores a field but whose `hash(into:)` does not would satisfy
+    /// the assertions above pairwise and still store two entries here.
+    @Test("A scrolled and an unscrolled destination are one entry in a set")
+    func scrollHintCollapsesInASet() {
+        let movies: Set<ArrMediaDestination> = [
+            .movie(id: 211, scrollToImportIssues: true),
+            .movie(id: 211)
+        ]
+        #expect(movies.count == 1)
+
+        let series: Set<ArrMediaDestination> = [
+            .series(id: 7, scrollToImportIssues: true),
+            .series(id: 7)
+        ]
+        #expect(series.count == 1)
+    }
+
+    /// The hint must not become a back door around the server stamp: dropping it from
+    /// identity may not drop anything else with it.
+    @Test("The scroll hint does not collapse two servers' copies of one id")
+    func scrollHintDoesNotDefeatTheServerStamp() {
+        let hd = UUID()
+        let uhd = UUID()
+
+        #expect(
+            ArrMediaDestination.movie(id: 211, instanceID: hd, scrollToImportIssues: true)
+                != .movie(id: 211, instanceID: uhd)
+        )
+        #expect(
+            ArrMediaDestination.series(id: 7, instanceID: hd, scrollToImportIssues: true)
+                != .series(id: 7, instanceID: uhd)
+        )
+        // And a movie is never a series, whatever the hint says.
+        #expect(ArrMediaDestination.movie(id: 42, scrollToImportIssues: true) != .series(id: 42))
+    }
+
     // MARK: - Discover-mode cases (.movieLookup / .seriesLookup)
 
     @Test("Two movies sharing a library id are still distinct destinations")

@@ -309,18 +309,28 @@ struct ArrWantedView: View {
                 }
             }
             if hasConfiguredService {
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSearchingAll {
-                        ProgressView()
-                    } else {
-                        Button("Search All Missing") {
-                            showSearchAllConfirm = true
-                        }
-                        .disabled(!canSearchAllMissing)
+                #if os(macOS)
+                ToolbarItem(placement: showsCloseButton ? .confirmationAction : platformTopBarTrailingPlacement) {
+                    searchAllMissingToolbarContent
+                }
+                #else
+                if !showsCloseButton {
+                    ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                        searchAllMissingToolbarContent
                     }
                 }
+                #endif
             }
         }
+        #if os(iOS)
+        .prominentSearchAllMissing(
+            isPresented: showsCloseButton && hasConfiguredService,
+            isLoading: isSearchingAll,
+            isDisabled: !canSearchAllMissing
+        ) {
+            showSearchAllConfirm = true
+        }
+        #endif
         .alert("Search All Missing?", isPresented: $showSearchAllConfirm) {
             Button("Search") {
                 Task { await searchAllMissing() }
@@ -340,6 +350,18 @@ struct ArrWantedView: View {
             await reloadWantedMissing()
         }
         .arrMediaNavigationDestinations()
+    }
+
+    @ViewBuilder
+    private var searchAllMissingToolbarContent: some View {
+        if isSearchingAll {
+            ProgressView()
+        } else {
+            Button("Search All Missing") {
+                showSearchAllConfirm = true
+            }
+            .disabled(!canSearchAllMissing)
+        }
     }
 
     // MARK: - Computed
@@ -825,6 +847,29 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
         .padding(.vertical, 3)
         .background(color.opacity(0.14), in: Capsule())
 }
+
+#if os(iOS)
+private extension View {
+    @ViewBuilder
+    func prominentSearchAllMissing(
+        isPresented: Bool,
+        isLoading: Bool,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isPresented {
+            prominentBottomButton(
+                "Search All Missing",
+                isLoading: isLoading,
+                isDisabled: isDisabled,
+                action: action
+            )
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 #if DEBUG
 #Preview("Missing - Loaded") {

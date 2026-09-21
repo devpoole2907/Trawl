@@ -22,6 +22,10 @@ struct RadarrMovieDetailView: View {
     // Discover mode: movie object passed directly
     private let discoverMovie: RadarrMovie?
     private let onAdded: (() async -> Void)?
+    /// When `true` the view scrolls to the Import Issues card after appearing.
+    /// Set by entry points that navigate here specifically to resolve an import issue.
+    private let scrollToImportIssues: Bool
+
     #if DEBUG
     private var disablesPreviewLoadingTasks = false
     #endif
@@ -37,6 +41,9 @@ struct RadarrMovieDetailView: View {
     @State private var showDeleteFileAlert = false
     @State private var movieFileToDelete: Int?
     @State private var isFilesExpanded = false
+    /// Latches once the import-issue scroll has been performed, so a later queue
+    /// refresh cannot pull the page out from under someone already reading it.
+    @State private var didScrollToImportIssues = false
     @State private var showAddSheet = false
     @State private var importIssueResolution: ArrQueueImportIssueResolution?
     @State private var didAdd = false
@@ -86,6 +93,7 @@ struct RadarrMovieDetailView: View {
         self.mergeKey = mergeKey
         self.movieId = nil
         self.movieInstanceID = nil
+        self.scrollToImportIssues = false
         self.discoverMovie = nil
         self.viewModel = viewModel
         self.onAdded = nil
@@ -94,9 +102,10 @@ struct RadarrMovieDetailView: View {
     /// Library init - movie lives in the ViewModel's loaded library. Kept for the
     /// entry points that only have a library ID: widgets, Siri intents, Seerr
     /// deep links, calendar and wanted rows.
-    init(movieId: Int, instanceID: UUID? = nil, viewModel: RadarrViewModel) {
+    init(movieId: Int, instanceID: UUID? = nil, scrollToImportIssues: Bool = false, viewModel: RadarrViewModel) {
         self.movieId = movieId
         self.movieInstanceID = instanceID
+        self.scrollToImportIssues = scrollToImportIssues
         self.mergeKey = nil
         self.discoverMovie = nil
         self.viewModel = viewModel
@@ -114,6 +123,7 @@ struct RadarrMovieDetailView: View {
         // instead, which is the same film on every server.
         self.movieId = nil
         self.movieInstanceID = nil
+        self.scrollToImportIssues = false
         self.viewModel = viewModel
         self.onAdded = onAdded
     }
@@ -201,15 +211,36 @@ struct RadarrMovieDetailView: View {
             title: movie?.title ?? "Movie",
             backgroundURL: movie?.posterURL ?? movie?.fanartURL
         ) { movie in
-            ScrollView {
-                VStack(alignment: .center, spacing: 20) {
-                    heroSection(movie)
-                    cardsSection(movie)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .center, spacing: 20) {
+                        heroSection(movie)
+                        cardsSection(movie)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 44)
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 44)
-                .frame(maxWidth: 720)
-                .frame(maxWidth: .infinity)
+                // Keyed on the issue count, not on a constant: the queue arrives
+                // from a network fetch *after* this view first renders, so at
+                // appear `importIssueQueueItems` is always empty and the card the
+                // hint names does not exist yet. A constant id runs the task once,
+                // against that empty queue, and never again - which is to say the
+                // hint was never honoured at all. The count moving 0 -> n is the
+                // card appearing, and is the only moment there is anything to
+                // scroll to.
+                .task(id: importIssueQueueItems.count) {
+                    guard scrollToImportIssues, !didScrollToImportIssues,
+                          !importIssueQueueItems.isEmpty else { return }
+                    // Allow the layout to settle before scrolling.
+                    try? await Task.sleep(for: .milliseconds(350))
+                    // A cancelled sleep means the count moved again; the
+                    // replacement task will scroll, so leave the latch alone.
+                    guard !Task.isCancelled else { return }
+                    didScrollToImportIssues = true
+                    withAnimation { proxy.scrollTo("importIssues", anchor: .top) }
+                }
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
@@ -768,7 +799,10 @@ struct RadarrMovieDetailView: View {
         }
 
         if !importIssueQueueItems.isEmpty {
-            ArrDetailImportIssuesCard(items: importIssueQueueItems) { item in
+            ArrDetailImportIssuesCard(
+                items: importIssueQueueItems,
+                initiallyExpanded: scrollToImportIssues
+            ) { item in
                 ArrDetailQueueIssueRow(
                     item: item.value,
                     instanceID: item.instance.id,
@@ -783,6 +817,7 @@ struct RadarrMovieDetailView: View {
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
             }
+            .id("importIssues")
         }
 
         releaseDatesCard(movie)

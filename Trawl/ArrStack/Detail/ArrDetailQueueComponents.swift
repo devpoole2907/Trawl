@@ -224,11 +224,21 @@ struct ArrDetailQueueCard<Row: View>: View {
 struct ArrDetailImportIssuesCard<Row: View>: View {
     let items: [ArrInstanced<ArrQueueItem>]
     private let rowContent: (ArrInstanced<ArrQueueItem>) -> Row
-    @State private var isExpanded = false
+    @State private var isExpanded: Bool
 
-    init(items: [ArrInstanced<ArrQueueItem>], @ViewBuilder rowContent: @escaping (ArrInstanced<ArrQueueItem>) -> Row) {
+    /// - Parameter initiallyExpanded: Opens the card on first appearance, for an
+    ///   entry point that came here *to* resolve an import issue - scrolling someone
+    ///   to a closed disclosure makes them tap again for the thing they asked for.
+    ///   Strictly the initial value: the card is built the moment the queue reports
+    ///   its first issue, so this is read once, and collapsing it afterwards sticks.
+    init(
+        items: [ArrInstanced<ArrQueueItem>],
+        initiallyExpanded: Bool = false,
+        @ViewBuilder rowContent: @escaping (ArrInstanced<ArrQueueItem>) -> Row
+    ) {
         self.items = items
         self.rowContent = rowContent
+        _isExpanded = State(initialValue: initiallyExpanded)
     }
 
     var body: some View {

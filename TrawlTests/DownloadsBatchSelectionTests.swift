@@ -110,6 +110,223 @@ struct DownloadsBatchSelectionTests {
         #expect(DownloadsViewModel.oneRowPerDownload(rows).map(\.id) == [rows[0].id, rows[8].id, rows[9].id, rows[10].id])
     }
 
+    /// An import-issue record. Every one carries a *different* status-message title -
+    /// the per-file name Sonarr puts there - so this fixture pins the decision that
+    /// `importIssueSignature` reads the messages and not the title. Were the title
+    /// counted, every episode of one pack would look like a distinct failure and the
+    /// collapse below would silently do nothing.
+    private static func arrIssueQueueItem(
+        id: Int = 1,
+        downloadID: String? = nil,
+        reasons: [String],
+        trackedStatus: String = "warning",
+        libraryID: String? = ", \"seriesId\": 3"
+    ) throws -> ArrQueueItem {
+        let downloadField = downloadID.map { ", \"downloadId\": \"\($0)\"" } ?? ""
+        let messages = reasons.map { "\"\($0)\"" }.joined(separator: ", ")
+        let json = """
+        { "id": \(id), "title": "Example", "size": 1000, "sizeleft": 0\(libraryID ?? ""), "trackedDownloadStatus": "\(trackedStatus)", "trackedDownloadState": "importPending"\(downloadField), "statusMessages": [{ "title": "Example.S01E\(id).mkv", "messages": [\(messages)] }] }
+        """
+        return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    private static func arrIssueQueueItem(
+        id: Int = 1,
+        downloadID: String? = nil,
+        reason: String,
+        trackedStatus: String = "warning"
+    ) throws -> ArrQueueItem {
+        try arrIssueQueueItem(id: id, downloadID: downloadID, reasons: [reason], trackedStatus: trackedStatus)
+    }
+
+    /// An import issue on a record naming neither a series nor a movie - the one case
+    /// that cannot be routed to a resolution UI.
+    private static func arrIssueQueueItemWithoutLibraryID(reason: String) throws -> ArrQueueItem {
+        try arrIssueQueueItem(id: 1, downloadID: "abc", reasons: [reason], libraryID: nil)
+    }
+
+    /// The reported bug: one stuck season pack listed the same failure once per
+    /// episode - eight rows, all opening the same screen, behind an attention badge
+    /// reading 8.
+    ///
+    /// The assertion is an exact row list rather than a count, because the fix has
+    /// two halves and a count would pass with either half missing. Collapsing on the
+    /// download ID alone would fold `distinct` away, which is the outcome Issues was
+    /// deliberately left un-collapsed to avoid.
+    @Test("A season pack's repeated import failure collapses to one row, while distinct failures survive")
+    func seasonPackIssueRowsCollapsePerDistinctFailure() throws {
+        let server = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let other = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr 4K", tier: .uhd)
+        let sharedReason = "One or more episodes expected in this release were not imported"
+
+        func row(_ item: ArrQueueItem, on instance: ArrInstanceRef = server) -> DownloadListItem {
+            .arrQueue(item: item, source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: instance)
+        }
+
+        // Six episodes of one pack reporting one failure between them.
+        let repeats = try (1...6).map {
+            try row(Self.arrIssueQueueItem(id: $0, downloadID: "pack-id", reason: sharedReason))
+        }
+        // Same pack, genuinely different failure - must stay visible.
+        let distinct = try row(
+            Self.arrIssueQueueItem(id: 7, downloadID: "pack-id", reason: "Episode file already exists")
+        )
+        // The same pack ID on the other server is a different physical download.
+        let otherServer = try row(
+            Self.arrIssueQueueItem(id: 8, downloadID: "pack-id", reason: sharedReason),
+            on: other
+        )
+        // No download ID: nothing shows these to be repeats of anything, so both stay.
+        let unidentified = try [9, 10].map { try row(Self.arrIssueQueueItem(id: $0, reason: sharedReason)) }
+
+        let rows = repeats + [distinct, otherServer] + unidentified
+
+        #expect(
+            DownloadsViewModel.oneRowPerIssue(rows).map(\.id)
+                == [repeats[0].id, distinct.id, otherServer.id, unidentified[0].id, unidentified[1].id]
+        )
+    }
+
+    // MARK: - Which screen an import-issue row opens
+
+    /// An import issue is resolved on the film or series - Edit, Resolve, Remove,
+    /// Blocklist all live there - not on the download, whose detail screen offers
+    /// nothing that helps. So the row routes to the media detail.
+    ///
+    /// The ordering is the whole test: **even when a torrent is still behind it**. A
+    /// version that checked the torrent link first compiled, ran, and looked correct
+    /// on every unlinked issue, while silently sending every linked one back to the
+    /// dead end.
+    @Test("An import-issue row opens the media detail even with a torrent behind it")
+    func importIssueRowOpensMediaDetailOverItsTorrent() throws {
+        let instance = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let linked = try Self.torrent(hash: "still-seeding")
+        let issue = try Self.arrIssueQueueItem(id: 1, downloadID: "pack-id", reason: "Not imported")
+
+        let row = DownloadListItem.arrQueue(
+            item: issue, source: .sonarr, linkedTorrent: linked, linkedSABJob: nil, instance: instance
+        )
+
+        #expect(
+            row.detailDestination
+                == .arrMedia(.series(id: 3, instanceID: instance.id, scrollToImportIssues: true))
+        )
+    }
+
+    /// The same row on the other chrome. `DownloadsView` pushes `arrQueueRow`'s branch
+    /// on iPhone and reads `detailDestination` beside a detail column, so a change to
+    /// one and not the other makes a single row open two different screens depending
+    /// on the device. Both are asserted against the *same* destination value.
+    @Test("An unlinked import-issue row is still routable rather than inert")
+    func unlinkedImportIssueRowIsRoutable() throws {
+        let instance = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let issue = try Self.arrIssueQueueItem(id: 1, downloadID: "pack-id", reason: "Not imported")
+
+        let row = DownloadListItem.arrQueue(
+            item: issue, source: .sonarr, linkedTorrent: nil, linkedSABJob: nil, instance: instance
+        )
+
+        // Before the route existed this resolved to nil, which made the row
+        // `selectionDisabled` - inert in exactly the case Issues exists for.
+        #expect(row.detailDestination != nil)
+        #expect(
+            row.detailDestination
+                == .arrMedia(.series(id: 3, instanceID: instance.id, scrollToImportIssues: true))
+        )
+    }
+
+    /// A healthy queue row is unaffected: it still pairs with its client's own row so
+    /// selecting either leaves the detail column showing one thing.
+    @Test("A healthy Arr queue row still opens the download it is a view of")
+    func healthyQueueRowStillOpensItsDownload() throws {
+        let linked = try Self.torrent(hash: "downloading")
+        let healthy = try Self.arrQueueItem(id: 1, downloadID: "abc", status: "downloading")
+
+        let row = DownloadListItem.arrQueue(
+            item: healthy, source: .radarr, linkedTorrent: linked, linkedSABJob: nil, instance: nil
+        )
+
+        #expect(row.detailDestination == .torrent(hash: "downloading"))
+    }
+
+    /// An import issue that names no library item cannot be routed to a resolution UI,
+    /// so it falls through to the client rather than resolving to a media destination
+    /// for id `nil`.
+    @Test("An import issue naming no library item falls back to its client")
+    func importIssueWithoutLibraryItemFallsBackToClient() throws {
+        let job = try Self.sabJob(id: "nzo-1")
+        let issue = try Self.arrIssueQueueItemWithoutLibraryID(reason: "Not imported")
+
+        let row = DownloadListItem.arrQueue(
+            item: issue, source: .sonarr, linkedTorrent: nil, linkedSABJob: job, instance: nil
+        )
+
+        #expect(row.detailDestination == .sabJob(id: "nzo-1", name: job.name))
+    }
+
+    /// Radarr's queue records carry `movieId`, Sonarr's carry `seriesId`, and the
+    /// destination has to be the matching case - a movie id routed to `.series` opens
+    /// a different library's item with the same small integer.
+    @Test("A Radarr import issue routes to the movie case")
+    func radarrImportIssueRoutesToMovie() throws {
+        let instance = ArrInstanceRef(id: UUID(), serviceType: .radarr, displayName: "Radarr", tier: .hd)
+        let issue = try Self.arrQueueItem(id: 1, downloadID: "abc", status: "importPending")
+
+        let row = DownloadListItem.arrQueue(
+            item: issue, source: .radarr, linkedTorrent: nil, linkedSABJob: nil, instance: instance
+        )
+
+        // `arrQueueItem`'s fixture carries movieId 7 and no seriesId.
+        #expect(
+            row.detailDestination
+                == .arrMedia(.movie(id: 7, instanceID: instance.id, scrollToImportIssues: true))
+        )
+    }
+
+    // MARK: - What counts as the same import issue
+
+    /// The signature decides which rows collapse. These pin the three decisions it
+    /// encodes, because each is invisible in the rendered list until it is wrong.
+    @Test("Two records of one failure share a signature regardless of their file titles")
+    func identicalFailuresShareASignature() throws {
+        let first = try Self.arrIssueQueueItem(id: 1, downloadID: "pack", reason: "Not imported")
+        let second = try Self.arrIssueQueueItem(id: 2, downloadID: "pack", reason: "Not imported")
+
+        // The fixture gives each a different per-file status title. Counting it would
+        // make every episode of a pack distinct and the collapse a no-op.
+        #expect(first.importIssueSignature == second.importIssueSignature)
+    }
+
+    @Test("Different failure text means different signatures")
+    func differentFailuresDifferInSignature() throws {
+        let missing = try Self.arrIssueQueueItem(id: 1, downloadID: "pack", reason: "Not imported")
+        let exists = try Self.arrIssueQueueItem(id: 2, downloadID: "pack", reason: "File already exists")
+
+        #expect(missing.importIssueSignature != exists.importIssueSignature)
+    }
+
+    /// Arr does not promise an order for `statusMessages`, and two polls of one stuck
+    /// pack can return the same reasons in a different order. A signature that joined
+    /// them as they arrived would make one issue look like two on alternate refreshes,
+    /// which reads as the list flickering between 1 and 2 rows.
+    @Test("Status message order does not change a signature")
+    func signatureIsOrderIndependent() throws {
+        let forwards = try Self.arrIssueQueueItem(id: 1, downloadID: "p", reasons: ["alpha", "beta"])
+        let backwards = try Self.arrIssueQueueItem(id: 2, downloadID: "p", reasons: ["beta", "alpha"])
+
+        #expect(forwards.importIssueSignature == backwards.importIssueSignature)
+    }
+
+    /// Two records with no status messages at all are still distinguished by how Arr
+    /// described the failure, so a warning does not collapse onto an error.
+    @Test("Tracked status separates a warning from an error")
+    func signatureSeparatesWarningFromError() throws {
+        let warning = try Self.arrIssueQueueItem(id: 1, downloadID: "p", reason: "same", trackedStatus: "warning")
+        let error = try Self.arrIssueQueueItem(id: 2, downloadID: "p", reason: "same", trackedStatus: "error")
+
+        #expect(warning.importIssueSignature != error.importIssueSignature)
+    }
+
     // MARK: - Which client a row actually names
 
     @Test("A torrent row resolves to its torrent")

@@ -465,8 +465,7 @@ final class DownloadsViewModel {
 
     /// Sonarr reports a season pack once per episode, but the download client has
     /// one job. Keep one row in Active/Queue for that job on each Arr instance.
-    /// Import issues still use the complete queue so distinct episode failures
-    /// remain visible in Issues.
+    /// Issues collapses on a looser key - see `oneRowPerIssue`.
     static func oneRowPerDownload(_ items: [DownloadListItem]) -> [DownloadListItem] {
         var seen: Set<String> = []
         return items.filter { item in
@@ -480,13 +479,45 @@ final class DownloadsViewModel {
         }
     }
 
+    /// The Issues equivalent of `oneRowPerDownload`, on a looser key.
+    ///
+    /// Issues used to keep the full queue, so one stuck season pack listed the same
+    /// failure once per episode - eight identical rows, all opening the same screen,
+    /// and an attention badge reading 8. Collapsing on the download ID alone would
+    /// have fixed that at the cost of the reason Issues was left alone in the first
+    /// place: two episodes in one pack can fail for genuinely different reasons, and
+    /// silently dropping the second is worse than repeating the first.
+    ///
+    /// So the key is the download *plus* `importIssueSignature`. Identical repeats
+    /// collapse to one row; a pack whose episodes failed differently still lists each
+    /// distinct failure. A record with no download ID is always kept - it cannot be
+    /// shown to be a repeat of anything.
+    static func oneRowPerIssue(_ items: [DownloadListItem]) -> [DownloadListItem] {
+        var seen: Set<String> = []
+        return items.filter { item in
+            guard case .arrQueue(let record, let source, _, _, let instance) = item,
+                  let downloadID = record.downloadId?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased(),
+                  !downloadID.isEmpty else { return true }
+            let key = [
+                instance?.id.uuidString ?? source.rawValue,
+                downloadID,
+                record.importIssueSignature
+            ].joined(separator: ":")
+            return seen.insert(key).inserted
+        }
+    }
+
     /// The single definition of "needs attention", rendered by the Issues segment
     /// and counted by the tab-bar accessory.
     private static func issueItems(_ matched: MatchedDownloads) -> [DownloadListItem] {
-        let queueIssues = matched.queueItems.filter { item in
-            guard case .arrQueue(let record, _, _, _, _) = item else { return false }
-            return record.isImportIssueQueueItem
-        }
+        let queueIssues = Self.oneRowPerIssue(
+            matched.queueItems.filter { item in
+                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
+                return record.isImportIssueQueueItem
+            }
+        )
         let torrentIssues = matched.unmatchedTorrents
             .filter { $0.state.filterCategory == .errored }
             .sorted { $0.addedOn > $1.addedOn }

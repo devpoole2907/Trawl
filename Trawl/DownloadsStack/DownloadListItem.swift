@@ -171,6 +171,61 @@ extension DownloadListItem {
     }
 }
 
+extension ArrQueueItem {
+    /// The `ArrMediaDestination` for the film or series that owns this queue item,
+    /// pre-configured to scroll to the Import Issues card on arrival. `nil` when the
+    /// item names neither, which is the one case an import issue cannot be routed to
+    /// its own resolution UI.
+    ///
+    /// Radarr wins when a record somehow carries both ids: a `movieId` is only ever
+    /// set by Radarr, and Sonarr's `seriesId` only by Sonarr, so a record with both is
+    /// already malformed - but picking a side deterministically beats depending on
+    /// which branch the compiler evaluates.
+    func arrMediaDestination(instanceID: UUID?) -> ArrMediaDestination? {
+        if let movieId {
+            return .movie(id: movieId, instanceID: instanceID, scrollToImportIssues: true)
+        }
+        if let seriesId {
+            return .series(id: seriesId, instanceID: instanceID, scrollToImportIssues: true)
+        }
+        return nil
+    }
+}
+
+extension DownloadListItem {
+    /// What this row opens in the split view's detail column, if anything.
+    ///
+    /// Here rather than in `DownloadsView` for the reason `batchTarget` is here: which
+    /// screen a row opens is load-bearing, and a version living inside the view could
+    /// only be checked by eye on two chromes.
+    ///
+    /// An Arr queue row normally resolves to whichever client is carrying the grab, so
+    /// that row and the client's own row are one destination. An **import issue** is
+    /// the exception and is checked first: it is resolved on the film or series, not
+    /// on the download, so it opens the media detail even when a torrent is still
+    /// behind it. That ordering mirrors `DownloadsView.arrQueueRow`'s branches - the
+    /// two disagreeing would mean one row opening different screens on iPhone and Mac.
+    var detailDestination: DownloadDetailSelection? {
+        switch self {
+        case .torrent(let torrent):
+            return .torrent(hash: torrent.hash)
+        case .sab(let job):
+            return .sabJob(id: job.id, name: job.name)
+        case .arrQueue(let record, _, let linkedTorrent, let linkedSABJob, let instance):
+            if record.isImportIssueQueueItem,
+               let destination = record.arrMediaDestination(instanceID: instance?.id) {
+                return .arrMedia(destination)
+            }
+            if let linkedTorrent { return .torrent(hash: linkedTorrent.hash) }
+            if let linkedSABJob { return .sabJob(id: linkedSABJob.id, name: linkedSABJob.name) }
+            return nil
+        case .arrHistory:
+            // A record of a finished download. Nothing to open.
+            return nil
+        }
+    }
+}
+
 extension Array where Element == DownloadListItem {
     /// Sorts by building each row's sort key **once**.
     ///

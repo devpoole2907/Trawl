@@ -1021,7 +1021,19 @@ enum WidgetDataFetcher {
             let (checks, queue) = try await (healthChecks, queuePage)
 
             let relevantChecks = checks.filter(isRelevantHealthCheck)
-            let queueIssues = (queue.records ?? []).filter(\.isImportIssueQueueItem)
+            // Collapsed the same way the Issues segment collapses them: a stuck
+            // season pack is reported once per episode, and a widget that counts
+            // those verbatim says "8 issues" for one pack - then spends its one
+            // offender slot on an arbitrary episode of it.
+            var seenIssueKeys: Set<String> = []
+            let queueIssues = (queue.records ?? [])
+                .filter(\.isImportIssueQueueItem)
+                .filter { item in
+                    guard let downloadID = item.downloadId?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased(), !downloadID.isEmpty else { return true }
+                    return seenIssueKeys.insert("\(downloadID):\(item.importIssueSignature)").inserted
+                }
 
             var offenders: [WidgetLibraryHealthOffender] = relevantChecks.map { check in
                 WidgetLibraryHealthOffender(

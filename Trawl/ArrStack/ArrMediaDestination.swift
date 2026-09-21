@@ -14,12 +14,18 @@ enum ArrMediaDestination: Hashable {
     /// same small integers, so an ID with no server attached resolves to whichever
     /// library happens to hold it first - which is how tapping a 4K-only film
     /// opened the HD library's film with the same ID.
-    case movie(id: Int, instanceID: UUID? = nil)
+    ///
+    /// `scrollToImportIssues` is a presentation hint only — it is excluded from
+    /// identity so two destinations for the same film compare equal regardless of
+    /// whether one was opened from an import-issue row.
+    case movie(id: Int, instanceID: UUID? = nil, scrollToImportIssues: Bool = false)
     /// A Radarr discover/lookup result that may or may not already be in the library.
     case movieLookup(RadarrMovie)
     /// An in-library Sonarr series, resolved by its Sonarr library ID on a named
     /// server. See `.movie` for why the server is part of the address.
-    case series(id: Int, instanceID: UUID? = nil)
+    ///
+    /// `scrollToImportIssues` is a presentation hint only — see `.movie` for details.
+    case series(id: Int, instanceID: UUID? = nil, scrollToImportIssues: Bool = false)
     /// A Sonarr discover/lookup result that may or may not already be in the library.
     case seriesLookup(SonarrSeries)
 
@@ -42,8 +48,10 @@ enum ArrMediaDestination: Hashable {
 
     private var identity: Identity {
         switch self {
-        case .movie(let id, let instanceID): .movie(id, instanceID)
-        case .series(let id, let instanceID): .series(id, instanceID)
+        // scrollToImportIssues is intentionally dropped — it is a presentation hint,
+        // not part of the destination's identity.
+        case .movie(let id, let instanceID, _): .movie(id, instanceID)
+        case .series(let id, let instanceID, _): .series(id, instanceID)
         case .movieLookup(let movie): .movieLookup(movie.lookupIdentity)
         case .seriesLookup(let series): .seriesLookup(series.lookupIdentity)
         }
@@ -136,10 +144,12 @@ struct ArrMediaDetailPane: View {
     @ViewBuilder
     private var content: some View {
         switch destination {
-        case .movie(let id, let instanceID):
-            RadarrMovieDetailView(movieId: id, instanceID: instanceID, viewModel: makeRadarrViewModel())
-        case .series(let id, let instanceID):
-            SonarrSeriesDetailView(seriesId: id, instanceID: instanceID, viewModel: makeSonarrViewModel())
+        case .movie(let id, let instanceID, let scroll):
+            RadarrMovieDetailView(movieId: id, instanceID: instanceID,
+                                  scrollToImportIssues: scroll, viewModel: makeRadarrViewModel())
+        case .series(let id, let instanceID, let scroll):
+            SonarrSeriesDetailView(seriesId: id, instanceID: instanceID,
+                                   scrollToImportIssues: scroll, viewModel: makeSonarrViewModel())
         case .movieLookup(let movie):
             RadarrMovieDetailView(movie: movie, viewModel: makeRadarrViewModel(), onAdded: onLibraryChanged)
         case .seriesLookup(let series):

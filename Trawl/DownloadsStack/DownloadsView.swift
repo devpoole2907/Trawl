@@ -30,16 +30,25 @@ final class DownloadsNavigator {
 /// Which download the split view's detail column is showing.
 ///
 /// The Downloads tab is three lists in one - qBittorrent torrents, SABnzbd jobs and
-/// the Arr queues - but every row that opens anything opens one of two screens. So
+/// the Arr queues - but every row that opens anything opens one of three screens. So
 /// this names the screen rather than the row: an Arr queue row backed by a torrent
 /// and that torrent's own row are the same destination, and selecting either should
 /// leave the detail column showing the same thing rather than two views of it.
 ///
+/// `arrMedia` is the exception to that pairing, and deliberately so. An import issue
+/// is not resolved on the download - it is resolved on the film or series, where Edit,
+/// Resolve, Remove and Blocklist live - so an issue row opens the media detail even
+/// when a torrent is still sitting behind it. That has to hold on *both* chromes: the
+/// compact push and this column disagreeing about what one row opens is a worse bug
+/// than the column briefly showing something other than the download.
+///
 /// Rows that open nothing - history, and an Arr queue row whose download Trawl cannot
-/// reach - have no case here, which is what makes them unselectable in this mode.
+/// reach and which names no library item - have no case here, which is what makes them
+/// unselectable in this mode.
 enum DownloadDetailSelection: Hashable, Sendable {
     case torrent(hash: String)
     case sabJob(id: String, name: String)
+    case arrMedia(ArrMediaDestination)
 }
 
 /// Everything in the Downloads tab that sits one push below the list: the toolbar
@@ -866,19 +875,12 @@ struct DownloadsView: View {
     /// which is the same screen that client's own row opens. That is deliberate: the
     /// two rows are two views of one download, and selecting either should leave the
     /// detail column showing the same thing.
+    /// Lives on `DownloadListItem` - see `DownloadListItem.detailDestination`. Which
+    /// screen a row opens is the load-bearing half of the split-view route, and a
+    /// version that only existed inside this view could not be tested, exactly as
+    /// `batchTarget` could not before it moved.
     private func detailDestination(for item: DownloadListItem) -> DownloadDetailSelection? {
-        switch item {
-        case .torrent(let torrent):
-            return .torrent(hash: torrent.hash)
-        case .sab(let job):
-            return .sabJob(id: job.id, name: job.name)
-        case .arrQueue(_, _, let linkedTorrent, let linkedSABJob, _):
-            if let linkedTorrent { return .torrent(hash: linkedTorrent.hash) }
-            if let linkedSABJob { return .sabJob(id: linkedSABJob.id, name: linkedSABJob.name) }
-            return nil
-        case .arrHistory:
-            return nil
-        }
+        item.detailDestination
     }
 
     /// Rows are transparent so the services gradient shows through, and that
@@ -1186,7 +1188,17 @@ struct DownloadsView: View {
         let isInFlight = queueActionInFlightIDs.contains(target.id)
 
         Group {
-            if let linkedTorrent {
+            if item.isImportIssueQueueItem, let mediaDestination = item.arrMediaDestination(instanceID: instance?.id) {
+                // Import-issue rows navigate to the series/movie detail view so the
+                // user lands directly on the resolution UI (Edit, Resolve, Remove,
+                // Blocklist) rather than the dead-end TorrentDetailView.
+                rowLink {
+                    ArrMediaDetailPane(destination: mediaDestination)
+                        .environment(syncService)
+                } label: {
+                    ArrInfoRowView(queueItem: item, source: source, linkedTorrent: linkedTorrent, instance: badgeInstance(instance, source))
+                }
+            } else if let linkedTorrent {
                 rowLink {
                     TorrentDetailView(torrentHash: linkedTorrent.hash)
                         .environment(syncService)

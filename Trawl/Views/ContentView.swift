@@ -607,7 +607,14 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             Tab("Downloads", systemImage: "tray.and.arrow.down", value: RootTab.downloads) {
                 NavigationStack {
+                    // Inside the stack, not on it. `navigationDestination(for:)`
+                    // registers against the stack it is *contained by* - applied to
+                    // the `NavigationStack` itself it sits outside, and SwiftUI
+                    // discards it with a runtime warning rather than an error, so
+                    // the registration silently does nothing. Downloads needs it
+                    // because its import-issue rows now open Arr media detail.
                     downloadsRoot(services: services)
+                        .arrMediaNavigationDestinations()
                 }
             }
             .badge(downloadBadge)
@@ -1142,6 +1149,15 @@ struct ContentView: View {
                 SABnzbdJobDetailView(jobID: id, fallbackName: name)
                     .id(id)
                     .environment(sabnzbdServiceManager)
+            case .arrMedia(let destination):
+                // An import-issue row opens the film or series that owns it, because
+                // that is where the issue is actually resolved. `ArrMediaDetailPane`
+                // builds the same view model a push would, seeded from the app-wide
+                // library cache, so the pane resolves its id immediately.
+                ArrMediaDetailPane(destination: destination)
+                    .id(destination)
+                    .environment(arrServiceManager)
+                    .environment(services.syncService)
             case nil:
                 listDetailPlaceholder("Select a download", systemImage: "tray.and.arrow.down")
             }

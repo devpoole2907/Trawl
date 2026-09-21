@@ -918,6 +918,38 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
             .flatMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
+
+    /// What makes two queue records the *same* import issue, for collapsing the
+    /// repeats out of an issue list.
+    ///
+    /// Sonarr reports a season pack once per episode, so one stuck pack arrives as a
+    /// record per episode sharing a download ID and, nearly always, one identical
+    /// failure. Listing that verbatim says "8 problems" when there is one, and every
+    /// row opens the same screen.
+    ///
+    /// Keyed on the failure text rather than the download alone, because the reason
+    /// Issues was left un-collapsed in the first place is real: two episodes in one
+    /// pack genuinely can fail differently - ep 3 because the file already exists,
+    /// ep 5 because nothing matched - and hiding the second is the worse bug. Same
+    /// download *and* same reason is a repeat; same download and a different reason
+    /// is two issues.
+    ///
+    /// Deliberately excludes `ArrStatusMessage.title`: Sonarr often sets it to the
+    /// individual file being imported, which differs per episode and would make every
+    /// record of one pack look distinct - defeating the collapse entirely.
+    var importIssueSignature: String {
+        let reasons = (statusMessages ?? [])
+            .flatMap { $0.messages ?? [] }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+            .sorted()
+            .joined(separator: "|")
+        return [
+            (trackedDownloadStatus ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            normalizedState,
+            reasons
+        ].joined(separator: "~")
+    }
 }
 
 nonisolated struct ArrStatusMessage: Codable, Sendable {

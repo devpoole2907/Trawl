@@ -38,6 +38,8 @@ struct ProminentBottomButton: View {
             .buttonSizing(.flexible)
             .disabled(isDisabled || isLoading)
             .scenePadding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, UIDevice.current.userInterfaceIdiom == .pad ? 16 : 8)
         #endif
     }
 
