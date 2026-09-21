@@ -8,11 +8,20 @@ import SwiftUI
 /// across 1400pt reads as a web banner, so macOS gets a normal-width default button,
 /// bound to Return, with real margin under it.
 ///
-/// Centred rather than bottom-trailing, because every screen that uses this - the welcome
-/// flow, the service picker, the lock screen - centres its content in a narrow column.
-/// A button in the far corner of a 1440pt window would be nowhere near the thing it acts
-/// on. Sheets do want the corner, and they get it from `.confirmationAction` instead;
-/// see `AppSheetShell`.
+/// Centred rather than bottom-trailing, because the full-screen flows that use this - the
+/// welcome flow, the service picker, the lock screen - centre their content in a narrow
+/// column. A button in the far corner of a 1440pt window would be nowhere near the thing
+/// it acts on.
+///
+/// Sheets split by platform. On macOS a sheet's commit action belongs in the corner, and
+/// it gets that from `.confirmationAction` instead; see `AppSheetShell`. On iPhone and
+/// iPad a sheet can use this capsule too, when its action is the one thing the sheet is
+/// for - the Missing sheet's Search All Missing is, and puts it here rather than in the
+/// navigation bar.
+///
+/// iPad deliberately gets more margin below the capsule than iPhone (16pt against 8pt).
+/// That applies everywhere this is used, not only in sheets - keep the two values apart
+/// rather than unifying them.
 struct ProminentBottomButton: View {
     let title: LocalizedStringKey
     var systemImage: String? = nil
