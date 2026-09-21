@@ -207,7 +207,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     var qualityProfiles: [ArrQualityProfile] { serviceManager.sonarrQualityProfiles }
     var rootFolders: [ArrRootFolder] { serviceManager.sonarrRootFolders }
     var tags: [ArrTag] { serviceManager.sonarrTags }
-    var isConnected: Bool { serviceManager.sonarrConnected }
+    var isConnected: Bool { serviceManager.hasAnyConnectedSonarrInstance }
 
     /// Both Sonarr servers, so the queue, history and library this view model
     /// exposes cover the whole blended library rather than one half of it.
@@ -723,8 +723,14 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             return false
         }
         // The cache key already carries the server, so the reload below goes back to
-        // the one the file actually came from.
-        let scopedID = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
+        // the one the file actually came from - provided the search stays on that
+        // server. Both servers hand out the same episode file IDs, and with no
+        // constraint the first match in an unordered dictionary could be the other
+        // server's series: the deleted row would stay on screen while an unrelated
+        // series reloaded.
+        let scopedID = episodeFiles.first(where: { key, files in
+            (instanceID == nil || key.instanceID == instanceID) && files.contains(where: { $0.id == id })
+        })?.key
 
         do {
             error = nil

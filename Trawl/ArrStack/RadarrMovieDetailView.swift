@@ -1,6 +1,15 @@
 import SwiftUI
 import TipKit
 
+/// The file a delete confirmation is about, with the server and film it came from.
+/// Both servers number files and films from their own sequences, so a bare file ID
+/// names a file on either one.
+private struct RadarrMovieFileDeletion: Equatable {
+    let instanceID: UUID?
+    let movieID: Int?
+    let fileID: Int
+}
+
 struct RadarrMovieDetailView: View {
     @Bindable var viewModel: RadarrViewModel
     @Environment(ArrServiceManager.self) private var serviceManager
@@ -39,7 +48,7 @@ struct RadarrMovieDetailView: View {
     @State private var showRootFolderAlert = false
     @State private var rootFolderText = ""
     @State private var showDeleteFileAlert = false
-    @State private var movieFileToDelete: Int?
+    @State private var movieFileToDelete: RadarrMovieFileDeletion?
     @State private var isFilesExpanded = false
     /// Latches once the import-issue scroll has been performed, so a later queue
     /// refresh cannot pull the page out from under someone already reading it.
@@ -338,8 +347,8 @@ struct RadarrMovieDetailView: View {
         }
         .alert("Delete File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
-                if let fileId = movieFileToDelete {
-                    Task { await handleDeleteMovieFile(id: fileId) }
+                if let target = movieFileToDelete {
+                    Task { await handleDeleteMovieFile(target) }
                 }
             }
             Button("Cancel", role: .cancel) {
@@ -532,6 +541,16 @@ struct RadarrMovieDetailView: View {
         return viewModel.movies.first { $0.tmdbId == tmdbId }?.id
     }
 
+    /// The server `resolvedLibraryId` belongs to, resolved the same way so the two
+    /// never describe different copies. A library ID alone is ambiguous across the
+    /// pair, so every file load and file delete names the server as well.
+    private var resolvedLibraryInstanceID: UUID? {
+        if let copy = actionCopy, entry != nil { return copy.instanceID }
+        if movieId != nil { return movieInstanceID }
+        guard let tmdbId = movie?.tmdbId else { return nil }
+        return viewModel.movies.first { $0.tmdbId == tmdbId }?.instanceID
+    }
+
     /// Re-runs when the target server changes as well as when the title does.
     private var fileLoadKey: String {
         "\(resolvedLibraryId ?? -1):\(entry?.instanceIDs.map(\.uuidString).joined(separator: ",") ?? "")"
@@ -603,8 +622,12 @@ struct RadarrMovieDetailView: View {
         )
     }
 
-    private func handleDeleteMovieFile(id: Int) async {
-        let didDelete = await viewModel.deleteMovieFile(id: id)
+    private func handleDeleteMovieFile(_ target: RadarrMovieFileDeletion) async {
+        let didDelete = await viewModel.deleteMovieFile(
+            id: target.fileID,
+            movieID: target.movieID,
+            instanceID: target.instanceID
+        )
         if didDelete {
             InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "The movie file has been removed.")
             return
@@ -656,7 +679,7 @@ struct RadarrMovieDetailView: View {
         if let entry, entry.isOnMultipleInstances {
             await viewModel.loadMovieFiles(for: entry)
         } else if let id = resolvedLibraryId {
-            await viewModel.loadMovieFiles(movieId: id)
+            await viewModel.loadMovieFiles(movieId: id, instanceID: resolvedLibraryInstanceID)
         }
     }
 
@@ -1297,7 +1320,7 @@ struct RadarrMovieDetailView: View {
 
     private func perInstanceFilesCard(entry: ArrLibraryEntry<RadarrMovie>) -> some View {
         let groups = zip(instanceRefs, entry.copies).map { ref, copy in
-            (ref: ref, files: viewModel.movieFilesByInstance[copy.instanceID ?? UUID()] ?? [])
+            (ref: ref, copy: copy, files: viewModel.movieFilesByInstance[copy.instanceID ?? UUID()] ?? [])
         }
         let total = groups.reduce(0) { $0 + $1.files.count }
 
@@ -1346,7 +1369,11 @@ struct RadarrMovieDetailView: View {
                                 ArrMediaFileRow(config: file.arrMediaFileConfig(
                                     subtitles: bazarrMovieSubtitles,
                                     onDelete: {
-                                        movieFileToDelete = file.id
+                                        movieFileToDelete = RadarrMovieFileDeletion(
+                                            instanceID: group.ref.id,
+                                            movieID: group.copy.id,
+                                            fileID: file.id
+                                        )
                                         showDeleteFileAlert = true
                                     }
                                 ))
@@ -1399,7 +1426,11 @@ struct RadarrMovieDetailView: View {
                         ArrMediaFileRow(config: file.arrMediaFileConfig(
                             subtitles: bazarrMovieSubtitles,
                             onDelete: {
-                                movieFileToDelete = file.id
+                                movieFileToDelete = RadarrMovieFileDeletion(
+                                    instanceID: resolvedLibraryInstanceID,
+                                    movieID: file.movieId ?? resolvedLibraryId,
+                                    fileID: file.id
+                                )
                                 showDeleteFileAlert = true
                             }
                         ))

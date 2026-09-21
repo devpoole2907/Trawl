@@ -393,7 +393,7 @@ struct RadarrMovieSearchView: View {
         .refreshable {
             await viewModel.loadMovies()
             await viewModel.loadQueue()
-            await viewModel.loadMovieFiles(movieId: movie.id)
+            await viewModel.loadMovieFiles(movieId: movie.id, instanceID: movie.instanceID)
         }
         .background {
             ArrArtworkView(url: movie.posterURL ?? movie.fanartURL, contentMode: .fill) {

@@ -258,7 +258,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
 
     @ViewBuilder
     private var baseContent: some View {
-        if serviceManager.isConnected(serviceType) {
+        if serviceManager.hasAnyConnectedInstance(serviceType) {
             mainContent
         } else if isShowingConnectingState || serviceManager.connectionError(serviceType) != nil {
             ConnectionStatusCard(
@@ -732,7 +732,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     private func performInitialLoadAndStartPolling(viewModel: VM) async {
-        guard serviceManager.isConnected(serviceType) else { return }
+        guard serviceManager.hasAnyConnectedInstance(serviceType) else { return }
 
         // `.task` restarts on every appear, not just the first, so this runs again
         // on each tab switch and every pop back from a detail view. Seed from the
@@ -753,7 +753,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 continue
             }
 
-            guard serviceManager.isConnected(serviceType) else { continue }
+            guard serviceManager.hasAnyConnectedInstance(serviceType) else { continue }
 
             await viewModel.loadQueue()
             let currentIds = Set(viewModel.queue.map(\.id))

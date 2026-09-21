@@ -76,7 +76,7 @@ struct SonarrSeriesListView: View {
         .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
             let lifecycleKey = viewModelLoadKey
-            guard serviceManager.sonarrConnected else {
+            guard serviceManager.hasAnyConnectedSonarrInstance else {
                 viewModel = nil
                 viewModelLifecycleKey = nil
                 return

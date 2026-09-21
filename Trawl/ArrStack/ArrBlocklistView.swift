@@ -119,25 +119,25 @@ struct ArrBlocklistView: View {
 
     private var allSonarrItems: [ArrInstanced<ArrBlocklistItem>] {
         if let previewSonarrBlocklist { return previewInstanced(previewSonarrBlocklist, .sonarr) }
-        guard serviceManager.sonarrConnected else { return [] }
+        guard serviceManager.hasAnyConnectedSonarrInstance else { return [] }
         return liveBlocklist(.sonarr)
     }
 
     private var allRadarrItems: [ArrInstanced<ArrBlocklistItem>] {
         if let previewRadarrBlocklist { return previewInstanced(previewRadarrBlocklist, .radarr) }
-        guard serviceManager.radarrConnected else { return [] }
+        guard serviceManager.hasAnyConnectedRadarrInstance else { return [] }
         return liveBlocklist(.radarr)
     }
 
     private var allSonarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
         if let previewSonarrExclusions { return previewInstanced(previewSonarrExclusions, .sonarr) }
-        guard serviceManager.sonarrConnected else { return [] }
+        guard serviceManager.hasAnyConnectedSonarrInstance else { return [] }
         return liveExclusions(.sonarr)
     }
 
     private var allRadarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
         if let previewRadarrExclusions { return previewInstanced(previewRadarrExclusions, .radarr) }
-        guard serviceManager.radarrConnected else { return [] }
+        guard serviceManager.hasAnyConnectedRadarrInstance else { return [] }
         return liveExclusions(.radarr)
     }
 
@@ -169,11 +169,11 @@ struct ArrBlocklistView: View {
     private var hasFilterableBlocklistItems: Bool {
         switch mode {
         case .blocklist:
-            (serviceManager.sonarrConnected && !serviceManager.sonarrBlocklist.isEmpty) ||
-            (serviceManager.radarrConnected && !serviceManager.radarrBlocklist.isEmpty)
+            (serviceManager.hasAnyConnectedSonarrInstance && !serviceManager.sonarrBlocklist.isEmpty) ||
+            (serviceManager.hasAnyConnectedRadarrInstance && !serviceManager.radarrBlocklist.isEmpty)
         case .exclusions:
-            (serviceManager.sonarrConnected && !serviceManager.sonarrImportListExclusions.isEmpty) ||
-            (serviceManager.radarrConnected && !serviceManager.radarrImportListExclusions.isEmpty)
+            (serviceManager.hasAnyConnectedSonarrInstance && !serviceManager.sonarrImportListExclusions.isEmpty) ||
+            (serviceManager.hasAnyConnectedRadarrInstance && !serviceManager.radarrImportListExclusions.isEmpty)
         }
     }
 
@@ -191,7 +191,7 @@ struct ArrBlocklistView: View {
 
     private var hasConnected: Bool {
         if hasPreviewData { return true }
-        return serviceManager.sonarrConnected || serviceManager.radarrConnected
+        return serviceManager.hasAnyConnectedSonarrInstance || serviceManager.hasAnyConnectedRadarrInstance
     }
 
     private var hasPreviewData: Bool {
@@ -209,7 +209,7 @@ struct ArrBlocklistView: View {
     }
 
     private var blocklistSettingsService: ArrServiceType {
-        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        if serviceManager.hasSonarrInstance && !serviceManager.hasAnyConnectedSonarrInstance { return .sonarr }
         return .radarr
     }
 

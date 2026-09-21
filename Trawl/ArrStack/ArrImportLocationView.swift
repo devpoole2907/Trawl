@@ -95,7 +95,7 @@ struct ArrImportLocationView: View {
     }
 
     private var hasConnectedService: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected
+        serviceManager.hasAnyConnectedSonarrInstance || serviceManager.hasAnyConnectedRadarrInstance
     }
 
     /// Every connected Sonarr and Radarr, since an import writes into one

@@ -339,6 +339,19 @@ final class ArrServiceManager {
         }
     }
 
+    /// Whether *any* server of this type is connected - the question a blended
+    /// surface asks. `isConnected(_:)` reports only the active entry, so gating a
+    /// union on it blanks the whole screen when the active HD server drops while
+    /// the 4K server is still up and able to fill it.
+    func hasAnyConnectedInstance(_ serviceType: ArrServiceType) -> Bool {
+        switch serviceType {
+        case .sonarr: hasAnyConnectedSonarrInstance
+        case .radarr: hasAnyConnectedRadarrInstance
+        case .prowlarr: hasAnyConnectedProwlarrInstance
+        case .bazarr: hasAnyConnectedBazarrInstance
+        }
+    }
+
     func isConnecting(_ serviceType: ArrServiceType) -> Bool {
         switch serviceType {
         case .sonarr: return sonarrIsConnecting

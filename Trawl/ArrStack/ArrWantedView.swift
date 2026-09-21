@@ -62,7 +62,7 @@ struct ArrWantedView: View {
     }
 
     private var hasConnectedService: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance
+        serviceManager.hasAnyConnectedSonarrInstance || serviceManager.hasAnyConnectedRadarrInstance || serviceManager.hasAnyConnectedBazarrInstance
     }
 
     private var isLoading: Bool {
@@ -520,10 +520,10 @@ struct ArrWantedView: View {
     // MARK: - Data
 
     private func initializeIfNeeded() async {
-        if serviceManager.sonarrConnected, sonarrViewModel == nil {
+        if serviceManager.hasAnyConnectedSonarrInstance, sonarrViewModel == nil {
             sonarrViewModel = SonarrViewModel(serviceManager: serviceManager)
         }
-        if serviceManager.radarrConnected, radarrViewModel == nil {
+        if serviceManager.hasAnyConnectedRadarrInstance, radarrViewModel == nil {
             radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
         }
         if serviceManager.hasAnyConnectedBazarrInstance, bazarrViewModel == nil {

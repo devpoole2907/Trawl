@@ -81,7 +81,7 @@ struct RadarrMovieListView: View {
             guard previewPresentation == nil else { return }
             #endif
             let lifecycleKey = viewModelLoadKey
-            guard serviceManager.radarrConnected else {
+            guard serviceManager.hasAnyConnectedRadarrInstance else {
                 viewModel = nil
                 viewModelLifecycleKey = nil
                 return

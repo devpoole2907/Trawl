@@ -260,7 +260,7 @@ struct ArrRootFoldersView: View {
     }
 
     private var hasAnyConnectedService: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected
+        serviceManager.hasAnyConnectedSonarrInstance || serviceManager.hasAnyConnectedRadarrInstance
     }
 
     private var isConnecting: Bool {
@@ -271,7 +271,7 @@ struct ArrRootFoldersView: View {
     }
 
     private var rootFoldersSettingsService: ArrServiceType {
-        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        if serviceManager.hasSonarrInstance && !serviceManager.hasAnyConnectedSonarrInstance { return .sonarr }
         return .radarr
     }
 
