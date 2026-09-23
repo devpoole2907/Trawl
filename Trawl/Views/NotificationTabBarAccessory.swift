@@ -23,23 +23,7 @@ struct NotificationTabBarAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     #endif
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-    @Environment(ArrServiceManager.self) private var arrServiceManager
-    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
-    @Environment(SyncService.self) private var syncService
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
-
-    /// Downloads that need a human, using the exact rule the Downloads Issues
-    /// segment renders - see `DownloadsViewModel.attentionItems(…)`.
-    private var attentionItems: [DownloadListItem] {
-        DownloadsViewModel.attentionItems(
-            serviceManager: arrServiceManager,
-            torrents: syncService.torrents,
-            sabActiveJobs: sabnzbdServiceManager.activeJobs,
-            sabHistoryJobs: sabnzbdServiceManager.historyJobs
-        )
-    }
-
-    private var attentionCount: Int { attentionItems.count }
 
     /// Requests waiting on a decision. Deliberately kept apart from `unreadCount`:
     /// this is standing state, not an event. Folding it into "unread" would leave a
@@ -71,12 +55,10 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var headline: String {
-        // Failures outrank everything: the pill's whole promise is "something needs
-        // you", and a stuck grab needs you more than a healthy import does.
-        if attentionCount > 0 {
-            return attentionCount == 1
-                ? "1 download needs attention"
-                : "\(attentionCount) downloads need attention"
+        // This accessory is the at-a-glance notification surface. Standing issues
+        // remain in the sheet, where their context and actions are available.
+        if let latestNotification {
+            return latestNotification.title
         }
         if pendingApprovalCount > 0 {
             return pendingApprovalCount == 1
@@ -90,17 +72,12 @@ struct NotificationTabBarAccessory: View {
             let fileWord = job.fileCount == 1 ? "file" : "files"
             return "Importing \(job.fileCount) \(fileWord)"
         }
-        if let latestNotification {
-            return latestNotification.title
-        }
         return "Notifications"
     }
 
     private var subtitle: String {
-        if let failure = attentionItems.first {
-            return attentionCount == 1
-                ? failure.attentionDetail
-                : "\(failure.attentionTitle) · and \(attentionCount - 1) more"
+        if let latestNotification {
+            return "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
         }
         if pendingApprovalCount > 0 {
             return "Swipe up to approve or decline"
@@ -112,9 +89,7 @@ struct NotificationTabBarAccessory: View {
         if let job = primaryRunningJob {
             return "\(job.serviceTitle) · \(job.primaryName)"
         }
-        if let latestNotification {
-            return "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
-        } else if unreadCount == 1 {
+        if unreadCount == 1 {
             return "1 unread notification"
         } else if unreadCount > 1 {
             return "\(unreadCount) unread notifications"
@@ -124,9 +99,13 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var notificationAccessibilityValue: String {
-        if attentionCount > 0 {
-            let word = attentionCount == 1 ? "download needs" : "downloads need"
-            return "\(attentionCount) \(word) attention"
+        if let latestNotification {
+            if unreadCount == 1 {
+                return "\(latestNotification.title), 1 unread notification"
+            } else if unreadCount > 1 {
+                return "\(latestNotification.title), \(unreadCount) unread notifications"
+            }
+            return "\(latestNotification.title), no unread notifications"
         }
         if pendingApprovalCount > 0 {
             let word = pendingApprovalCount == 1 ? "request is" : "requests are"
@@ -193,10 +172,8 @@ struct NotificationTabBarAccessory: View {
     #endif
 
     private var inlineSummary: String {
-        if attentionCount > 0 {
-            return attentionCount == 1
-                ? "1 download needs attention"
-                : "\(attentionCount) downloads need attention"
+        if let latestNotification {
+            return latestNotification.title
         }
         if pendingApprovalCount > 0 {
             return pendingApprovalCount == 1
@@ -210,13 +187,8 @@ struct NotificationTabBarAccessory: View {
             let fileWord = job.fileCount == 1 ? "file" : "files"
             return "Importing \(job.fileCount) \(fileWord) · \(job.serviceTitle)"
         }
-        if unreadCount >= 1, let latest = latestNotification {
-            let count = unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
-            return "\(count) · \(latest.associatedServiceTitle)"
-        } else if unreadCount >= 1 {
+        if unreadCount >= 1 {
             return unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
-        } else if let latestNotification {
-            return latestNotification.title
         } else {
             return "Notifications"
         }
@@ -282,17 +254,17 @@ struct NotificationTabBarAccessory: View {
         .contentShape(Rectangle())
     }
 
-    /// Warning orange while something is failing, otherwise the usual accent tint.
     private var iconTint: AnyShapeStyle {
-        if attentionCount > 0 { return AnyShapeStyle(Color.orange) }
-        if pendingApprovalCount > 0 { return AnyShapeStyle(ServiceIdentity.seerr.brandColor) }
+        if latestNotification == nil, pendingApprovalCount > 0 {
+            return AnyShapeStyle(ServiceIdentity.seerr.brandColor)
+        }
         return AnyShapeStyle(.tint)
     }
 
     private var notificationIcon: some View {
         Group {
-            if attentionCount > 0 {
-                Image(systemName: "exclamationmark.triangle.fill")
+            if latestNotification != nil {
+                Image(systemName: "bell.fill")
                     .symbolRenderingMode(.hierarchical)
             } else if pendingApprovalCount > 0 {
                 Image(systemName: "checkmark.circle.badge.questionmark.fill")
@@ -306,15 +278,15 @@ struct NotificationTabBarAccessory: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if attentionCount > 0 {
-                Text(attentionCount > 99 ? "99+" : "\(attentionCount)")
+            if latestNotification != nil, unreadCount > 0 {
+                Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
                     .padding(.horizontal, 5)
                     .frame(minWidth: 18, minHeight: 18)
-                    .background(.orange, in: Capsule())
+                    .background(.red, in: Capsule())
                     .offset(x: 10, y: -10)
                     .accessibilityHidden(true)
             } else if pendingApprovalCount > 0 {
@@ -351,17 +323,6 @@ struct NotificationTabBarAccessory: View {
                 }
                 .offset(x: 10, y: -10)
                 .accessibilityHidden(true)
-            } else if unreadCount > 0 {
-                Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(.red, in: Capsule())
-                    .offset(x: 10, y: -10)
-                    .accessibilityHidden(true)
             }
         }
     }
@@ -452,7 +413,8 @@ struct RecentNotificationsSheet: View {
         inAppNotificationCenter.activeImportJobs
     }
 
-    /// Same list the tab-bar accessory counts, so the pill and this section agree.
+    /// Standing download issues live in the sheet rather than replacing the newest
+    /// notification in the app-wide accessory.
     private var attentionItems: [DownloadListItem] {
         DownloadsViewModel.attentionItems(
             serviceManager: arrServiceManager,

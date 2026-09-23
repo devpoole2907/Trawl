@@ -175,8 +175,8 @@ final class ArrServiceManager {
     /// 100 queue plus 100 history records per poll, so this sits a little slower than
     /// SyncService (2s) and SABnzbd (4s).
     var fastQueuePollingInterval: TimeInterval = 5.0
-    /// App-wide cadence. Only exists to keep the tab-bar accessory's failure count
-    /// honest, so it stays cheap.
+    /// App-wide cadence. Keeps the notification sheet's download issues current
+    /// before the sheet is opened, so it stays cheap.
     var slowQueuePollingInterval: TimeInterval = 60.0
     private var queuePollingTask: Task<Void, Never>?
     /// How many views currently want the fast cadence.

@@ -305,9 +305,8 @@ final class DownloadsViewModel {
 
     /// Everything in the app that needs a human right now - Arr import issues,
     /// errored torrents, failed SABnzbd jobs - composed exactly the way the Downloads
-    /// Issues segment composes them, because it runs the same code. The tab-bar
-    /// accessory reads this; a pill that disagrees with the tab it links to would be
-    /// worse than no pill at all.
+    /// Issues segment composes them, because it runs the same code. The notifications
+    /// sheet reads this too, so both issue lists stay in agreement.
     ///
     /// Every input is optional: an unconfigured qBittorrent passes an empty
     /// `torrents`, an unconfigured SABnzbd passes empty job lists, and an
@@ -510,7 +509,7 @@ final class DownloadsViewModel {
     }
 
     /// The single definition of "needs attention", rendered by the Issues segment
-    /// and counted by the tab-bar accessory.
+    /// and the notifications sheet.
     private static func issueItems(_ matched: MatchedDownloads) -> [DownloadListItem] {
         let queueIssues = Self.oneRowPerIssue(
             matched.queueItems.filter { item in

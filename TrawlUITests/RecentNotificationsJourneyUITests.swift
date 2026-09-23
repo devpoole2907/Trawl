@@ -57,6 +57,11 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
         XCTAssertEqual(server.requestCount(method: "DELETE", path: "/Library/VirtualFolders"), 1)
 
         let notifications = app.buttons["Notifications"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            String(describing: notifications.value).contains("Library Removed"),
+            "The accessory should summarize the newest notification rather than standing issues."
+        )
         XCTAssertTrue(
             tapWhenHittable(notifications, in: app, timeout: 10),
             "The notification accessory should expose the event produced by the library removal."

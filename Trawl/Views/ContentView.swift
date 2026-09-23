@@ -417,8 +417,8 @@ struct ContentView: View {
                 initializeServices()
             }
             await arrServiceManager.initialize(from: arrProfiles)
-            // Slow app-wide poll purely so the tab-bar accessory's failure count
-            // stays honest; Downloads speeds it up while that tab is on screen.
+            // Keep the notification sheet's download issues current before it is
+            // opened; Downloads speeds this up while that tab is on screen.
             arrServiceManager.startQueuePolling()
             // Fire-and-forget: `/series` and `/movie` are unpaged full-library
             // dumps, so this must never sit in front of the first frame. It just
