@@ -462,8 +462,15 @@ final class ArrServiceManager {
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
         let serviceType = profile.resolvedServiceType
+        let sourceName = Self.notificationSourceName(for: profile)
 
-        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType) {
+        if let existing, trawlNotificationMatches(
+            existing,
+            pushURL: pushURL,
+            deviceToken: deviceToken,
+            serviceType: serviceType,
+            sourceName: sourceName
+        ) {
             return
         }
 
@@ -491,7 +498,12 @@ final class ArrServiceManager {
             includeHealthWarnings: true,
             implementation: "Webhook",
             configContract: "WebhookSettings",
-            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
+            fields: notificationFields(
+                pushURL: pushURL,
+                deviceToken: deviceToken,
+                serviceType: serviceType,
+                sourceName: sourceName
+            ),
             tags: []
         )
 
@@ -526,7 +538,13 @@ final class ArrServiceManager {
             return .notAdded
         }
 
-        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType)
+        return trawlNotificationMatches(
+            existing,
+            pushURL: pushURL,
+            deviceToken: deviceToken,
+            serviceType: profile.resolvedServiceType,
+            sourceName: Self.notificationSourceName(for: profile)
+        )
             ? .configured
             : .needsUpdate
     }
@@ -602,7 +620,13 @@ final class ArrServiceManager {
             return false
         }
 
-        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType) && existing.onGrab == true
+        return trawlNotificationMatches(
+            existing,
+            pushURL: pushURL,
+            deviceToken: deviceToken,
+            serviceType: profile.resolvedServiceType,
+            sourceName: Self.notificationSourceName(for: profile)
+        ) && existing.onGrab == true
     }
 
     func tags(for profile: ArrServiceProfile) -> [ArrTag] {
@@ -2003,13 +2027,27 @@ final class ArrServiceManager {
             includeHealthWarnings: existing?.includeHealthWarnings ?? true,
             implementation: "Webhook",
             configContract: "WebhookSettings",
-            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
+            fields: notificationFields(
+                pushURL: pushURL,
+                deviceToken: deviceToken,
+                serviceType: serviceType,
+                sourceName: Self.notificationSourceName(for: profile)
+            ),
             tags: existing?.tags ?? []
         )
     }
 
-    private func notificationFields(pushURL: String, deviceToken: String, serviceType: ArrServiceType?) -> [ArrNotificationField] {
+    private func notificationFields(
+        pushURL: String,
+        deviceToken: String,
+        serviceType: ArrServiceType?,
+        sourceName: String?
+    ) -> [ArrNotificationField] {
         if serviceType == .prowlarr {
+            // Prowlarr's webhook UI offers username and password rather than custom
+            // headers, so there is nowhere to put the source name. Its pushes fall
+            // back to the `instanceName` in the payload, which is enough: Prowlarr
+            // only sends system events, and nobody runs two of it.
             return [
                 ArrNotificationField(name: "url", value: .string(pushURL)),
                 ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
@@ -2018,16 +2056,48 @@ final class ArrServiceManager {
             ]
         }
 
+        var headers: [JSONValue] = [
+            .object([
+                "Key": .string("X-Trawl-Token"),
+                "Value": .string(deviceToken)
+            ])
+        ]
+        if let sourceName {
+            headers.append(.object([
+                "Key": .string("X-Trawl-Source"),
+                "Value": .string(sourceName)
+            ]))
+        }
+
         return [
             ArrNotificationField(name: "url", value: .string(pushURL)),
             ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
-            ArrNotificationField(name: "headers", value: .array([
-                .object([
-                    "Key": .string("X-Trawl-Token"),
-                    "Value": .string(deviceToken)
-                ])
-            ]))
+            ArrNotificationField(name: "headers", value: .array(headers))
         ]
+    }
+
+    /// The label the push worker prints on this server's notifications, so
+    /// "Download Complete" says *which* server finished it.
+    ///
+    /// The Arrs send their own `instanceName`, but it is "Radarr" or "Sonarr" on
+    /// every install unless the person renamed it inside the Arr itself — so an
+    /// HD and a 4K Radarr report the same name and their pushes are
+    /// indistinguishable. The profile name is the one they already chose here, and
+    /// it is the same name the webhook is registered under in the Arr.
+    ///
+    /// Returns nil when nothing sendable is left, in which case the webhook carries
+    /// no source header and the worker falls back to `instanceName`.
+    static func notificationSourceName(for profile: ArrServiceProfile) -> String? {
+        // The Arrs forward header values to the worker verbatim, and a header value
+        // outside printable ASCII makes the request unsendable — an emoji in a server
+        // name would silently break every push from it, not just its label.
+        let sendable = profile.displayName.unicodeScalars
+            .map { (32...126).contains($0.value) ? Character($0) : " " }
+        let collapsed = String(sendable)
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(48))
     }
 
     private func pushNotificationURL(from workerURL: String) throws -> String {
@@ -2052,7 +2122,8 @@ final class ArrServiceManager {
         _ notification: ArrNotification,
         pushURL: String,
         deviceToken: String,
-        serviceType: ArrServiceType?
+        serviceType: ArrServiceType?,
+        sourceName: String?
     ) -> Bool {
         let urlMatches: Bool = {
             guard case .string(let url) = notification.fields.first(where: { $0.name == "url" })?.value else { return false }
@@ -2075,30 +2146,46 @@ final class ArrServiceManager {
                 return prowlarrAuthMatches(notification, deviceToken: deviceToken)
             }
 
-            if case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value {
-                return headers.contains { headerValue in
-                    guard case .object(let header) = headerValue else { return false }
-
-                    let key: String? = {
-                        if case .string(let value) = header["Key"] { return value }
-                        if case .string(let value) = header["key"] { return value }
-                        return nil
-                    }()
-
-                    let value: String? = {
-                        if case .string(let storedValue) = header["Value"] { return storedValue }
-                        if case .string(let storedValue) = header["value"] { return storedValue }
-                        return nil
-                    }()
-
-                    return key == "X-Trawl-Token" && value == deviceToken
-                }
+            if case .array = notification.fields.first(where: { $0.name == "headers" })?.value {
+                return notificationHeaderValue(in: notification, forKey: "X-Trawl-Token") == deviceToken
             }
 
             guard case .string(let password) = notification.fields.first(where: { $0.name == "password" })?.value else { return false }
             return password == deviceToken
         }()
-        return urlMatches && methodMatches && tokenMatches
+        // A webhook saved before the source header existed, or one saved under the
+        // server's old name, still pushes — it just cannot say which server it came
+        // from. That is a webhook needing an update, not a configured one.
+        let sourceMatches: Bool = {
+            guard serviceType != .prowlarr else { return true }
+            return notificationHeaderValue(in: notification, forKey: "X-Trawl-Source") == sourceName
+        }()
+        return urlMatches && methodMatches && tokenMatches && sourceMatches
+    }
+
+    /// Reads one of the webhook's custom headers. Some Arr versions round-trip the
+    /// key/value pair capitalised and some lowercase it, so both spellings count.
+    private func notificationHeaderValue(in notification: ArrNotification, forKey key: String) -> String? {
+        guard case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value else {
+            return nil
+        }
+
+        for headerValue in headers {
+            guard case .object(let header) = headerValue else { continue }
+
+            let storedKey: String? = {
+                if case .string(let value) = header["Key"] { return value }
+                if case .string(let value) = header["key"] { return value }
+                return nil
+            }()
+            guard storedKey?.caseInsensitiveCompare(key) == .orderedSame else { continue }
+
+            if case .string(let value) = header["Value"] { return value }
+            if case .string(let value) = header["value"] { return value }
+            return nil
+        }
+
+        return nil
     }
 
     private func prowlarrAuthMatches(_ notification: ArrNotification, deviceToken: String) -> Bool {

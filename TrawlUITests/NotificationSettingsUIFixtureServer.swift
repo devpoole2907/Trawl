@@ -311,9 +311,12 @@ final class NotificationSettingsUIFixtureServer: @unchecked Sendable {
               fieldValues["url"] as? String == "https://trawl-apns-worker.james-5d8.workers.dev/push",
               (fieldValues["method"] as? NSNumber)?.intValue == 1,
               let headers = fieldValues["headers"] as? [[String: Any]],
-              headers.count == 1,
+              headers.count == 2,
               headers[0]["Key"] as? String == "X-Trawl-Token",
-              headers[0]["Value"] as? String == deviceToken else {
+              headers[0]["Value"] as? String == deviceToken,
+              // Names the server the push came from, so two Radarrs are tellable apart.
+              headers[1]["Key"] as? String == "X-Trawl-Source",
+              headers[1]["Value"] as? String == "Fixture Sonarr" else {
             return false
         }
 
@@ -321,7 +324,7 @@ final class NotificationSettingsUIFixtureServer: @unchecked Sendable {
     }
 
     private static let configuredNotificationJSON = #"""
-    {"id":91,"name":"Trawl (Fixture Sonarr)","onGrab":true,"onDownload":true,"onUpgrade":true,"onRename":true,"onHealthIssue":true,"onApplicationUpdate":true,"onSeriesAdd":false,"onSeriesDelete":false,"onEpisodeFileDelete":false,"onEpisodeFileDeleteForUpgrade":false,"includeHealthWarnings":true,"implementation":"Webhook","configContract":"WebhookSettings","fields":[{"name":"url","value":"https://trawl-apns-worker.james-5d8.workers.dev/push"},{"name":"method","value":1},{"name":"headers","value":[{"Key":"X-Trawl-Token","Value":"trawl-ui-test-apns-token-v1"}]}],"tags":[27]}
+    {"id":91,"name":"Trawl (Fixture Sonarr)","onGrab":true,"onDownload":true,"onUpgrade":true,"onRename":true,"onHealthIssue":true,"onApplicationUpdate":true,"onSeriesAdd":false,"onSeriesDelete":false,"onEpisodeFileDelete":false,"onEpisodeFileDeleteForUpgrade":false,"includeHealthWarnings":true,"implementation":"Webhook","configContract":"WebhookSettings","fields":[{"name":"url","value":"https://trawl-apns-worker.james-5d8.workers.dev/push"},{"name":"method","value":1},{"name":"headers","value":[{"Key":"X-Trawl-Token","Value":"trawl-ui-test-apns-token-v1"},{"Key":"X-Trawl-Source","Value":"Fixture Sonarr"}]}],"tags":[27]}
     """#
 
     private static func httpResponse(for response: Response) -> Data {

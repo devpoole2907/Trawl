@@ -21,6 +21,7 @@ struct ArrWebhookNotificationManagerTests {
             serviceType: .sonarr,
             url: "https://push.fixture.test/trawl/push/",
             token: deviceToken,
+            source: profileName,
             method: .string("POST"),
             headerKey: "key",
             headerValueKey: "value"
@@ -109,6 +110,7 @@ struct ArrWebhookNotificationManagerTests {
             #expect(body == expectedNotificationDictionary(
                 id: nil,
                 name: "Trawl (\(profileName))",
+                sourceName: profileName,
                 serviceType: .sonarr,
                 deviceToken: deviceToken,
                 workerURL: workerURL,
@@ -157,12 +159,84 @@ struct ArrWebhookNotificationManagerTests {
             #expect(body == expectedNotificationDictionary(
                 id: 44,
                 name: "Trawl (\(profileName))",
+                sourceName: profileName,
                 serviceType: .radarr,
                 deviceToken: deviceToken,
                 workerURL: workerURL,
                 tags: []
             ))
         }
+    }
+
+    /// Two servers of the same kind push the same "Download Complete" for the same
+    /// film, and nothing in either banner said which one finished it: the Arrs' own
+    /// `instanceName` is "Radarr" on both unless the person renamed it inside Radarr.
+    /// So the webhook carries the profile name, and a webhook that predates the
+    /// header - or was saved before the server was renamed - is one needing an
+    /// update rather than a configured one, or the label silently goes stale.
+    @Test("A webhook without the current server label needs updating, and the update sends it")
+    func webhookMissingTheSourceLabelNeedsUpdating() async throws {
+        let profileName = "Radarr 4K"
+        let existing = notification(
+            id: 52,
+            name: "Trawl (\(profileName))",
+            serviceType: .radarr,
+            url: "https://push.fixture.test/trawl/push",
+            token: deviceToken,
+            source: nil
+        )
+        let response = try notificationListJSON([existing])
+
+        try await withConnectedProfile(
+            label: "source-label-webhook",
+            displayName: profileName,
+            serviceType: .radarr,
+            handler: notificationHandler(listResponse: response)
+        ) { manager, profile, server in
+            let status = try await manager.notificationSetupStatus(
+                for: profile,
+                workerURL: workerURL,
+                deviceToken: deviceToken
+            )
+            try await manager.setupNotifications(
+                for: profile,
+                workerURL: workerURL,
+                deviceToken: deviceToken
+            )
+
+            guard case .needsUpdate = status else {
+                Issue.record("Expected a webhook with no source label to need an update.")
+                return
+            }
+            let request = try #require(server.requests(method: "PUT", path: "/api/v3/notification/52").only)
+            let body = try notificationDictionary(from: request)
+            #expect(body == expectedNotificationDictionary(
+                id: 52,
+                name: "Trawl (\(profileName))",
+                sourceName: profileName,
+                serviceType: .radarr,
+                deviceToken: deviceToken,
+                workerURL: workerURL,
+                tags: []
+            ))
+        }
+    }
+
+    /// The Arrs post header values to the worker verbatim, and a value outside
+    /// printable ASCII makes the request unsendable - an emoji in a server name
+    /// would break every push from that server, not just its label.
+    @Test("A server name that cannot travel in a header is reduced to one that can")
+    func sourceLabelIsReducedToASendableHeaderValue() {
+        let emoji = ArrServiceProfile(displayName: "📼 Radarr 4K", hostURL: "http://localhost", serviceType: .radarr)
+        #expect(ArrServiceManager.notificationSourceName(for: emoji) == "Radarr 4K")
+
+        let plain = ArrServiceProfile(displayName: "Radarr 4K", hostURL: "http://localhost", serviceType: .radarr)
+        #expect(ArrServiceManager.notificationSourceName(for: plain) == "Radarr 4K")
+
+        // Nothing sendable is left, so the webhook carries no label at all and the
+        // worker falls back to the payload's instanceName.
+        let unsendable = ArrServiceProfile(displayName: "🎬🍿", hostURL: "http://localhost", serviceType: .radarr)
+        #expect(ArrServiceManager.notificationSourceName(for: unsendable) == nil)
     }
 
     @Test("Saving a new Sonarr notification preserves selected triggers and tags while replacing auth fields")
@@ -206,6 +280,7 @@ struct ArrWebhookNotificationManagerTests {
             #expect(body == expectedNotificationDictionary(
                 id: nil,
                 name: "Trawl (\(profileName))",
+                sourceName: profileName,
                 serviceType: .sonarr,
                 deviceToken: deviceToken,
                 workerURL: workerURL,
@@ -266,6 +341,7 @@ struct ArrWebhookNotificationManagerTests {
             #expect(body == expectedNotificationDictionary(
                 id: 99,
                 name: "Trawl (\(profileName))",
+                sourceName: profileName,
                 serviceType: .radarr,
                 deviceToken: deviceToken,
                 workerURL: workerURL,
@@ -318,6 +394,7 @@ struct ArrWebhookNotificationManagerTests {
             #expect(body == expectedNotificationDictionary(
                 id: 18,
                 name: "Trawl (\(profileName))",
+                sourceName: profileName,
                 serviceType: .sonarr,
                 deviceToken: deviceToken,
                 workerURL: workerURL,
@@ -433,6 +510,7 @@ struct ArrWebhookNotificationManagerTests {
         serviceType: ArrServiceType,
         url: String,
         token: String,
+        source: String? = nil,
         method: JSONValue = .number(1),
         headerKey: String = "Key",
         headerValueKey: String = "Value",
@@ -475,12 +553,17 @@ struct ArrWebhookNotificationManagerTests {
             fields: [
                 ArrNotificationField(name: "url", value: .string(url)),
                 ArrNotificationField(name: "method", value: method),
-                ArrNotificationField(name: "headers", value: .array([
-                    .object([
-                        headerKey: .string("X-Trawl-Token"),
-                        headerValueKey: .string(token)
-                    ])
-                ]))
+                ArrNotificationField(name: "headers", value: .array(
+                    [
+                        .object([
+                            headerKey: .string("X-Trawl-Token"),
+                            headerValueKey: .string(token)
+                        ])
+                    ] + (source.map { [.object([
+                        headerKey: .string("X-Trawl-Source"),
+                        headerValueKey: .string($0)
+                    ])] } ?? [])
+                ))
             ],
             tags: tags
         )
@@ -502,6 +585,7 @@ struct ArrWebhookNotificationManagerTests {
     private func expectedNotificationDictionary(
         id: Int?,
         name: String,
+        sourceName: String,
         serviceType: ArrServiceType,
         deviceToken: String,
         workerURL: String,
@@ -535,7 +619,10 @@ struct ArrWebhookNotificationManagerTests {
             "fields": [
                 ["name": "url", "value": "\(workerURL)/push"],
                 ["name": "method", "value": 1],
-                ["name": "headers", "value": [["Key": "X-Trawl-Token", "Value": deviceToken]]]
+                ["name": "headers", "value": [
+                    ["Key": "X-Trawl-Token", "Value": deviceToken],
+                    ["Key": "X-Trawl-Source", "Value": sourceName]
+                ]]
             ],
             "tags": tags
         ]
