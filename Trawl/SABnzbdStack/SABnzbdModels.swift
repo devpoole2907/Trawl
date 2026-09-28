@@ -141,6 +141,15 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
         return "\(ByteFormatter.format(bytes: downloadedBytes)) / \(ByteFormatter.format(bytes: totalBytes))"
     }
 
+    /// Queue jobs plus nonterminal history entries (verify/repair/unpack/move).
+    /// SABnzbd moves a job out of its queue the moment the download finishes, so
+    /// post-processing is only ever visible in history. The app and the widget
+    /// both read "in flight" from here so they cannot disagree about an unpack.
+    static func inFlight(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> [SABnzbdJob] {
+        let queueJobs = queue?.jobs ?? []
+        let postProcessingJobs = (history?.jobs ?? []).filter(\.isPostProcessing)
+        return queueJobs + postProcessingJobs
+    }
 }
 
 // MARK: - Queue

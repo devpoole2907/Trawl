@@ -104,6 +104,9 @@ enum WidgetDataFetcher {
         let dlspeed: Int64
         let etaText: String?
         let state: String
+        /// Downloaded and now verifying, repairing, unpacking or moving. There is
+        /// no transfer rate to show, so the widget shows the stage instead.
+        var isPostProcessing = false
     }
 
     struct WidgetActiveDownloadsSnapshot: Sendable {
@@ -265,7 +268,7 @@ enum WidgetDataFetcher {
             )
         }
 
-        let sabItems = sab.flatMap { activeDownloads(in: $0.queue) }
+        let sabItems = sab.flatMap { activeDownloads(queue: $0.queue, history: $0.history) }
         let active = ((qb?.items ?? []) + sabItems).sorted { lhs, rhs in
             if lhs.dlspeed != rhs.dlspeed { return lhs.dlspeed > rhs.dlspeed }
             if lhs.progress != rhs.progress { return lhs.progress > rhs.progress }
@@ -317,25 +320,31 @@ enum WidgetDataFetcher {
 
     // MARK: - SABnzbd helpers
 
-    /// Queues from every reachable SABnzbd profile. Unreachable ones drop out.
+    /// Queues from every reachable SABnzbd profile, with the head of each one's
+    /// history: a finished download leaves the queue and is verified, repaired
+    /// and unpacked from history, so the queue alone reads "idle" mid-unpack.
+    /// SABnzbd lists post-processing jobs first, so a short page covers them. A
+    /// failed history read keeps the queue; an unreachable profile drops out.
     private static func fetchSABnzbdQueues(
         _ profiles: [SABnzbdProfileSnapshot]
-    ) async -> [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)] {
+    ) async -> [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue, history: SABnzbdHistory?)] {
         guard !profiles.isEmpty else { return [] }
 
         return await withTaskGroup(
-            of: (profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)?.self
+            of: (profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue, history: SABnzbdHistory?)?.self
         ) { group in
             for profile in profiles {
                 group.addTask {
                     await WidgetDeadline.run {
                         let client = try await makeSABnzbdClient(from: profile)
-                        return (profile, try await client.getQueue(limit: 100))
+                        async let queue = client.getQueue(limit: 100)
+                        async let history = try? client.getHistory(limit: 20)
+                        return (profile, try await queue, await history)
                     }
                 }
             }
 
-            var results: [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)] = []
+            var results: [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue, history: SABnzbdHistory?)] = []
             for await result in group {
                 if let result { results.append(result) }
             }
@@ -345,12 +354,15 @@ enum WidgetDataFetcher {
 
     /// SABnzbd reports one global rate rather than per-job speeds, so the
     /// currently downloading job is credited with it and the rest show zero.
-    private static func activeDownloads(in queue: SABnzbdQueue) -> [WidgetActiveDownloadSnapshot] {
+    private static func activeDownloads(
+        queue: SABnzbdQueue,
+        history: SABnzbdHistory?
+    ) -> [WidgetActiveDownloadSnapshot] {
         let queueSpeed = Int64(queue.kilobytesPerSecond * 1024)
         var speedClaimed = false
 
-        return queue.slots.compactMap { slot in
-            let status = slot.normalizedStatus
+        return SABnzbdJob.inFlight(queue: queue, history: history).compactMap { job in
+            let status = job.normalizedStatus
             guard status.isActive else { return nil }
 
             var speed: Int64 = 0
@@ -360,11 +372,12 @@ enum WidgetDataFetcher {
             }
 
             return WidgetActiveDownloadSnapshot(
-                name: slot.filename,
-                progress: slot.progress,
+                name: job.name,
+                progress: job.progress,
                 dlspeed: speed,
-                etaText: slot.timeLeft.isEmpty ? nil : slot.timeLeft,
-                state: slot.status
+                etaText: job.timeRemaining.flatMap { $0.isEmpty ? nil : $0 },
+                state: job.status,
+                isPostProcessing: job.isPostProcessing
             )
         }
     }

@@ -103,7 +103,7 @@ struct ActiveDownloadsWidgetEntryView: View {
                     .lineLimit(1)
                 ProgressView(value: top.progress)
                 HStack {
-                    Text(ByteFormatter.formatSpeed(bytesPerSecond: top.dlspeed))
+                    Text(rateText(for: top))
                     Spacer(minLength: 4)
                     if let etaText = top.etaText { Text(etaText) }
                 }
@@ -182,7 +182,7 @@ struct ActiveDownloadsWidgetEntryView: View {
                     ProgressView(value: top.progress)
                         .tint(.blue)
                     HStack(spacing: 8) {
-                        Label(ByteFormatter.formatSpeed(bytesPerSecond: top.dlspeed), systemImage: "arrow.down.circle.fill")
+                        Label(rateText(for: top), systemImage: rateSymbol(for: top))
                             .foregroundStyle(.blue)
                         if let etaText = top.etaText {
                             Label(etaText, systemImage: "clock")
@@ -236,11 +236,23 @@ struct ActiveDownloadsWidgetEntryView: View {
                 .lineLimit(1)
             ProgressView(value: download.progress)
                 .tint(.blue)
-            Text(ByteFormatter.formatSpeed(bytesPerSecond: download.dlspeed))
+            Text(rateText(for: download))
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.blue)
                 .lineLimit(1)
         }
+    }
+
+    /// A post-processing job has finished transferring, so its stage ("Extracting",
+    /// "Repairing") says more than a rate that is always zero.
+    private func rateText(for download: WidgetDataFetcher.WidgetActiveDownloadSnapshot) -> String {
+        download.isPostProcessing
+            ? download.state
+            : ByteFormatter.formatSpeed(bytesPerSecond: download.dlspeed)
+    }
+
+    private func rateSymbol(for download: WidgetDataFetcher.WidgetActiveDownloadSnapshot) -> String {
+        download.isPostProcessing ? "shippingbox.fill" : "arrow.down.circle.fill"
     }
 }
 

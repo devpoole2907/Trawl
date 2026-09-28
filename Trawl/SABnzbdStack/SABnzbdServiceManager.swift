@@ -99,9 +99,7 @@ final class SABnzbdServiceManager {
     /// Queue jobs plus nonterminal history entries (repair/unpack/move), matching
     /// what SABnzbd itself considers still "in flight" past the download stage.
     var activeJobs: [SABnzbdJob] {
-        let queueJobs = queue?.jobs ?? []
-        let postProcessingJobs = (history?.jobs ?? []).filter(\.isPostProcessing)
-        return queueJobs + postProcessingJobs
+        SABnzbdJob.inFlight(queue: queue, history: history)
     }
 
     /// Terminal history entries only (`Completed` / `Failed`).

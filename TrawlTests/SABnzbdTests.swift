@@ -300,6 +300,62 @@ struct SABnzbdDecodingTests {
         #expect(job.source == .history)
     }
 
+    /// SABnzbd drops a job from its queue as soon as the transfer ends, so an
+    /// unpack reads as idle to anything that only looks at the queue. That was
+    /// the Active Downloads widget's bug: "No active downloads" mid-extract.
+    @Test("In-Flight Jobs Include Post-Processing History, Not Finished Jobs")
+    func inFlightJobsIncludePostProcessingHistory() throws {
+        let queueJSON = """
+        {
+          "queue": {
+            "status": "Downloading",
+            "kbpersec": "2048",
+            "slots": [
+              {
+                "nzo_id": "SABnzbd_nzo_dl",
+                "filename": "Still.Downloading",
+                "status": "Downloading",
+                "percentage": "40",
+                "mb": "1000",
+                "mbleft": "600",
+                "timeleft": "0:05:00"
+              }
+            ]
+          }
+        }
+        """
+        let historyJSON = """
+        {
+          "history": {
+            "slots": [
+              { "nzo_id": "SABnzbd_nzo_ex", "name": "Unpacking.Now", "status": "Extracting",
+                "bytes": 3000, "downloaded": 3000, "stage_log": [] },
+              { "nzo_id": "SABnzbd_nzo_ve", "name": "Verifying.Now", "status": "Verifying",
+                "bytes": 3000, "downloaded": 3000, "stage_log": [] },
+              { "nzo_id": "SABnzbd_nzo_ok", "name": "Already.Done", "status": "Completed",
+                "bytes": 3000, "downloaded": 3000, "stage_log": [] },
+              { "nzo_id": "SABnzbd_nzo_ko", "name": "Gave.Up", "status": "Failed",
+                "bytes": 3000, "downloaded": 10, "fail_message": "Unpacking failed", "stage_log": [] }
+            ]
+          }
+        }
+        """
+        let queue = try Self.decoder.decode(SABnzbdQueueEnvelope.self, from: Data(queueJSON.utf8)).queue
+        let history = try #require(
+            try Self.decoder.decode(SABnzbdHistoryEnvelope.self, from: Data(historyJSON.utf8)).history
+        )
+
+        let jobs = SABnzbdJob.inFlight(queue: queue, history: history)
+
+        #expect(jobs.map(\.name) == ["Still.Downloading", "Unpacking.Now", "Verifying.Now"])
+        #expect(jobs.map(\.isPostProcessing) == [false, true, true])
+        #expect(jobs.allSatisfy { $0.normalizedStatus.isActive })
+        // A failed history read still leaves the queue to report.
+        #expect(SABnzbdJob.inFlight(queue: queue, history: nil).map(\.name) == ["Still.Downloading"])
+        // An empty queue mid-unpack is not idle.
+        #expect(SABnzbdJob.inFlight(queue: nil, history: history).map(\.name) == ["Unpacking.Now", "Verifying.Now"])
+    }
+
     @Test("Failed History Slot Surfaces Fail Message")
     func failedHistorySlotSurfacesFailMessage() throws {
         let json = """
