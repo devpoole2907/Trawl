@@ -356,6 +356,56 @@ struct SABnzbdDecodingTests {
         #expect(SABnzbdJob.inFlight(queue: nil, history: history).map(\.name) == ["Unpacking.Now", "Verifying.Now"])
     }
 
+    /// Queue and history are two requests; a job finishing between them is in both.
+    @Test("In-Flight Jobs List A Job Caught In Both Queue And History Once")
+    func inFlightJobsDeduplicateAcrossQueueAndHistory() throws {
+        let queueJSON = """
+        { "queue": { "slots": [
+          { "nzo_id": "SABnzbd_nzo_edge", "filename": "Just.Finished", "status": "Downloading",
+            "percentage": "100", "mb": "10", "mbleft": "0" }
+        ] } }
+        """
+        let historyJSON = """
+        { "history": { "slots": [
+          { "nzo_id": "SABnzbd_nzo_edge", "name": "Just.Finished", "status": "Verifying",
+            "bytes": 10, "downloaded": 10, "stage_log": [] }
+        ] } }
+        """
+        let queue = try Self.decoder.decode(SABnzbdQueueEnvelope.self, from: Data(queueJSON.utf8)).queue
+        let history = try Self.decoder.decode(SABnzbdHistoryEnvelope.self, from: Data(historyJSON.utf8)).history
+
+        let jobs = SABnzbdJob.inFlight(queue: queue, history: history)
+
+        #expect(jobs.map(\.id) == ["SABnzbd_nzo_edge"])
+        #expect(jobs.first?.source == .queue)
+    }
+
+    /// The widget fetches one page of each list; SABnzbd's totals say what it left off.
+    @Test("Unlisted In-Flight Count Covers Queue And Post-Processing Beyond The Page")
+    func unlistedInFlightCountCoversBothPages() throws {
+        let queueJSON = """
+        { "queue": { "noofslots": 3, "noofslots_total": 3, "slots": [
+          { "nzo_id": "a", "filename": "A", "status": "Downloading" },
+          { "nzo_id": "b", "filename": "B", "status": "Queued" }
+        ] } }
+        """
+        let historyJSON = """
+        { "history": { "ppslots": 4, "slots": [
+          { "nzo_id": "c", "name": "C", "status": "Extracting", "stage_log": [] },
+          { "nzo_id": "d", "name": "D", "status": "Queued", "stage_log": [] },
+          { "nzo_id": "e", "name": "E", "status": "Completed", "stage_log": [] }
+        ] } }
+        """
+        let queue = try Self.decoder.decode(SABnzbdQueueEnvelope.self, from: Data(queueJSON.utf8)).queue
+        let history = try Self.decoder.decode(SABnzbdHistoryEnvelope.self, from: Data(historyJSON.utf8)).history
+
+        // One queue job past the page, two post-processing jobs past it.
+        #expect(SABnzbdJob.unlistedInFlightCount(queue: queue, history: history) == 3)
+        // A queued-for-post-processing history job ("Queued") is in flight too.
+        #expect(SABnzbdJob.inFlight(queue: queue, history: history).map(\.id) == ["a", "b", "c", "d"])
+        #expect(SABnzbdJob.unlistedInFlightCount(queue: nil, history: nil) == 0)
+    }
+
     @Test("Failed History Slot Surfaces Fail Message")
     func failedHistorySlotSurfacesFailMessage() throws {
         let json = """

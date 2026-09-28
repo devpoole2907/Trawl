@@ -19,6 +19,12 @@ struct ServerAppEntity: AppEntity {
             title: "\(name)"
         )
     }
+
+    /// Every qBittorrent server and every enabled SABnzbd profile, blended.
+    static let allClients = ServerAppEntity(
+        id: WidgetDownloadClientSelection.allClientsIdentifier,
+        name: "All Clients"
+    )
 }
 
 // MARK: - Entity Query
@@ -37,6 +43,11 @@ struct ServerAppEntityQuery: EntityQuery {
         try await allServers()
     }
 
+    /// New widgets start blended, so torrents and usenet show side by side.
+    func defaultResult() async -> ServerAppEntity? {
+        .allClients
+    }
+
     private func allServers() async throws -> [ServerAppEntity] {
         let container = try WidgetDataFetcher.makeModelContainer()
         return try await MainActor.run {
@@ -49,9 +60,10 @@ struct ServerAppEntityQuery: EntityQuery {
                 .map {
                     (id: "sab:\($0.id.uuidString)", name: "\($0.displayName) · SABnzbd")
                 }
-            return (torrents + usenet).sorted {
+            let clients = (torrents + usenet).sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }.map { ServerAppEntity(id: $0.id, name: $0.name) }
+            return [.allClients] + clients
         }
     }
 }
@@ -60,7 +72,7 @@ struct ServerAppEntityQuery: EntityQuery {
 
 struct SelectServerIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Download Client"
-    static let description = IntentDescription("Choose one qBittorrent or SABnzbd client, or leave blank to combine them all.")
+    static let description = IntentDescription("Choose All Clients to combine every qBittorrent and SABnzbd download, or pick one client.")
 
     @Parameter(title: "Client") var server: ServerAppEntity?
 }

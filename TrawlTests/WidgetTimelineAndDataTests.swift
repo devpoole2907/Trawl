@@ -372,6 +372,13 @@ struct WidgetTimelineAndDataTests {
         #expect(all.includesQBittorrent)
         #expect(all.includesSABnzbd)
 
+        // The picker's explicit "All Clients" entry means exactly what a blank one
+        // did, and is never mistaken for a legacy unprefixed qBittorrent ID.
+        let allClients = WidgetDownloadClientSelection(WidgetDownloadClientSelection.allClientsIdentifier)
+        #expect(allClients == all)
+        #expect(allClients.qbittorrentID == nil)
+        #expect(allClients.sabnzbdID == nil)
+
         let qb = WidgetDownloadClientSelection("qb:11111111-1111-1111-1111-111111111111")
         #expect(qb.qbittorrentID == "11111111-1111-1111-1111-111111111111")
         #expect(qb.includesQBittorrent)
@@ -386,6 +393,14 @@ struct WidgetTimelineAndDataTests {
         #expect(legacy.qbittorrentID == "33333333-3333-3333-3333-333333333333")
         #expect(legacy.includesQBittorrent)
         #expect(legacy.includesSABnzbd == false)
+    }
+
+    @Test("Blended qBittorrent rate caps add up, and any uncapped server uncaps the total")
+    func combinedRateLimit() {
+        #expect(WidgetDownloadAggregation.combinedRateLimit([]) == 0)
+        #expect(WidgetDownloadAggregation.combinedRateLimit([1_000]) == 1_000)
+        #expect(WidgetDownloadAggregation.combinedRateLimit([1_000, 2_000]) == 3_000)
+        #expect(WidgetDownloadAggregation.combinedRateLimit([1_000, 0]) == 0)
     }
 
     // MARK: - Seerr decoding and display fallbacks

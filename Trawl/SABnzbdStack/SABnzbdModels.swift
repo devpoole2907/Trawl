@@ -145,10 +145,28 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
     /// SABnzbd moves a job out of its queue the moment the download finishes, so
     /// post-processing is only ever visible in history. The app and the widget
     /// both read "in flight" from here so they cannot disagree about an unpack.
+    ///
+    /// Queue and history are separate requests, so a job finishing between them
+    /// can appear in both; it is listed once, from the queue.
     static func inFlight(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> [SABnzbdJob] {
         let queueJobs = queue?.jobs ?? []
-        let postProcessingJobs = (history?.jobs ?? []).filter(\.isPostProcessing)
+        let queuedIDs = Set(queueJobs.map(\.id))
+        let postProcessingJobs = (history?.jobs ?? []).filter {
+            $0.isPostProcessing && !queuedIDs.contains($0.id)
+        }
         return queueJobs + postProcessingJobs
+    }
+
+    /// In-flight jobs SABnzbd counted but left off the fetched page: a queue longer
+    /// than the requested `limit`, or more jobs post-processing than the history
+    /// page held. Callers that only fetch a page add this to their count so a big
+    /// queue is not reported as exactly the page size.
+    static func unlistedInFlightCount(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> Int {
+        let queueOverflow = queue.map { max(0, $0.noOfSlotsTotal - $0.slots.count) } ?? 0
+        let postProcessingOverflow = history.map { history in
+            max(0, history.postProcessingSlots - history.jobs.filter(\.isPostProcessing).count)
+        } ?? 0
+        return queueOverflow + postProcessingOverflow
     }
 }
 

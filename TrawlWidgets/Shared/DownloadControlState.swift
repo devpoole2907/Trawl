@@ -1,16 +1,20 @@
 import Foundation
 
 /// Decodes the stable identifier stored by the download widget configuration.
-/// A missing identifier means the blended view; unprefixed UUIDs remain valid
-/// for widgets configured before SABnzbd joined the picker.
+/// `all` (the picker's "All Clients") and a missing identifier both mean the
+/// blended view of every qBittorrent server and every enabled SABnzbd profile;
+/// unprefixed UUIDs remain valid for widgets configured before SABnzbd joined
+/// the picker.
 struct WidgetDownloadClientSelection: Equatable, Sendable {
+    nonisolated static let allClientsIdentifier = "all"
+
     let qbittorrentID: String?
     let sabnzbdID: String?
     let includesQBittorrent: Bool
     let includesSABnzbd: Bool
 
     init(_ identifier: String?) {
-        guard let identifier else {
+        guard let identifier, identifier != Self.allClientsIdentifier else {
             qbittorrentID = nil
             sabnzbdID = nil
             includesQBittorrent = true
@@ -130,5 +134,16 @@ nonisolated struct DownloadControlState: Sendable, Equatable {
 
     static func isStoppedTorrentState(_ rawState: String) -> Bool {
         stoppedTorrentStates.contains(rawState)
+    }
+}
+
+/// Combining transfer figures across several qBittorrent servers.
+nonisolated enum WidgetDownloadAggregation {
+    /// The cap on a combined rate. qBittorrent reports 0 for "unlimited", and one
+    /// uncapped server leaves the combined rate uncapped, so any 0 wins; otherwise
+    /// the caps add up.
+    static func combinedRateLimit(_ limits: [Int64]) -> Int64 {
+        guard !limits.isEmpty, limits.allSatisfy({ $0 > 0 }) else { return 0 }
+        return limits.reduce(0, +)
     }
 }
