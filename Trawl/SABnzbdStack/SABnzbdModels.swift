@@ -157,12 +157,26 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
         return queueJobs + postProcessingJobs
     }
 
-    /// In-flight jobs SABnzbd counted but left off the fetched page: a queue longer
+    /// The in-flight jobs that count as active: `inFlight` minus paused work, so
+    /// the widget and the Downloads badge treat a paused NZB like a paused torrent.
+    /// A job paused on its own reads "Paused"; a globally paused queue leaves its
+    /// jobs reading "Queued", so the queue's own flag decides for queue jobs.
+    /// Post-processing is left alone: it keeps running through a download pause.
+    static func unpaused(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> [SABnzbdJob] {
+        let queuePaused = queue?.paused ?? false
+        return inFlight(queue: queue, history: history).filter { job in
+            guard job.normalizedStatus != .paused else { return false }
+            return job.source == .history || !queuePaused
+        }
+    }
+
+    /// Unpaused jobs SABnzbd counted but left off the fetched page: a queue longer
     /// than the requested `limit`, or more jobs post-processing than the history
     /// page held. Callers that only fetch a page add this to their count so a big
-    /// queue is not reported as exactly the page size.
-    static func unlistedInFlightCount(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> Int {
-        let queueOverflow = queue.map { max(0, $0.noOfSlotsTotal - $0.slots.count) } ?? 0
+    /// queue is not reported as exactly the page size. A paused queue contributes
+    /// none; a job paused on its own past the page cannot be seen, so it counts.
+    static func unlistedUnpausedCount(queue: SABnzbdQueue?, history: SABnzbdHistory?) -> Int {
+        let queueOverflow = queue.map { $0.paused ? 0 : max(0, $0.noOfSlotsTotal - $0.slots.count) } ?? 0
         let postProcessingOverflow = history.map { history in
             max(0, history.postProcessingSlots - history.jobs.filter(\.isPostProcessing).count)
         } ?? 0

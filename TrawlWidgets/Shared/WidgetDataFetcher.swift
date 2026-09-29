@@ -264,7 +264,7 @@ enum WidgetDataFetcher {
         // Jobs SABnzbd counted beyond the page fetched still count; they are never
         // the top download, which is always the fastest or furthest along.
         let sabUnlisted = sab.reduce(0) {
-            $0 + SABnzbdJob.unlistedInFlightCount(queue: $1.queue, history: $1.history)
+            $0 + SABnzbdJob.unlistedUnpausedCount(queue: $1.queue, history: $1.history)
         }
         let active = (qb.flatMap(\.items) + sabItems).sorted { lhs, rhs in
             if lhs.dlspeed != rhs.dlspeed { return lhs.dlspeed > rhs.dlspeed }
@@ -367,7 +367,7 @@ enum WidgetDataFetcher {
         let queueSpeed = Int64(queue.kilobytesPerSecond * 1024)
         var speedClaimed = false
 
-        return SABnzbdJob.inFlight(queue: queue, history: history).compactMap { job in
+        return SABnzbdJob.unpaused(queue: queue, history: history).compactMap { job in
             let status = job.normalizedStatus
             guard status.isActive else { return nil }
 
@@ -1153,8 +1153,11 @@ enum WidgetDataFetcher {
         switch torrent.state ?? .unknown {
         case .downloading, .forcedDL, .metaDL, .stalledDL, .queuedDL, .checkingDL, .allocating, .moving:
             true
-        case .uploading, .forcedUP, .stalledUP, .queuedUP, .checkingUP, .pausedDL, .pausedUP,
-             .stoppedDL, .stoppedUP, .error, .missingFiles, .checkingResumeData, .unknown:
+        // Paused is never active, even while the last poll still shows a rate.
+        case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP:
+            false
+        case .uploading, .forcedUP, .stalledUP, .queuedUP, .checkingUP,
+             .error, .missingFiles, .checkingResumeData, .unknown:
             (torrent.dlspeed ?? 0) > 0
         }
     }

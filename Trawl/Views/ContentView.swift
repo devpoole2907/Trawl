@@ -554,7 +554,7 @@ struct ContentView: View {
     @ViewBuilder
     private var tabContent: some View {
         let services = appServices ?? disconnectedServices
-        let unifiedActiveDownloadCount = services.syncService.activeTorrentCount + sabnzbdServiceManager.activeJobs.count
+        let unifiedActiveDownloadCount = services.syncService.activeTorrentCount + sabnzbdServiceManager.unpausedJobs.count
         Group {
             if hSizeClass == .compact {
                 compactTabs(services: services, downloadBadge: unifiedActiveDownloadCount)

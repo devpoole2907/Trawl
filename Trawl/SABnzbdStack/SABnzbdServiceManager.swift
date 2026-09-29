@@ -102,6 +102,11 @@ final class SABnzbdServiceManager {
         SABnzbdJob.inFlight(queue: queue, history: history)
     }
 
+    /// `activeJobs` without paused work - what the Downloads badge counts.
+    var unpausedJobs: [SABnzbdJob] {
+        SABnzbdJob.unpaused(queue: queue, history: history)
+    }
+
     /// Terminal history entries only (`Completed` / `Failed`).
     var historyJobs: [SABnzbdJob] {
         (history?.jobs ?? []).filter { $0.normalizedStatus.isTerminal }

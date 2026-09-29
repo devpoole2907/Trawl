@@ -381,8 +381,8 @@ struct SABnzbdDecodingTests {
     }
 
     /// The widget fetches one page of each list; SABnzbd's totals say what it left off.
-    @Test("Unlisted In-Flight Count Covers Queue And Post-Processing Beyond The Page")
-    func unlistedInFlightCountCoversBothPages() throws {
+    @Test("Unlisted Unpaused Count Covers Queue And Post-Processing Beyond The Page")
+    func unlistedUnpausedCountCoversBothPages() throws {
         let queueJSON = """
         { "queue": { "noofslots": 3, "noofslots_total": 3, "slots": [
           { "nzo_id": "a", "filename": "A", "status": "Downloading" },
@@ -400,10 +400,42 @@ struct SABnzbdDecodingTests {
         let history = try Self.decoder.decode(SABnzbdHistoryEnvelope.self, from: Data(historyJSON.utf8)).history
 
         // One queue job past the page, two post-processing jobs past it.
-        #expect(SABnzbdJob.unlistedInFlightCount(queue: queue, history: history) == 3)
+        #expect(SABnzbdJob.unlistedUnpausedCount(queue: queue, history: history) == 3)
         // A queued-for-post-processing history job ("Queued") is in flight too.
         #expect(SABnzbdJob.inFlight(queue: queue, history: history).map(\.id) == ["a", "b", "c", "d"])
-        #expect(SABnzbdJob.unlistedInFlightCount(queue: nil, history: nil) == 0)
+        #expect(SABnzbdJob.unlistedUnpausedCount(queue: nil, history: nil) == 0)
+    }
+
+    /// A paused NZB is not active, whether it was paused on its own or sits in a
+    /// paused queue (where SABnzbd still labels it "Queued"). Unpacking carries on
+    /// through a download pause, so post-processing still counts.
+    @Test("Unpaused Jobs Drop Paused Work But Keep Post-Processing")
+    func unpausedJobsDropPausedWork() throws {
+        func queue(paused: Bool) throws -> SABnzbdQueue {
+            let json = """
+            { "queue": { "paused": \(paused), "noofslots_total": 5, "slots": [
+              { "nzo_id": "dl", "filename": "Downloading", "status": "Downloading" },
+              { "nzo_id": "wait", "filename": "Waiting", "status": "Queued" },
+              { "nzo_id": "held", "filename": "Held", "status": "Paused" }
+            ] } }
+            """
+            return try Self.decoder.decode(SABnzbdQueueEnvelope.self, from: Data(json.utf8)).queue
+        }
+        let historyJSON = """
+        { "history": { "slots": [
+          { "nzo_id": "pp", "name": "Unpacking", "status": "Extracting", "stage_log": [] }
+        ] } }
+        """
+        let history = try Self.decoder.decode(SABnzbdHistoryEnvelope.self, from: Data(historyJSON.utf8)).history
+
+        let running = try queue(paused: false)
+        #expect(SABnzbdJob.inFlight(queue: running, history: history).map(\.id) == ["dl", "wait", "held", "pp"])
+        #expect(SABnzbdJob.unpaused(queue: running, history: history).map(\.id) == ["dl", "wait", "pp"])
+        #expect(SABnzbdJob.unlistedUnpausedCount(queue: running, history: history) == 2)
+
+        let paused = try queue(paused: true)
+        #expect(SABnzbdJob.unpaused(queue: paused, history: history).map(\.id) == ["pp"])
+        #expect(SABnzbdJob.unlistedUnpausedCount(queue: paused, history: history) == 0)
     }
 
     @Test("Failed History Slot Surfaces Fail Message")
