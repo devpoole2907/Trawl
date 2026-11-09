@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trawl — iPhone Duo readiness audit</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f6f7fb;
+      --muted: #aeb4c4;
+      --quiet: #767d91;
+      --panel: rgba(21, 25, 39, .82);
+      --panel-2: rgba(30, 35, 53, .82);
+      --line: rgba(255,255,255,.11);
+      --cyan: #63d8ff;
+      --violet: #ab8cff;
+      --lime: #75e9a1;
+      --amber: #ffc76b;
+      --rose: #ff8fa3;
+      --page: #080a12;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 520px at 12% -5%, rgba(83,93,255,.23), transparent 64%),
+        radial-gradient(760px 500px at 92% 2%, rgba(0,206,255,.12), transparent 62%),
+        var(--page);
+      font: 15px/1.58 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+    }
+    a { color: var(--cyan); }
+    code { font-family: "SFMono-Regular", ui-monospace, monospace; font-size: .92em; }
+    .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+    .hero { padding: 78px 0 42px; }
+    .eyebrow { color: var(--cyan); font-size: 12px; font-weight: 760; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { max-width: 900px; margin: 12px 0 18px; font-size: clamp(42px, 7vw, 76px); line-height: .98; letter-spacing: -.052em; }
+    .lede { max-width: 770px; margin: 0; color: #cbd0dc; font-size: clamp(18px, 2.3vw, 23px); line-height: 1.45; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .pill { padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.035); font-size: 12px; }
+    .score-grid { display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 14px; margin: 10px 0 64px; }
+    .score-card, .card, .finding, .shot, .matrix { border: 1px solid var(--line); background: var(--panel); box-shadow: 0 20px 70px rgba(0,0,0,.22); }
+    .score-card { min-height: 164px; padding: 22px; border-radius: 24px; }
+    .score-card.primary { background: linear-gradient(135deg, rgba(171,140,255,.2), rgba(99,216,255,.09)), var(--panel); }
+    .score-label { color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .score-value { margin: 8px 0 6px; font-size: 33px; line-height: 1.05; letter-spacing: -.035em; }
+    .score-note { color: var(--muted); }
+    section { margin: 0 0 76px; }
+    h2 { margin: 0 0 10px; font-size: clamp(29px, 4vw, 43px); line-height: 1.08; letter-spacing: -.035em; }
+    h3 { margin: 0; font-size: 20px; line-height: 1.25; }
+    .section-intro { max-width: 760px; margin: 0 0 24px; color: var(--muted); font-size: 17px; }
+    .card { padding: 24px; border-radius: 22px; }
+    .summary-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; }
+    .summary-grid ul { margin: 14px 0 0; padding-left: 19px; }
+    .summary-grid li + li { margin-top: 8px; }
+    .verdict { border-left: 3px solid var(--amber); }
+    .verdict strong { color: var(--amber); }
+    .matrix { width: 100%; overflow: hidden; border-radius: 22px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 17px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: rgba(255,255,255,.035); font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--quiet); box-shadow: 0 0 0 4px rgba(255,255,255,.03); }
+    .pass .dot { background: var(--lime); }
+    .warn .dot { background: var(--amber); }
+    .fail .dot { background: var(--rose); }
+    .gallery { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+    .shot { grid-column: span 4; overflow: hidden; border-radius: 24px; background: var(--panel-2); }
+    .shot.half { grid-column: span 6; }
+    .shot.wide { grid-column: span 8; }
+    .shot img { display: block; width: 100%; height: auto; background: #111522; }
+    .shot figcaption { padding: 16px 18px 18px; color: var(--muted); }
+    .shot figcaption strong { display: block; margin-bottom: 3px; color: var(--ink); }
+    .finding-list { display: grid; gap: 14px; }
+    .finding { display: grid; grid-template-columns: 78px 1fr 260px; gap: 20px; align-items: start; padding: 22px; border-radius: 22px; }
+    .priority { display: inline-flex; justify-content: center; padding: 6px 8px; border-radius: 9px; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+    .p0 { color: #2b1600; background: var(--amber); }
+    .p1 { color: #260711; background: var(--rose); }
+    .p2 { color: #041a22; background: var(--cyan); }
+    .p3 { color: #120b28; background: var(--violet); }
+    .finding p { margin: 8px 0 0; color: var(--muted); }
+    .evidence { padding: 13px 14px; border-radius: 14px; background: rgba(0,0,0,.24); color: #c8cedb; font: 12px/1.55 "SFMono-Regular", ui-monospace, monospace; overflow-wrap: anywhere; }
+    .good-grid, .plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .good-grid .card, .plan-grid .card { min-height: 180px; }
+    .icon { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 18px; border-radius: 12px; background: rgba(117,233,161,.12); color: var(--lime); font-size: 19px; }
+    .card p { color: var(--muted); }
+    .step { color: var(--violet); font-size: 12px; font-weight: 780; letter-spacing: .08em; text-transform: uppercase; }
+    .method { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .method ol { padding-left: 20px; }
+    .method li + li { margin-top: 8px; }
+    .note { color: var(--quiet); font-size: 13px; }
+    footer { padding: 28px 0 56px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 13px; }
+    @media (max-width: 780px) {
+      .score-grid, .summary-grid, .method { grid-template-columns: 1fr; }
+      .good-grid, .plan-grid { grid-template-columns: 1fr 1fr; }
+      .finding { grid-template-columns: 64px 1fr; }
+      .finding .evidence { grid-column: 2; }
+      .shot, .shot.half, .shot.wide { grid-column: span 6; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .hero { padding-top: 48px; }
+      .good-grid, .plan-grid { grid-template-columns: 1fr; }
+      .shot, .shot.half, .shot.wide { grid-column: span 12; }
+      .finding { grid-template-columns: 1fr; }
+      .finding .evidence { grid-column: 1; }
+      th:nth-child(3), td:nth-child(3) { display: none; }
+    }
+    @media print {
+      body { background: #fff; color: #111; }
+      .score-card, .card, .finding, .shot, .matrix { background: #fff; box-shadow: none; border-color: #ddd; break-inside: avoid; }
+      .muted, .score-note, .section-intro, .finding p, .card p, .shot figcaption { color: #555; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero shell">
+    <div class="eyebrow">Trawl · product readiness review</div>
+    <h1>iPhone Duo audit</h1>
+    <p class="lede">Trawl already has the right adaptive foundation. Real Duo simulator passes show the app selecting its regular split correctly, but full-open and half-open layouts both expose the same pressure point: the sidebar becomes an overlay and leaves the middle column crowded.</p>
+    <div class="meta">
+      <span class="pill">Audit date · 9 Nov 2026</span>
+      <span class="pill">Source · 6d8576c</span>
+      <span class="pill">Branch · iphone-duo-polish</span>
+      <span class="pill">Xcode 27.2 · Duo runtime 27.1</span>
+      <span class="pill">Audit only · no product changes</span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="score-grid">
+      <article class="score-card primary">
+        <div class="score-label">Readiness</div>
+        <div class="score-value">Promising, not finished</div>
+        <div class="score-note">The app adapts by size class and uses native containers. The remaining risk is concentrated in orientation policy and column economics.</div>
+      </article>
+      <article class="score-card">
+        <div class="score-label">Architecture</div>
+        <div class="score-value">Strong</div>
+        <div class="score-note">System <code>TabView</code> outside, balanced <code>NavigationSplitView</code> inside.</div>
+      </article>
+      <article class="score-card">
+        <div class="score-label">Priority</div>
+        <div class="score-value">2 must-fix</div>
+        <div class="score-note">Outer landscape support and device-idiom branching.</div>
+      </article>
+    </div>
+
+    <section id="summary">
+      <h2>Executive read</h2>
+      <p class="section-intro">The good news is structural: this is refinement work, not a navigation rewrite.</p>
+      <div class="summary-grid">
+        <article class="card">
+          <h3>What the audit found</h3>
+          <ul>
+            <li>Full inner display naturally selects Trawl’s regular-width split navigation.</li>
+            <li>Full-open and partially open simulator passes both activate Trawl’s regular split navigation.</li>
+            <li>The current three-column minimum widths make the sidebar a transient overlay. The content + detail pair remains stable, but the overlay covers much of the list and all three columns are not comfortable at once.</li>
+            <li>The compact iPhone proxy confirms the closed-width tab hierarchy remains structurally sound.</li>
+            <li>Phone orientation metadata blocks the outer-display landscape/tent scenario.</li>
+            <li>Three <code>userInterfaceIdiom</code> checks misclassify an open Duo as a narrow phone; two change behavior and one changes padding.</li>
+          </ul>
+        </article>
+        <article class="card verdict">
+          <h3>Recommendation</h3>
+          <p><strong>Proceed with a focused Duo polish tranche.</strong> Keep the existing root architecture. Fix the two blockers, tune column economics, then validate the shared edit/search/notification chrome across poses before introducing any fold-specific API.</p>
+          <p class="note">Do not add model detection or a parallel “Duo UI.” The same hierarchy should survive open, close, rotation, and Split View.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="matrix">
+      <h2>Pose and behavior matrix</h2>
+      <p class="section-intro">The matrix separates what the simulator demonstrates from what source inspection establishes.</p>
+      <div class="matrix">
+        <table>
+          <thead><tr><th>Surface</th><th>Observed / expected behavior</th><th>Assessment</th></tr></thead>
+          <tbody>
+            <tr><td>Outer portrait</td><td>Compact tabs, prominent Search, system bottom chrome.</td><td><span class="status pass"><span class="dot"></span>Baseline works</span></td></tr>
+            <tr><td>Outer landscape / tent</td><td>Required Duo scenario, but excluded by phone orientation metadata.</td><td><span class="status fail"><span class="dot"></span>Blocked</span></td></tr>
+            <tr><td>Inner fully open</td><td>Observed on Duo simulator: regular split activates; content + detail remain stable and the sidebar presents as an overlay over the list.</td><td><span class="status warn"><span class="dot"></span>Works with trade-off</span></td></tr>
+            <tr><td>Inner 50/50 Split View</td><td>Compact width should return to tabs while retaining regular height.</td><td><span class="status pass"><span class="dot"></span>Architecture aligned</span></td></tr>
+            <tr><td>Partially folded</td><td>Observed on Duo simulator: the same regular split remains active. The list gets more usable width than full-open, but the sidebar still overlays it and the detail column remains visible at right.</td><td><span class="status warn"><span class="dot"></span>Crowded overlay</span></td></tr>
+            <tr><td>Vertical bars</td><td>System containers are eligible; text-only Cancel/Save/Close actions remain horizontal by platform rule.</td><td><span class="status warn"><span class="dot"></span>Review shared toolbar</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="screens">
+      <h2>Simulator evidence</h2>
+      <p class="section-intro">Fixture-backed captures keep the app populated and deterministic. Every Duo image below is from the dedicated simulator’s inner display; physical-device material is intentionally excluded.</p>
+      <div class="gallery">
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-open-final/downloads.png" alt="Trawl Downloads on the fully open iPhone Duo simulator">
+          <figcaption><strong>Duo full-open · Downloads</strong>The content + detail pair is stable, while the sidebar floats above the list. This is valid native split behavior, but it is not a persistent three-column workspace.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-open-final/series.png" alt="Trawl Series on the fully open iPhone Duo simulator">
+          <figcaption><strong>Duo full-open · Series</strong>With a selected item, the detail presentation is generous. The middle list is reduced to a narrow strip behind the open sidebar, making selection context hard to scan.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-open-final/movies.png" alt="Trawl Movies on the fully open iPhone Duo simulator">
+          <figcaption><strong>Duo full-open · Movies</strong>Native navigation and selection survive correctly. The screenshot confirms the issue is column allocation, not a broken route or a fold collision.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-open-final/search.png" alt="Trawl Search on the fully open iPhone Duo simulator">
+          <figcaption><strong>Duo full-open · Search</strong>The search destination inherits the split shell, but its largely empty list pane makes the sidebar overlay feel especially heavy.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-partial-final/downloads.png" alt="Trawl Downloads on the partially open iPhone Duo simulator">
+          <figcaption><strong>Duo half-open · Downloads</strong>The populated list has enough room to read, but the sidebar still overlays it. The notification accessory also obscures lower sidebar destinations.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-partial-final/series.png" alt="Trawl Series on the partially open iPhone Duo simulator">
+          <figcaption><strong>Duo half-open · Series</strong>The list becomes the visual center and the detail remains visible at right. Opening the sidebar creates a four-layer composition: sidebar, list, detail, and notification accessory.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-partial-final/movies.png" alt="Trawl Movies on the partially open iPhone Duo simulator">
+          <figcaption><strong>Duo half-open · Movies</strong>Rows remain readable, but horizontal filter chips clip at the trailing edge and the open sidebar competes with the index rail.</figcaption>
+        </figure>
+        <figure class="shot half">
+          <img src="iphone-duo-audit/screenshots/duo-partial-final/search.png" alt="Trawl Search on the partially open iPhone Duo simulator">
+          <figcaption><strong>Duo half-open · Search</strong>Error and empty states center correctly. The compact search field at the bottom of the middle column feels detached once the sidebar overlay is open.</figcaption>
+        </figure>
+        <figure class="shot wide">
+          <img src="iphone-duo-audit/screenshots/compact-proxy/21-downloads-portrait--portrait.png" alt="Trawl Downloads on a compact iPhone simulator">
+          <figcaption><strong>Compact root · Downloads</strong>The system tab hierarchy reads cleanly. The combined notification accessory and tab bar form a deep bottom stack, leaving noticeably less working height.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/compact-proxy/22-series-portrait--portrait.png" alt="Trawl Series on a compact iPhone simulator">
+          <figcaption><strong>Compact root · Series</strong>Native scrolling content and segment controls are safe fold candidates: they should scroll rather than displace.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/compact-proxy/23-movies-portrait--portrait.png" alt="Trawl Movies on a compact iPhone simulator">
+          <figcaption><strong>Compact root · Movies</strong>The same hierarchy can carry across the outer display and a compact-width inner Split View.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/compact-proxy/27-movie-detail-portrait--portrait.png" alt="Trawl movie detail on a compact iPhone simulator">
+          <figcaption><strong>Dense detail pressure</strong>The bottom chrome overlaps the lowest visible card area. This is the most important closed-pose visual pressure point found in the compact pass.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/compact-proxy/28-download-detail-portrait--portrait.png" alt="Trawl download detail on a compact iPhone simulator">
+          <figcaption><strong>Download detail</strong>Content remains reachable by scrolling, but two persistent bottom layers consume a large fraction of the viewport.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="strengths">
+      <h2>What is already right</h2>
+      <div class="good-grid">
+        <article class="card"><div class="icon">✓</div><h3>Size-class root</h3><p><code>horizontalSizeClass</code> chooses compact tabs or the regular split. That matches Duo’s actual contract and also covers inner Split View.</p></article>
+        <article class="card"><div class="icon">✓</div><h3>System navigation</h3><p><code>TabView</code>, <code>NavigationStack</code>, and a balanced three-column <code>NavigationSplitView</code> inherit system fold and vertical-bar behavior.</p></article>
+        <article class="card"><div class="icon">✓</div><h3>No model branches</h3><p>No Duo-model, orientation, or <code>UIScreen.main</code> branching appeared in the root layout scan. The layout remains portable.</p></article>
+      </div>
+    </section>
+
+    <section id="findings">
+      <h2>Prioritized findings</h2>
+      <p class="section-intro">Priority reflects user impact and architectural risk, not estimated implementation time.</p>
+      <div class="finding-list">
+        <article class="finding">
+          <div class="priority p0">P0</div>
+          <div><h3>Enable phone landscape</h3><p>The phone target declares portrait only. Duo guidance explicitly calls for outer landscape because the closed device may be used in tent/stand positions. Until this changes, one of the primary poses cannot be audited or used.</p></div>
+          <div class="evidence">TrawlApp-Info.plist:106–109<br>UISupportedInterfaceOrientations<br>→ Portrait only</div>
+        </article>
+        <article class="finding">
+          <div class="priority p1">P1</div>
+          <div><h3>Replace idiom-based UI decisions</h3><p>An open Duo is still <code>.phone</code>. The Media Server row set and sheet-search placement therefore retain phone choices on a large, regular-width inner display; a shared prominent-button modifier also keeps phone padding. Base these choices on available width or presentation context.</p></div>
+          <div class="evidence">RootTab.swift:38–40<br>ServiceSettingsFormStyle.swift:44–49<br>ProminentBottomButton.swift:51</div>
+        </article>
+        <article class="finding">
+          <div class="priority p1">P1</div>
+          <div><h3>Decide the inner-display column budget</h3><p>Sidebar 220 + content 390 + detail 400 already totals 1,010 points before dividers. In both captured poses SwiftUI keeps content + detail and presents the sidebar as an overlay. Choose that behavior deliberately, or tune minima and column visibility so all three regions can coexist without reducing the list to a sliver.</p></div>
+          <div class="evidence">ContentView.swift:755–764<br>sidebar min 220<br>content min 390<br>detail min 400</div>
+        </article>
+        <article class="finding">
+          <div class="priority p2">P2</div>
+          <div><h3>Pressure-test the notification accessory</h3><p>The accessory is system-hosted, which is good, but it combines with the tab bar into a tall persistent stack on compact screens and obscures lower sidebar destinations on both Duo inner poses. Verify minimized, expanded, vertical-bar, and folded states.</p></div>
+          <div class="evidence">ContentView.swift:658–680<br>tabViewBottomAccessory<br>+ matched-transition overlay</div>
+        </article>
+        <article class="finding">
+          <div class="priority p2">P2</div>
+          <div><h3>Review shared edit actions in vertical-bar poses</h3><p>Cancel, Close, and Save are text-only. Platform behavior keeps text-only items horizontal while icon-bearing items can move vertical. The lifecycle is correct; the audit question is whether the resulting two-axis chrome remains balanced in narrow/half-fold states.</p></div>
+          <div class="evidence">ServiceSettingsFormStyle.swift:103–128<br>TrawlEditToolbar</div>
+        </article>
+        <article class="finding">
+          <div class="priority p3">P3</div>
+          <div><h3>Consider inner-display multiwindow later</h3><p>Multiple scenes are disabled. Duo can create additional windows only on the inner display, but this is an enhancement—not a readiness blocker. Revisit after the single-window pose work is stable.</p></div>
+          <div class="evidence">TrawlApp-Info.plist:85–90<br>UIApplicationSupportsMultipleScenes = false</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="plan">
+      <h2>Recommended implementation sequence</h2>
+      <p class="section-intro">One small tranche should be enough to turn this audit into a production plan.</p>
+      <div class="plan-grid">
+        <article class="card"><div class="step">01 · unblock</div><h3>Orientation + identity</h3><p>Add phone landscape support. Replace the two idiom checks with size/presentation-aware decisions. Add focused navigation coverage.</p></article>
+        <article class="card"><div class="step">02 · tune</div><h3>Column economics</h3><p>Choose explicitly between a stable content+detail pair and a narrower three-column presentation. Validate real sidebar rows, not empty scaffolding.</p></article>
+        <article class="card"><div class="step">03 · polish</div><h3>Folded chrome</h3><p>Audit notifications, edit toolbars, search placement, sheets, alerts, and safe-area asymmetry in closed, vertical-bar, and partial-fold poses.</p></article>
+      </div>
+    </section>
+
+    <section id="method">
+      <h2>Method and boundaries</h2>
+      <div class="method">
+        <article class="card">
+          <h3>What was done</h3>
+          <ol>
+            <li>Fast-forwarded <code>main</code> to the newest branch tip and pushed it.</li>
+            <li>Created <code>iphone-duo-polish</code> from that exact commit.</li>
+            <li>Installed and followed the official Axiom SwiftUI iPhone Duo skill.</li>
+            <li>Reviewed root navigation, orientation metadata, device-identity checks, shared form chrome, and fold-specific API usage.</li>
+            <li>Created a dedicated <code>Trawl Duo Audit</code> simulator, then ran fixture-backed full-open and partially open passes plus a compact proxy pass.</li>
+            <li>Explicitly captured Duo display 3 and visually inspected every report image. XCUITest’s default screenshot API selected the inactive black outer display while open, so those invalid frames were discarded.</li>
+          </ol>
+        </article>
+        <article class="card">
+          <h3>Boundaries</h3>
+          <p>This is an audit, not an implementation. No product source was modified. Physical-device captures and interaction were excluded. Outer landscape remains source-audited rather than runtime-audited because the current phone metadata blocks it. Fold-specific APIs such as <code>reservedRegions</code> and <code>ArrangementView</code> are not recommended merely for device detection; they should be introduced only where custom non-scrolling UI demonstrably collides with an active fold or camera region.</p>
+          <p>Primary guidance: <a href="https://charleswiltgen.github.io/Axiom/skills/ui-design/iphone-duo#iphone-duo">Axiom · iPhone Duo</a>.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell">Trawl iPhone Duo audit · generated from commit 6d8576c · simulator-only evidence</div></footer>
+</body>
+</html>
