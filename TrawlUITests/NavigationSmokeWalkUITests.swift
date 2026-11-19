@@ -248,6 +248,23 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
             "N-02 regression: SABnzbdManagerView should render the seeded job (proving SyncService/TorrentService/SABnzbdServiceManager all resolved) instead of trapping on a missing @Environment value."
         )
+        XCTAssertTrue(
+            app.buttons["History"].waitForExistence(timeout: 5),
+            "SABnzbd scope should retain History as its terminal-job ledger."
+        )
+        XCTAssertFalse(
+            app.buttons["Seeding"].exists,
+            "SABnzbd scope should not expose the torrent-only Seeding segment."
+        )
+        XCTAssertFalse(
+            app.buttons["Completed"].exists,
+            "SABnzbd scope should not duplicate the successful subset of History as Completed."
+        )
+
+        let sabScopeScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        sabScopeScreenshot.name = "SABnzbd Downloads Scope"
+        sabScopeScreenshot.lifetime = .keepAlways
+        add(sabScopeScreenshot)
 
         // Back to the unified list, so the Blocklist walk below starts where it
         // expects to.

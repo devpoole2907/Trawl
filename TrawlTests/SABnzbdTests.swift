@@ -6,6 +6,21 @@ import Foundation
 struct SABnzbdDecodingTests {
     private static let decoder = JSONDecoder()
 
+    @Test("SABnzbd scope uses History instead of torrent-only or redundant sections")
+    @MainActor
+    func sabnzbdScopeSections() {
+        #expect(DownloadsTitleDestination.sabQueue.supports(.active))
+        #expect(DownloadsTitleDestination.sabQueue.supports(.queue))
+        #expect(DownloadsTitleDestination.sabQueue.supports(.history))
+        #expect(DownloadsTitleDestination.sabQueue.supports(.issues))
+        #expect(!DownloadsTitleDestination.sabQueue.supports(.completed))
+        #expect(!DownloadsTitleDestination.sabQueue.supports(.seeding))
+
+        for section in DownloadSection.allCases {
+            #expect(DownloadsTitleDestination.downloads.supports(section))
+        }
+    }
+
     // MARK: - Queue
 
     @Test("Queue Envelope Decodes With Mixed Scalar Types")

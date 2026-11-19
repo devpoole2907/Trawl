@@ -524,9 +524,10 @@ struct DownloadsView: View {
             //
             .configurationAttention(.downloads)
             .onChange(of: visibleSections) { _, sections in
-                // The selected segment keeps itself visible while it's selected, so
-                // this only fires when the segment goes away for a reason the user
-                // can't see around - the torrent client being removed.
+                // A selected segment normally keeps itself visible while it empties.
+                // Scope changes are different: SABnzbd cannot seed, and its successful
+                // terminal jobs already live in History, so an incompatible segment
+                // falls back to Active instead of leaking into the new destination.
                 if !sections.contains(selectedSection) {
                     withAnimation { selectedSection = .active }
                 }
@@ -1671,9 +1672,10 @@ struct DownloadsView: View {
         return count == 1 ? "1 item" : "\(count) items"
     }
 
-    /// Seeding is torrent-only, while Completed can contain stopped torrents and
-    /// completed SABnzbd jobs. Each is dropped when its relevant client is absent,
-    /// and again when it has nothing in it rather than sitting permanently empty.
+    /// Seeding is torrent-only. Completed belongs to the blended and torrent scopes;
+    /// SABnzbd's successful terminal jobs already appear in its History alongside
+    /// failures, so showing Completed there would be a redundant partial history.
+    /// Sections are also dropped when their relevant client is absent or empty.
     ///
     /// The segment the user is currently *on* always stays, even once it empties.
     /// Pausing the last seeding torrent while sitting on Seeding would otherwise
@@ -1686,7 +1688,9 @@ struct DownloadsView: View {
     /// far too expensive to drive a segment bar with.
     private var visibleSections: [DownloadSection] {
         DownloadSection.allCases.filter { section in
-            switch section {
+            guard titleDestination.supports(section) else { return false }
+
+            return switch section {
             case .completed:
                 (hasQBittorrentServer || hasSABnzbdServer)
                     && (hasCompletedDownloads || selectedSection == .completed)
@@ -1821,6 +1825,18 @@ enum DownloadsTitleDestination: String, CaseIterable, Identifiable, Hashable {
         case .downloads: "tray.and.arrow.down"
         case .sabQueue: ServiceIdentity.sabnzbd.systemImage
         case .torrents: "arrow.down.circle.fill"
+        }
+    }
+
+    /// SABnzbd has no seeding state. Its History is the terminal ledger, with
+    /// Completed as the successful subset, so a second Completed segment adds no
+    /// information when the title destination is scoped to SABnzbd alone.
+    func supports(_ section: DownloadSection) -> Bool {
+        switch (self, section) {
+        case (.sabQueue, .completed), (.sabQueue, .seeding):
+            false
+        default:
+            true
         }
     }
 }
