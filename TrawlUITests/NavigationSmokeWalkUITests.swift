@@ -464,11 +464,25 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         let downloadsOptionsButton = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "Downloads Options"))
             .firstMatch
+        if downloadsOptionsButton.waitForExistence(timeout: 2) {
+            downloadsOptionsButton.tap()
+            return
+        }
+
+        // Duo's vertical toolbar first collapses trailing actions into a system
+        // overflow button. Opening that layer reveals Trawl's own Downloads Options
+        // menu, which must then be opened before Client Management is available.
+        let systemOverflow = app.buttons["BottomOverflowBarButtonItem"]
         XCTAssertTrue(
-            downloadsOptionsButton.waitForExistence(in: app, timeout: 10),
+            systemOverflow.waitForExistence(in: app, timeout: 10),
             "Downloads should show its overflow 'Downloads Options' menu once a client is configured."
         )
-        downloadsOptionsButton.tap()
+        systemOverflow.tap()
+
+        let revealedDownloadsOptions = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Downloads Options"))
+            .firstMatch
+        tapMenuItem(revealedDownloadsOptions, named: "Downloads Options")
     }
 
     // MARK: - Navigation helpers
@@ -503,7 +517,8 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             file: file,
             line: line
         )
-        let backButton = backButton(in: bar)
+        let verticalBack = app.buttons["BackButton"]
+        let backButton = verticalBack.exists ? verticalBack : backButton(in: bar)
         XCTAssertTrue(
             backButton.waitForExistence(timeout: 5),
             "Screen: '\(fromTitle)' should offer a back control to return to the previous screen.",
@@ -546,7 +561,32 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
         switch TrawlChrome.current {
         case .tabBar:
-            popBack(app, fromTitle: hub.title, file: file, line: line)
+            let destinationBar = app.navigationBars[hub.title]
+            if destinationBar.frame.minX > app.frame.minX + 1 {
+                // Setup Check is presented as an inset sheet from the compact System
+                // hub. A global BackButton still exists behind it on Duo's vertical
+                // rail, so blindly tapping that control changes the covered stack and
+                // leaves the sheet blocking every destination that follows.
+                let start = destinationBar.coordinate(
+                    withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+                )
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+                start.press(forDuration: 0.05, thenDragTo: end)
+
+                let dismissed = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "exists == false"),
+                    object: destinationBar
+                )
+                XCTAssertEqual(
+                    XCTWaiter().wait(for: [dismissed], timeout: 5),
+                    .completed,
+                    "Screen: '\(hub.title)' sheet should dismiss back to its hub.",
+                    file: file,
+                    line: line
+                )
+            } else {
+                popBack(app, fromTitle: hub.title, file: file, line: line)
+            }
             let row = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", hub.title)).firstMatch
             XCTAssertTrue(
                 row.waitForExistence(in: app, timeout: 10),

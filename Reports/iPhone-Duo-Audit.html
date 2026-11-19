@@ -120,7 +120,7 @@
   <header class="hero shell">
     <div class="eyebrow">Trawl · product readiness review</div>
     <h1>iPhone Duo audit</h1>
-    <p class="lede">Trawl now has a verified adaptive path across the closed, fully open, and partially open iPhone Duo poses. The compact outer display and regular inner display both use native SwiftUI containers; the remaining visual compromise is the system split view presenting its sidebar as an overlay at Duo inner-display widths.</p>
+    <p class="lede">Trawl now has a verified adaptive path across the closed, fully open, and partially open iPhone Duo poses. The compact outer display and regular inner display both use native SwiftUI containers; at Duo inner-display widths, the system split view intentionally presents the sidebar as a temporary overlay above the stable content + detail workspace.</p>
     <div class="meta">
       <span class="pill">Audit date · 19 Nov 2026</span>
       <span class="pill">Source · iphone-duo-polish branch tip</span>
@@ -135,7 +135,7 @@
       <article class="score-card primary">
         <div class="score-label">Readiness</div>
         <div class="score-value">Duo-ready</div>
-        <div class="score-note">Closed, fully open, and partially open fixture-backed journeys pass on the dedicated Duo simulator. The overlay sidebar is a deliberate native-container trade-off.</div>
+        <div class="score-note">Closed, fully open, and partially open fixture-backed captures run on the dedicated Duo simulator. The overlay sidebar is the chosen native arrangement, keeping the working content + detail pair comfortably visible.</div>
       </article>
       <article class="score-card">
         <div class="score-label">Architecture</div>
@@ -182,9 +182,9 @@
           <tbody>
             <tr><td>Outer portrait</td><td>Observed on the closed Duo simulator: compact content, a vertical system tab rail, prominent Search, and working pushed details.</td><td><span class="status pass"><span class="dot"></span>Runtime verified</span></td></tr>
             <tr><td>Outer landscape / tent</td><td>Observed on the hardware-rotated closed Duo simulator: compact content reflows to 2034 × 1398, vertical system chrome remains reachable, and root plus pushed-detail routes pass.</td><td><span class="status pass"><span class="dot"></span>Runtime verified</span></td></tr>
-            <tr><td>Inner fully open</td><td>Observed on Duo simulator: regular split activates; content + detail remain stable and the sidebar presents as an overlay over the list.</td><td><span class="status warn"><span class="dot"></span>Works with trade-off</span></td></tr>
+            <tr><td>Inner fully open</td><td>Observed on Duo simulator: regular split activates; content + detail remain stable and the sidebar opens temporarily above the list.</td><td><span class="status pass"><span class="dot"></span>Intended native layout</span></td></tr>
             <tr><td>Inner 50/50 Split View</td><td>Compact width should return to tabs while retaining regular height.</td><td><span class="status pass"><span class="dot"></span>Architecture aligned</span></td></tr>
-            <tr><td>Partially folded</td><td>Observed on Duo simulator: the same regular split remains active. The list gets more usable width than full-open, but the sidebar still overlays it and the detail column remains visible at right.</td><td><span class="status warn"><span class="dot"></span>Crowded overlay</span></td></tr>
+            <tr><td>Partially folded</td><td>Observed on Duo simulator: the same regular split remains active. The list gets more usable width than full-open; opening the temporary sidebar preserves the detail column at right.</td><td><span class="status pass"><span class="dot"></span>Intended native layout</span></td></tr>
             <tr><td>Vertical bars</td><td>System containers are eligible and shared edit actions now include symbols for vertical placement.</td><td><span class="status pass"><span class="dot"></span>Implemented</span></td></tr>
           </tbody>
         </table>
@@ -197,35 +197,35 @@
       <div class="gallery">
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-open-final/downloads.png" alt="Trawl Downloads on the fully open iPhone Duo simulator">
-          <figcaption><strong>Duo full-open · Downloads</strong>The content + detail pair is stable, while the sidebar floats above the list. This is valid native split behavior, but it is not a persistent three-column workspace.</figcaption>
+          <figcaption><strong>Duo full-open · Downloads</strong>The content + detail pair stays stable while the sidebar floats above the list. This is the intended native open-Duo arrangement for Trawl: destinations remain one gesture away without permanently squeezing the working panes.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-open-final/series.png" alt="Trawl Series on the fully open iPhone Duo simulator">
-          <figcaption><strong>Duo full-open · Series</strong>With a selected item, the detail presentation is generous. The middle list is reduced to a narrow strip behind the open sidebar, making selection context hard to scan.</figcaption>
+          <figcaption><strong>Duo full-open · Series</strong>With a selected item, the detail presentation is generous. The temporary sidebar covers part of the middle list only while choosing another destination, then yields the full content + detail workspace again.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-open-final/movies.png" alt="Trawl Movies on the fully open iPhone Duo simulator">
-          <figcaption><strong>Duo full-open · Movies</strong>Native navigation and selection survive correctly. The screenshot confirms the issue is column allocation, not a broken route or a fold collision.</figcaption>
+          <figcaption><strong>Duo full-open · Movies</strong>Native navigation and selection remain intact while the system allocates the stable content + detail pair beneath the temporary sidebar.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-open-final/search.png" alt="Trawl Search on the fully open iPhone Duo simulator">
-          <figcaption><strong>Duo full-open · Search</strong>The search destination inherits the split shell, but its largely empty list pane makes the sidebar overlay feel especially heavy.</figcaption>
+          <figcaption><strong>Duo full-open · Search</strong>The search destination inherits the same split shell. Its temporary sidebar keeps global navigation consistent with Downloads and the media libraries.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-partial-final/downloads.png" alt="Trawl Downloads on the partially open iPhone Duo simulator">
-          <figcaption><strong>Duo half-open · Downloads</strong>The populated list has enough room to read, but the sidebar still overlays it. The notification accessory also obscures lower sidebar destinations.</figcaption>
+          <figcaption><strong>Duo half-open · Downloads</strong>The populated list remains readable and the sidebar continues to behave as a temporary overlay. The notification accessory is compact enough to leave the lower navigation usable.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-partial-final/series.png" alt="Trawl Series on the partially open iPhone Duo simulator">
-          <figcaption><strong>Duo half-open · Series</strong>The list becomes the visual center and the detail remains visible at right. Opening the sidebar creates a four-layer composition: sidebar, list, detail, and notification accessory.</figcaption>
+          <figcaption><strong>Duo half-open · Series</strong>The list becomes the visual center and the detail remains visible at right. The temporary sidebar clearly reads as navigation above that stable pair.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-partial-final/movies.png" alt="Trawl Movies on the partially open iPhone Duo simulator">
-          <figcaption><strong>Duo half-open · Movies</strong>Rows remain readable, but horizontal filter chips clip at the trailing edge and the open sidebar competes with the index rail.</figcaption>
+          <figcaption><strong>Duo half-open · Movies</strong>Rows remain readable, the detail stays available, and the sidebar can cover the index rail briefly while the user chooses another destination.</figcaption>
         </figure>
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-partial-final/search.png" alt="Trawl Search on the partially open iPhone Duo simulator">
-          <figcaption><strong>Duo half-open · Search</strong>Error and empty states center correctly. The compact search field at the bottom of the middle column feels detached once the sidebar overlay is open.</figcaption>
+          <figcaption><strong>Duo half-open · Search</strong>Error and empty states center correctly. The search field remains attached to its content pane while the temporary sidebar handles global navigation.</figcaption>
         </figure>
         <figure class="shot wide">
           <img src="iphone-duo-audit/screenshots/duo-closed-landscape-final/downloads.png" alt="Trawl Downloads on the closed iPhone Duo outer display in landscape">

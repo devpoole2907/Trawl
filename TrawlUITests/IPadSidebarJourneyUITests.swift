@@ -52,11 +52,18 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// openable row.
     private static let headlineDownload = "Sidebar Journey NZB"
 
+    @MainActor
+    private var preferredSidebarOrientation: UIDeviceOrientation {
+        ProcessInfo.processInfo.environment["TRAWL_UITEST_DUO"] == "1"
+            ? .portrait
+            : .landscapeLeft
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         try XCTSkipUnless(
-            UIDevice.current.userInterfaceIdiom == .pad,
-            "The iPad sidebar does not exist at compact width; nothing here applies to a phone."
+            TrawlChrome.isSidebar,
+            "This destination is not presenting the regular sidebar chrome."
         )
     }
 
@@ -656,7 +663,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let movieServer = try await RadarrFixtureServer(queueResponseJSON: queueJSON)
         radarr = movieServer
 
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = preferredSidebarOrientation
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = movieServer.baseURL
@@ -1013,7 +1020,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             )
         }
 
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = preferredSidebarOrientation
 
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
@@ -1028,8 +1035,13 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        XCTAssertNotNil(
-            sidebarRow(app, "Downloads"),
+        // The open Duo's inner display keeps the regular split-view chrome while
+        // starting with its sidebar collapsed, especially in portrait. Reveal it the
+        // same way a user does instead of assuming the permanently visible iPad
+        // landscape arrangement.
+        revealSidebarIfHidden(in: app)
+        XCTAssertTrue(
+            app.collectionViews["Sidebar"].waitForExistence(timeout: 5),
             "A launch with configured services should reach the sidebar."
         )
         return app

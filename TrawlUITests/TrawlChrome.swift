@@ -34,12 +34,11 @@ import XCTest
 
 /// Which root chrome the running device presents.
 ///
-/// Idiom rather than an actual size-class read, because XCUITest has no view of the
-/// environment. That makes one case this deliberately gets wrong: an iPad in a narrow
-/// multitasking slot is compact, and would be reported here as `.sidebar`. No test in
-/// this target runs multitasking - XCUITest cannot arrange one - so the distinction
-/// costs nothing today, and `ensureRootChromeIsReady` fails with a legible message
-/// rather than a mystery if that ever changes.
+/// XCUITest cannot read SwiftUI's size-class environment. Ordinary runs therefore use
+/// idiom as a default, while adaptive-device runs can name the observed chrome through
+/// `TRAWL_UITEST_CHROME`. An open iPhone Duo is still a phone idiom but presents the
+/// regular sidebar, so treating idiom as authoritative would make the test harness
+/// reject the UI it is supposed to verify.
 enum TrawlChrome {
     /// Five tabs, with seven more destinations inside More.
     case tabBar
@@ -47,10 +46,17 @@ enum TrawlChrome {
     case sidebar
 
     static var current: TrawlChrome {
+        if let override = ProcessInfo.processInfo.environment["TRAWL_UITEST_CHROME"] {
+            switch override.lowercased() {
+            case "tabbar", "compact": return .tabBar
+            case "sidebar", "regular": return .sidebar
+            default: break
+            }
+        }
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .pad ? .sidebar : .tabBar
+        return UIDevice.current.userInterfaceIdiom == .pad ? .sidebar : .tabBar
         #else
-        .sidebar
+        return .sidebar
         #endif
     }
 
@@ -301,11 +307,10 @@ extension XCTestCase {
     func ensureRootChromeIsReady(in app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
         switch TrawlChrome.current {
         case .tabBar:
-            let downloads = app.tabBars.buttons[TrawlDestination.downloads.title]
-            if downloads.waitForExistence(timeout: timeout) { return true }
+            if compactRootControl(for: .downloads, in: app, timeout: timeout) != nil { return true }
             // A relaunch inside a suite can come back with the bar still minimised.
             expandTabBarIfMinimized(in: app)
-            return downloads.waitForExistence(timeout: 5)
+            return compactRootControl(for: .downloads, in: app, timeout: 5) != nil
         case .sidebar:
             // Landscape, and this is the one place it can be set: right after launch,
             // before any navigation has happened.
@@ -423,12 +428,11 @@ extension XCTestCase {
     /// recover from.
     @MainActor
     func revealSidebarIfHidden(in app: XCUIApplication) {
-        // Any sidebar row will do as proof it is already showing; Downloads is always
-        // the first one.
-        let anyRow = app.cells
-            .containing(NSPredicate(format: "identifier == %@", TrawlDestination.downloads.navigationIdentifier))
-            .firstMatch
-        if anyRow.exists { return }
+        // The overlay sidebar preserves its scroll position. Checking only its first
+        // row mistakes an already-open, scrolled sidebar for a closed one and taps
+        // the same system control as "Hide Sidebar". The collection itself is the
+        // stable proof that the overlay is currently on screen.
+        if app.collectionViews["Sidebar"].exists { return }
 
         // Case-insensitive on both, and matched in one query rather than two: the
         // identifier and the label are the same control, and which of them XCUITest
@@ -454,11 +458,12 @@ extension XCTestCase {
         timeout: TimeInterval
     ) -> Bool {
         guard destination.isHubBehindMore else {
-            let tab = app.tabBars.buttons[destination.title]
-            if !tab.waitForExistence(timeout: 3) {
+            var tab = compactRootControl(for: destination, in: app, timeout: 3)
+            if tab == nil {
                 expandTabBarIfMinimized(in: app)
-                guard tab.waitForExistence(timeout: timeout) else { return false }
+                tab = compactRootControl(for: destination, in: app, timeout: timeout)
             }
+            guard let tab else { return false }
             return tapWhenPossible(tab)
         }
 
@@ -472,11 +477,14 @@ extension XCTestCase {
                 && confirmArrival(at: destination, in: app, timeout: timeout)
         }
 
-        let more = app.tabBars.buttons["More"]
-        if !more.waitForExistence(timeout: 3) {
+        var more = compactMoreControl(in: app, timeout: 3)
+        if more == nil {
             expandTabBarIfMinimized(in: app)
+            more = compactMoreControl(in: app, timeout: timeout)
         }
-        guard more.waitForExistence(timeout: timeout), tapWhenPossible(more) else { return false }
+        guard let more, tapWhenPossible(more) else { return false }
+        dismissNotificationsSheetIfPresent(in: app)
+        popCompactMoreStackToRoot(in: app)
 
         // More's own list is long enough that several rows start below the fold, so
         // the row is scrolled to rather than merely waited for.
@@ -487,24 +495,24 @@ extension XCTestCase {
                 "\(destination.title),"
             ))
             .firstMatch
-        if !row.waitForExistence(timeout: 3) {
+        if !row.waitForExistence(timeout: 3),
+           let moreList = compactMoreRootCollection(in: app) {
             for _ in 0..<8 {
-                app.swipeUp()
+                moreList.swipeUp()
                 if row.waitForExistence(timeout: 1) { break }
             }
         }
         guard row.waitForExistence(timeout: 5) else { return false }
 
-        // A TabView keeps off-screen tabs mounted. The shared scrolling helper can
-        // therefore find the previous tab's retained list before More's visible
-        // list and scroll the wrong screen. Settings is the last More row and starts
-        // below the fold, so drive the gesture through the visible application until
-        // that exact row is hittable. Do not coordinate-tap an off-screen row: its
-        // synthesized coordinate can overlap the tab bar and silently select the
-        // previous tab instead.
-        for _ in 0..<8 where !row.isHittable {
-            app.swipeUp()
-            _ = row.waitForExistence(timeout: 0.5)
+        // A TabView keeps off-screen tabs mounted. Scroll the visible More collection
+        // itself: on Duo's landscape outer display an application-wide swipe can
+        // begin over the persistent notification accessory and open its sheet instead
+        // of moving this list.
+        if let moreList = compactMoreRootCollection(in: app) {
+            for _ in 0..<8 where !row.isHittable {
+                moreList.swipeUp()
+                _ = row.waitForExistence(timeout: 0.5)
+            }
         }
         guard row.isHittable else { return false }
         row.tap()
@@ -549,6 +557,79 @@ extension XCTestCase {
         }
         guard let collapsed, collapsed.isHittable else { return }
         collapsed.tap()
+    }
+
+    /// A compact root control can be hosted by a conventional bottom `tabBar` or by
+    /// Duo's vertical system rail. Both carry the stable `nav.*` identifier; querying
+    /// all buttons first keeps the route independent of the system container shape.
+    @MainActor
+    private func compactRootControl(
+        for destination: TrawlDestination,
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let identified = app.buttons[destination.navigationIdentifier]
+        if identified.waitForExistence(timeout: timeout) { return identified }
+
+        let conventional = app.tabBars.buttons[destination.title]
+        return conventional.waitForExistence(timeout: 1) ? conventional : nil
+    }
+
+    @MainActor
+    private func compactMoreControl(
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let identified = app.buttons["nav.more"]
+        if identified.waitForExistence(timeout: timeout) { return identified }
+
+        let conventional = app.tabBars.buttons["More"]
+        return conventional.waitForExistence(timeout: 1) ? conventional : nil
+    }
+
+    /// Selecting the already-active More rail item does not reset its NavigationStack.
+    /// Before opening another deep destination, unwind only the system `BackButton`
+    /// controls. On Duo these live in the vertical rail rather than inside the named
+    /// navigation bar, which is why a bar-scoped lookup cannot perform this reset.
+    @MainActor
+    private func popCompactMoreStackToRoot(in app: XCUIApplication) {
+        for _ in 0..<8 {
+            let back = app.buttons["BackButton"]
+            guard back.waitForExistence(timeout: 0.5) else { return }
+            guard tapWhenPossible(back, timeout: 2) else { return }
+        }
+    }
+
+    /// The notification accessory sits beside Duo's compact vertical rail. A broad
+    /// swipe can begin on it and present the Notifications sheet instead of moving
+    /// More's list. Close that sheet before resolving the root collection so a later
+    /// route cannot accidentally scroll the modal's inset list.
+    @MainActor
+    private func dismissNotificationsSheetIfPresent(in app: XCUIApplication) {
+        let notifications = app.navigationBars["Notifications"]
+        guard notifications.waitForExistence(timeout: 0.5) else { return }
+
+        let start = notifications.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        start.press(forDuration: 0.05, thenDragTo: end)
+
+        let gone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: notifications
+        )
+        _ = XCTWaiter().wait(for: [gone], timeout: 3)
+    }
+
+    /// Returns More's full-window collection, excluding inset sheets such as Recent
+    /// Notifications. The Duo outer display keeps off-screen TabView collections in
+    /// the hierarchy, so the visible, largest collection is the reliable root.
+    @MainActor
+    private func compactMoreRootCollection(in app: XCUIApplication) -> XCUIElement? {
+        app.collectionViews.allElementsBoundByIndex
+            .filter { $0.isHittable }
+            .max { lhs, rhs in
+                lhs.frame.width * lhs.frame.height < rhs.frame.width * rhs.frame.height
+            }
     }
 
     // MARK: Shared
@@ -769,8 +850,7 @@ extension XCTestCase {
         let field: XCUIElement
         switch TrawlChrome.current {
         case .tabBar:
-            let more = app.tabBars.buttons["More"]
-            guard more.waitForExistence(timeout: 15), tapWhenPossible(more) else { return false }
+            guard let more = compactMoreControl(in: app, timeout: 15), tapWhenPossible(more) else { return false }
             field = app.searchFields["Search settings and features"]
             guard field.waitForExistence(timeout: 10) else { return false }
         case .sidebar:
