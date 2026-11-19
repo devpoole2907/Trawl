@@ -382,46 +382,53 @@ struct ArrBackupsView: View {
     @ToolbarContentBuilder
     private var backupsToolbar: some ToolbarContent {
             if !availableSources.isEmpty {
+                // One menu rather than three buttons. Sort, Upload and Create side by
+                // side made the trailing group wide enough to push the inline title
+                // to the leading edge; Users and Indexers already gather theirs.
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    Menu {
-                        ForEach(BackupSortOrder.allCases) { order in
-                            Button {
-                                withAnimation {
-                                    sortOrder = order
-                                }
-                            } label: {
-                                if sortOrder == order {
-                                    Label(order.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Label(order.rawValue, systemImage: order.systemImage)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: sortOrder.systemImage)
-                    }
-                    .disabled(selectedBackupsIsEmpty)
-
-                    if selectedSource?.supportsUpload == true {
-                        if selectedIsUploading {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button("Upload Backup", systemImage: "arrow.up.doc") {
-                                showingFilePicker = true
-                            }
-                        }
-                    }
-
-                    if selectedIsCreating {
+                    if selectedIsCreating || selectedIsUploading {
                         ProgressView().controlSize(.small)
-                    } else {
-                        Button("Create Backup", systemImage: "externaldrive.badge.plus") {
-                            switch selectedSource {
-                            case .arr: sourcePendingBackupCreation = selectedSource
-                            case .jellyfin: showingJellyfinCreateSheet = true
-                            case nil: break
+                    }
+
+                    Menu {
+                        Section {
+                            Button("Create Backup", systemImage: "externaldrive.badge.plus") {
+                                switch selectedSource {
+                                case .arr: sourcePendingBackupCreation = selectedSource
+                                case .jellyfin: showingJellyfinCreateSheet = true
+                                case nil: break
+                                }
+                            }
+                            .disabled(selectedIsCreating)
+
+                            if selectedSource?.supportsUpload == true {
+                                Button("Upload Backup", systemImage: "arrow.up.doc") {
+                                    showingFilePicker = true
+                                }
+                                .disabled(selectedIsUploading)
                             }
                         }
+
+                        Menu {
+                            ForEach(BackupSortOrder.allCases) { order in
+                                Button {
+                                    withAnimation {
+                                        sortOrder = order
+                                    }
+                                } label: {
+                                    if sortOrder == order {
+                                        Label(order.rawValue, systemImage: "checkmark")
+                                    } else {
+                                        Label(order.rawValue, systemImage: order.systemImage)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Sort", systemImage: sortOrder.systemImage)
+                        }
+                        .disabled(selectedBackupsIsEmpty)
+                    } label: {
+                        Label("Backup Actions", systemImage: "ellipsis")
                     }
                 }
             }
