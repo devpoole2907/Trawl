@@ -928,7 +928,6 @@ struct SonarrSeriesDetailView: View {
         seriesSearchButtons(series)
     }
 
-
     /// Extracted so the direct (one server) and chosen-server paths cannot drift.
     private func performAutomaticSearch(_ series: SonarrSeries) {
         guard !isDispatchingSeriesSearch else { return }
@@ -961,7 +960,7 @@ struct SonarrSeriesDetailView: View {
     }
 
     private func seriesSearchButtons(_ series: SonarrSeries) -> some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 10) {
             Button {
                 // With two servers the choice is made here rather than held as a
                 // mode: HD and 4K want different releases, and the answer is only
@@ -972,9 +971,9 @@ struct SonarrSeriesDetailView: View {
                     pendingServerAction = .automaticSearch
                 }
             } label: {
-                detailSearchButtonLabel(
-                    title: "Automatic",
-                    subtitle: "Search all monitored",
+                ArrSearchActionRow(
+                    title: "Automatic Search",
+                    subtitle: "Search all monitored episodes",
                     systemImage: "magnifyingglass",
                     isLoading: isDispatchingSeriesSearch
                 )
@@ -990,8 +989,8 @@ struct SonarrSeriesDetailView: View {
                     pendingServerAction = .interactiveSearch
                 }
             } label: {
-                detailSearchButtonLabel(
-                    title: "Interactive",
+                ArrSearchActionRow(
+                    title: "Interactive Search",
                     subtitle: "Pick a release",
                     systemImage: "person.fill",
                     trailingSystemImage: "arrow.up.forward.square"
@@ -1000,51 +999,6 @@ struct SonarrSeriesDetailView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private func detailSearchButtonLabel(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(.purple)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var cardDivider: some View {

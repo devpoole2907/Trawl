@@ -515,11 +515,12 @@ struct RadarrMovieSearchView: View {
                 }
             }
         } label: {
-            movieSearchActionRow(
+            ArrSearchActionRow(
                 title: "Automatic Search",
                 subtitle: "Ask Radarr to search indexers using its normal rules.",
                 systemImage: "magnifyingglass",
-                isLoading: isDispatchingAutomaticSearch
+                isLoading: isDispatchingAutomaticSearch,
+                accentColor: .orange
             )
         }
         .buttonStyle(.plain)
@@ -545,57 +546,16 @@ struct RadarrMovieSearchView: View {
             interactiveSearchSessionID = UUID()
             showInteractiveSearchSheet = true
         } label: {
-            movieSearchActionRow(
+            ArrSearchActionRow(
                 title: "Interactive Search",
                 subtitle: "Browse releases yourself and choose exactly what to grab.",
                 systemImage: "person.fill",
-                trailingSystemImage: "arrow.up.forward.square"
+                trailingSystemImage: "arrow.up.forward.square",
+                accentColor: .orange
             )
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-    }
-
-    private func movieSearchActionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(.orange)
-                .frame(width: 28)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .padding(12)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func movieSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {

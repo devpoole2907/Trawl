@@ -949,7 +949,7 @@ struct RadarrMovieDetailView: View {
     private func searchActionsCard(_ movie: RadarrMovie) -> some View {
         let target = actionCopy ?? movie
         VStack(spacing: 12) {
-            HStack(spacing: 12) {
+            VStack(spacing: 10) {
                 Button {
                     // HD and 4K want different releases into different root folders,
                     // so with a pair the server is chosen here rather than inherited
@@ -960,11 +960,12 @@ struct RadarrMovieDetailView: View {
                         pendingServerAction = .automaticSearch
                     }
                 } label: {
-                    detailSearchButtonLabel(
-                        title: "Automatic",
-                        subtitle: "Normal search",
+                    ArrSearchActionRow(
+                        title: "Automatic Search",
+                        subtitle: "Let Radarr pick the best release",
                         systemImage: "magnifyingglass",
-                        isLoading: isDispatchingAutomaticSearch
+                        isLoading: isDispatchingAutomaticSearch,
+                        accentColor: .orange
                     )
                 }
                 .buttonStyle(.plain)
@@ -977,11 +978,12 @@ struct RadarrMovieDetailView: View {
                         pendingServerAction = .interactiveSearch
                     }
                 } label: {
-                    detailSearchButtonLabel(
-                        title: "Interactive",
+                    ArrSearchActionRow(
+                        title: "Interactive Search",
                         subtitle: "Pick a release",
                         systemImage: "person.fill",
-                        trailingSystemImage: "arrow.up.forward.square"
+                        trailingSystemImage: "arrow.up.forward.square",
+                        accentColor: .orange
                     )
                 }
                 .buttonStyle(.plain)
@@ -1081,51 +1083,6 @@ struct RadarrMovieDetailView: View {
             return "\(target.title) was sent to Radarr for automatic search."
         }
         return "\(target.title) was sent to \(ref.displayName) for automatic search."
-    }
-
-    private func detailSearchButtonLabel(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(.orange)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var cardDivider: some View {

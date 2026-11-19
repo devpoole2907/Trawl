@@ -829,7 +829,7 @@ struct SonarrSeasonSearchView: View {
                 isDispatchingBazarrSearch = false
             }
         } label: {
-            seasonSearchActionRow(
+            ArrSearchActionRow(
                 title: "Queue Series Subtitle Search",
                 subtitle: "Queue Bazarr's series-wide missing subtitle search.",
                 systemImage: ServiceIdentity.bazarr.systemImage,
@@ -845,7 +845,7 @@ struct SonarrSeasonSearchView: View {
         Button {
             bazarrInteractiveSearchTarget = missingEps.first
         } label: {
-            seasonSearchActionRow(
+            ArrSearchActionRow(
                 title: "Interactive Subtitle Search",
                 subtitle: "Open interactive search for a missing episode.",
                 systemImage: "person.fill",
@@ -981,7 +981,7 @@ struct SonarrSeasonSearchView: View {
                 }
             }
         } label: {
-            seasonSearchActionRow(
+            ArrSearchActionRow(
                 title: "Automatic Search",
                 subtitle: "Let Sonarr search indexers for every monitored episode in this season.",
                 systemImage: "magnifyingglass",
@@ -1011,7 +1011,7 @@ struct SonarrSeasonSearchView: View {
             interactiveSearchSessionID = UUID()
             showInteractiveSearchSheet = true
         } label: {
-            seasonSearchActionRow(
+            ArrSearchActionRow(
                 title: "Interactive Search",
                 subtitle: "Browse releases episode-by-episode in a manual search sheet.",
                 systemImage: "person.fill",
@@ -1020,52 +1020,6 @@ struct SonarrSeasonSearchView: View {
         }
         .buttonStyle(.plain)
         .disabled(series == nil || sortedEpisodes.isEmpty)
-    }
-
-    private func seasonSearchActionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right",
-        accentColor: Color = .purple
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(accentColor)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func seasonSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
@@ -1697,7 +1651,7 @@ struct SonarrEpisodeSearchView: View {
                 isDispatchingBazarrSearch = false
             }
         } label: {
-            episodeSearchActionRow(
+            ArrSearchActionRow(
                 title: "Queue Series Subtitle Search",
                 subtitle: "Queue Bazarr's series-wide missing subtitle search.",
                 systemImage: ServiceIdentity.bazarr.systemImage,
@@ -1726,7 +1680,7 @@ struct SonarrEpisodeSearchView: View {
         Button {
             showBazarrInteractiveSearchSheet = true
         } label: {
-            episodeSearchActionRow(
+            ArrSearchActionRow(
                 title: "Interactive Subtitle Search",
                 subtitle: "Open the Bazarr interactive search sheet.",
                 systemImage: "person.fill",
@@ -1790,7 +1744,7 @@ struct SonarrEpisodeSearchView: View {
                 }
             }
         } label: {
-            episodeSearchActionRow(
+            ArrSearchActionRow(
                 title: "Automatic Search",
                 subtitle: "Ask Sonarr to search indexers for this single episode.",
                 systemImage: "magnifyingglass",
@@ -1806,7 +1760,7 @@ struct SonarrEpisodeSearchView: View {
             interactiveSearchSessionID = UUID()
             interactiveSearchEpisode = currentEpisode
         } label: {
-            episodeSearchActionRow(
+            ArrSearchActionRow(
                 title: "Interactive Search",
                 subtitle: "Open the manual release picker for this episode.",
                 systemImage: "person.fill",
@@ -1816,52 +1770,6 @@ struct SonarrEpisodeSearchView: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .disabled(series == nil)
-    }
-
-    private func episodeSearchActionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right",
-        accentColor: Color = .purple
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.headline)
-                .foregroundStyle(accentColor)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func episodeSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
