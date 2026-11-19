@@ -220,8 +220,7 @@ struct SeerrDashboardView: View {
                 searchText: $requestSearchText,
                 searchHint: "Search requests",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
             // The shared bar leaves its scroll viewport unclipped for glass effects.
             // Contain this bar within the request pane, away from the detail view.

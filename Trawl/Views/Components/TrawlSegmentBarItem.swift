@@ -16,8 +16,3 @@ enum TrawlSegmentBarSearchPlacement {
     case leading
     case trailing
 }
-
-enum TrawlSegmentBarAlignment {
-    case leading
-    case center
-}

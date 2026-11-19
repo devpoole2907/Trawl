@@ -138,7 +138,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 ), items: [
                     TrawlSegmentBarItem("Categories", value: 0),
                     TrawlSegmentBarItem("Tags", value: 1)
-                ], alignment: .center)
+                ])
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }

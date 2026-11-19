@@ -140,8 +140,7 @@ struct ArrScheduledTasksView: View {
                     searchText: $taskSearchText,
                     searchHint: "Search tasks",
                     isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
+                    searchPlacement: .leading
                 )
             }
         }

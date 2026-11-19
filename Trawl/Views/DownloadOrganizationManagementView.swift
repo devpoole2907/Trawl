@@ -154,8 +154,7 @@ private struct DownloadOrganizationCategoriesView: View {
                 items: [
                     TrawlSegmentBarItem("qBittorrent", value: .qbittorrent),
                     TrawlSegmentBarItem("SABnzbd", value: .sabnzbd)
-                ],
-                alignment: .center
+                ]
             )
         }
         .toolbar {

@@ -127,8 +127,7 @@ struct QBittorrentLogView: View {
                 searchText: $searchText,
                 searchHint: "Search log",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
         }
         .task {

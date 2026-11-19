@@ -373,8 +373,7 @@ struct ArrBlocklistView: View {
                     searchText: $suppressionSearchText,
                     searchHint: "Search blocked items",
                     isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
+                    searchPlacement: .leading
                 )
             }
         }

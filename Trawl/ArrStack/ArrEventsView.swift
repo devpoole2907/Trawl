@@ -321,8 +321,7 @@ struct ArrEventsView: View {
                 searchText: $searchText,
                 searchHint: "Search events",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
         }
         .refreshable {

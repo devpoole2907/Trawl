@@ -167,8 +167,7 @@ struct SeerrIssueListView: View {
             searchText: $issueSearchText,
             searchHint: "Search issues",
             isSearchExpanded: $isSearchExpanded,
-            searchPlacement: .leading,
-            alignment: .leading)
+            searchPlacement: .leading)
             .clipped()
             .transition(.opacity.combined(with: .move(edge: .top)))
         }

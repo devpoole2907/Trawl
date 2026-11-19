@@ -220,8 +220,7 @@ struct ArrBackupsView: View {
                     // rather than one ambiguous "Sonarr".
                     items: availableSources.map {
                         TrawlSegmentBarItem(sourceLabel($0), value: Optional($0))
-                    },
-                    alignment: .leading
+                    }
                 )
             }
         }

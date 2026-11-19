@@ -264,8 +264,7 @@ struct LibraryImportScanView: View {
                 items: LibraryImportScanTab.allCases.map(\.segmentBarItem),
                 searchText: $searchText,
                 searchHint: "Search files…",
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
         }
         .toolbar {

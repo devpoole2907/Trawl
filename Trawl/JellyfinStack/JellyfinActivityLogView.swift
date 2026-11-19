@@ -130,8 +130,7 @@ struct JellyfinActivityLogView: View {
                     searchText: $searchText,
                     searchHint: "Search activity",
                     isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
+                    searchPlacement: .leading
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

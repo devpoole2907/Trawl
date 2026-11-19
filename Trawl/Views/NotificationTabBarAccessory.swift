@@ -809,8 +809,7 @@ struct RecentNotificationsSheet: View {
                 get: { selectedSection },
                 set: { newSection in withAnimation { selectedSection = newSection } }
             ),
-            items: NotificationSheetSection.allCases.map(\.segmentBarItem),
-            alignment: .center
+            items: NotificationSheetSection.allCases.map(\.segmentBarItem)
         )
     }
 
