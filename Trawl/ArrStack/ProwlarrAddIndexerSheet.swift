@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ProwlarrAddIndexerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let viewModel: ProwlarrViewModel
     private let loadsSchemaOnAppear: Bool
 
@@ -25,6 +26,14 @@ struct ProwlarrAddIndexerSheet: View {
     private var filteredSchema: [ProwlarrIndexer] {
         guard let protocolFilter else { return searchedSchema }
         return searchedSchema.filter { listSection(for: $0) == protocolFilter }
+    }
+
+    private var usesNavigationBarSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
     }
 
     /// Built from the whole schema rather than the search results, so the bar doesn't

@@ -220,6 +220,82 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                       expecting: Self.qbittorrentTorrentName, named: "28-download-detail-portrait")
     }
 
+    // MARK: - iPhone Duo pose pass
+
+    /// Captures the same seeded hierarchy on the dedicated Duo simulator without
+    /// relying on `userInterfaceIdiom`. Device Hub sets the physical pose before the
+    /// test begins; `TRAWL_DUO_CAPTURE_POSE` names that observed pose and also keeps
+    /// this audit harness out of ordinary test-plan runs.
+    @MainActor
+    func testCaptureDuoPrimarySurfaces() async throws {
+        guard let pose = ProcessInfo.processInfo.environment["TRAWL_DUO_CAPTURE_POSE"] else {
+            throw XCTSkip("Duo capture is opt-in; set TRAWL_DUO_CAPTURE_POSE on the dedicated simulator.")
+        }
+        try XCTSkipUnless(
+            ["closed", "open", "partial"].contains(pose),
+            "Set TRAWL_DUO_CAPTURE_POSE to closed, open, or partial on the iPhone Duo simulator."
+        )
+
+        let requestedOrientation = ProcessInfo.processInfo.environment["TRAWL_DUO_CAPTURE_ORIENTATION"]
+        let orientation: UIDeviceOrientation
+        switch requestedOrientation {
+        case nil:
+            orientation = pose == "closed" ? .portrait : .landscapeLeft
+        case "portrait":
+            orientation = .portrait
+        case "landscapeLeft":
+            orientation = .landscapeLeft
+        case "landscapeRight":
+            orientation = .landscapeRight
+        default:
+            XCTFail("Set TRAWL_DUO_CAPTURE_ORIENTATION to portrait, landscapeLeft, or landscapeRight.")
+            return
+        }
+        let app = try await launchFullyConfiguredApp(orientation: orientation)
+
+        guard reachedTabUI(app) else {
+            capture(app, "duo-\(pose)-00-UNREACHED-tab-ui")
+            dumpHierarchy(app, label: "Duo \(pose), root UI unreachable")
+            XCTFail("Duo \(pose) did not reach its seeded root UI")
+            return
+        }
+
+        // The compact outer display has a More tab. Regular inner layouts promote
+        // those routes into the sidebar, which may initially be collapsed.
+        if rootDestination(app, "More") == nil {
+            ensureSidebarExpanded(app)
+        }
+
+        let tabs = pose == "closed"
+            ? ["Downloads", "Series", "Movies", "Search", "More"]
+            : ["Downloads", "Series", "Movies", "Search"]
+        for (offset, tab) in tabs.enumerated() {
+            XCTAssertTrue(
+                captureDuoRoot(app, tab: tab, pose: pose, index: offset + 1),
+                "Duo \(pose) could not select and capture \(tab)"
+            )
+        }
+
+        // Compact navigation pushes details, so exercise each transition explicitly.
+        // The open inner layout already renders list + selected detail together in
+        // the root captures; reopening its overlay sidebar after Search would test
+        // persisted sidebar scroll/focus rather than another detail contract.
+        if pose == "closed" {
+            XCTAssertTrue(captureDuoDetail(
+                app, pose: pose, tab: "Series", row: Self.headlineSeriesTitle,
+                expecting: Self.headlineSeriesTitle, named: "06-series-detail-duo-\(pose)"
+            ))
+            XCTAssertTrue(captureDuoDetail(
+                app, pose: pose, tab: "Movies", row: Self.headlineMovieTitle,
+                expecting: Self.headlineMovieTitle, named: "07-movie-detail-duo-\(pose)"
+            ))
+            XCTAssertTrue(captureDuoDetail(
+                app, pose: pose, tab: "Downloads", row: Self.qbittorrentTorrentName,
+                expecting: Self.qbittorrentTorrentName, named: "08-download-detail-duo-\(pose)"
+            ))
+        }
+    }
+
     // MARK: - Chrome diagnostic
 
     /// Not a capture: a read-out of what each iPad chrome actually contains.
@@ -883,6 +959,101 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
     }
 
+    /// The Duo's open inner display is still a phone idiom, so the generic capture
+    /// helper cannot infer whether a sidebar cell or compact tab button should report
+    /// selection. For this pose-specific audit the screen's loaded content is the
+    /// authoritative signal: tap the identified root destination, wait for its real
+    /// fixture content, then capture it.
+    @MainActor
+    @discardableResult
+    private func captureDuoRoot(
+        _ app: XCUIApplication,
+        tab: String,
+        pose: String,
+        index: Int
+    ) -> Bool {
+        if pose != "closed" { revealDuoSidebarIfNeeded(app) }
+        guard let destination = duoRootDestination(app, tab) else {
+            capture(app, String(format: "%02d-%@-duo-%@-MISS-not-in-chrome", index, tab.lowercased(), pose))
+            return false
+        }
+        tapEvenIfNotHittable(destination)
+        settleRootTab(app, tab)
+        capture(app, String(format: "%02d-%@-duo-%@", index, tab.lowercased(), pose))
+        return true
+    }
+
+    @MainActor
+    @discardableResult
+    private func captureDuoDetail(
+        _ app: XCUIApplication,
+        pose: String,
+        tab: String,
+        row: String,
+        expecting title: String,
+        named name: String
+    ) -> Bool {
+        if pose != "closed" { revealDuoSidebarIfNeeded(app) }
+        guard let destination = duoRootDestination(app, tab) else {
+            capture(app, "\(name)-MISS-never-reached-\(tab.lowercased())")
+            return false
+        }
+        tapEvenIfNotHittable(destination)
+        settleRootTab(app, tab)
+
+        let predicate = NSPredicate(format: "label CONTAINS[c] %@", row)
+        var target = app.buttons.matching(predicate).firstMatch
+        if !target.waitForExistence(in: app, timeout: 10) {
+            target = app.cells.matching(predicate).firstMatch
+        }
+        guard target.waitForExistence(in: app, timeout: 10) else {
+            capture(app, "\(name)-MISS-row-never-appeared")
+            return false
+        }
+        tapEvenIfNotHittable(target)
+
+        let arrived = app.navigationBars
+            .matching(NSPredicate(format: "identifier CONTAINS[c] %@", title))
+            .firstMatch
+            .waitForExistence(timeout: 15)
+        if !arrived {
+            settle(app, untilAnyOf: [app.staticTexts[title]], timeout: 8)
+        }
+        let didArrive = arrived || app.staticTexts[title].exists
+        capture(app, didArrive ? name : "\(name)-MISS-wrong-screen")
+        popToRoot(app)
+        return didArrive
+    }
+
+    /// `NavigationSplitView` may dismiss its overlay sidebar after selection. The
+    /// exact "Show Sidebar" action is the authoritative signal; if it is absent the
+    /// sidebar is already visible and no speculative tap is needed.
+    @MainActor
+    private func revealDuoSidebarIfNeeded(_ app: XCUIApplication) {
+        let showSidebar = app.buttons
+            .matching(NSPredicate(format: "label ==[c] %@", "show sidebar"))
+            .firstMatch
+        guard showSidebar.waitForExistence(timeout: 1) else { return }
+        tapEvenIfNotHittable(showSidebar)
+        _ = duoRootDestination(app, "Downloads")?.waitForExistence(timeout: 5)
+    }
+
+    /// The regular sidebar places `nav.*` on the Label inside a List row, while the
+    /// compact Duo rail places it directly on a Button. Returning the identified
+    /// view itself avoids tapping a non-hittable containing cell whose stale frame
+    /// can overlap the notification accessory.
+    @MainActor
+    private func duoRootDestination(_ app: XCUIApplication, _ name: String) -> XCUIElement? {
+        let identifier = "nav.\(Self.identifierSuffix(for: name))"
+        let button = app.buttons[identifier]
+        if button.waitForExistence(timeout: 1), button.isHittable { return button }
+
+        let hasIdentifier = NSPredicate(format: "identifier == %@", identifier)
+        let identifiedView = app.descendants(matching: .any).matching(hasIdentifier).firstMatch
+        guard identifiedView.waitForExistence(timeout: 2), identifiedView.isHittable else { return nil }
+        return identifiedView
+    }
+
     /// Opens a row from a root tab, captures the screen it pushed, and returns to the
     /// tab root.
     ///
@@ -1020,6 +1191,13 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         let identifier = "nav.\(Self.identifierSuffix(for: name))"
         let hasIdentifier = NSPredicate(format: "identifier == %@", identifier)
 
+        // The Duo outer display presents the compact tab bar vertically. Its tabs
+        // are direct buttons with stable identifiers, but are not consistently
+        // returned by a predicate query scoped through `tabBars`. Prefer the exact
+        // identifier subscript before trying the sidebar's containing-cell shape.
+        let identifiedButton = app.buttons[identifier]
+        if identifiedButton.waitForExistence(timeout: 2) { return identifiedButton }
+
         // The row is a `Cell`, but the identifier sits on the `Label` inside it - a
         // `List` row's cell carries neither label nor identifier of its own. Select
         // the cell *containing* the identified view, so the tap lands on the row and
@@ -1099,13 +1277,13 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// them missing when the previous run happened to leave the pill showing.
     @MainActor
     private func ensureSidebarExpanded(_ app: XCUIApplication) {
-        guard rootDestination(app, "Settings") == nil else { return }
+        if let settings = rootDestination(app, "Settings"), settings.isHittable { return }
         let toggle = Self.sidebarToggle(in: app)
         guard toggle.waitForExistence(timeout: 5) else { return }
         tapEvenIfNotHittable(toggle)
         let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
-            if rootDestination(app, "Settings") != nil { return }
+            if rootDestination(app, "Settings")?.isHittable == true { return }
         }
     }
 
@@ -1180,9 +1358,20 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     @MainActor
     private func popToRoot(_ app: XCUIApplication) {
         for _ in 0..<4 {
-            let back = app.navigationBars.firstMatch.buttons.element(boundBy: 0)
-            guard back.exists, back.isHittable else { return }
-            back.tap()
+            // iOS 27 exposes the same system action as `BackButton` when it moves
+            // into Duo's vertical bar. Do not fall back to "the first navigation-bar
+            // button": once the pop completes that position belongs to Calendar or
+            // another root toolbar action, and repeatedly tapping it walks away from
+            // the root we just restored.
+            let systemBack = app.buttons["BackButton"]
+            let labelledBack = app.buttons
+                .matching(NSPredicate(format: "label ==[c] %@", "Back"))
+                .firstMatch
+            let back = systemBack.exists ? systemBack : labelledBack
+            guard back.exists else {
+                return
+            }
+            tapEvenIfNotHittable(back)
         }
     }
 
@@ -1230,6 +1419,27 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     @MainActor
     private func capture(_ app: XCUIApplication, _ name: String) {
         let stamped = "\(name)--\(orientationTag)"
+
+        // A Duo owns multiple display buffers. XCUIScreen may photograph the
+        // inactive one (black) even though XCUITest is driving the active app. An
+        // opt-in host handshake lets the audit runner call `simctl io screenshot`
+        // with an explicit display number while the requested surface is stable.
+        if let hostCaptureDir = ProcessInfo.processInfo.environment["TRAWL_DUO_HOST_CAPTURE_DIR"] {
+            let fileManager = FileManager.default
+            try? fileManager.createDirectory(atPath: hostCaptureDir, withIntermediateDirectories: true)
+            let request = URL(fileURLWithPath: hostCaptureDir).appendingPathComponent("\(stamped).ready")
+            let acknowledgement = URL(fileURLWithPath: hostCaptureDir).appendingPathComponent("\(stamped).captured")
+            try? Data("ready".utf8).write(to: request)
+
+            let deadline = Date().addingTimeInterval(20)
+            while !fileManager.fileExists(atPath: acknowledgement.path), Date() < deadline {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            if !fileManager.fileExists(atPath: acknowledgement.path) {
+                XCTFail("Host did not explicitly capture the active Duo display for \(stamped)")
+            }
+        }
+
         let screenshot = XCUIScreen.main.screenshot()
         XCTContext.runActivity(named: "Capture \(stamped)") { activity in
             let attachment = XCTAttachment(screenshot: screenshot)

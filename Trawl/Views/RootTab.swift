@@ -32,13 +32,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
         case .requests:
             [.requests, .issues, .users]
         case .mediaServer:
-            #if os(macOS)
             [.jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins]
-            #else
-            UIDevice.current.userInterfaceIdiom == .pad
-                ? [.jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins]
-                : [.jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins]
-            #endif
         case .integrations:
             [.indexers, .downloadClients, .newsServers, .linkedApplications, .remotePaths, .cleanuparr]
         case .management:

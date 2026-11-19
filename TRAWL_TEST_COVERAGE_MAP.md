@@ -245,6 +245,32 @@ routes reported successful taps while landing on the wrong screen, and the failu
 surfaced several assertions later pointing at the wrong cause. Asserting the navigation
 bar at each step is what makes a mistargeted tap fail where it happened.
 
+## iPhone Duo chrome
+
+`IPadSurfaceCaptureUITests.testCaptureDuoPrimarySurfaces` owns the seeded pose walk.
+It is deliberately opt-in through `TRAWL_DUO_CAPTURE_POSE=closed|open|partial` and must
+run on the dedicated iOS 27.1 Duo simulator after Device Hub sets the matching hinge
+pose. The closed run proves the compact tab hierarchy and its pushed details; open and
+partial runs prove the regular three-column hierarchy without using device or idiom
+detection. Capture the active display explicitly: display 1 while closed, display 3
+while open or partially open. Default screenshot APIs may return the inactive black
+display and are not valid evidence.
+
+`TRAWL_DUO_CAPTURE_ORIENTATION=portrait|landscapeLeft|landscapeRight` overrides the
+pose default for orientation-specific evidence. Closed landscape additionally requires
+rotating the simulator hardware in Device Hub; changing `XCUIDevice.orientation` alone
+can report landscape while display 1 remains portrait. The landscape journey also owns
+the iOS 27 vertical `BackButton` contract so the seeded Series, Movies, and Downloads
+detail routes return to their roots without mistaking a root toolbar action for Back.
+
+The corresponding production contract is: phone landscape is supported; regular-width
+navigation keeps sidebar, list and detail readable at the Duo inner width; sheet search,
+prominent-action padding, and Media Server sidebar rows follow available width rather
+than `userInterfaceIdiom`; and the regular sidebar uses the compact notification footer.
+`ContentView` includes deterministic fixed-layout previews for the 951×669 inner canvas
+and the 678×466 outer-landscape canvas. Runtime pose captures remain the final visual
+gate because previews cannot exercise the hinge or vertical system bars.
+
 ## iPad chrome
 
 `ContentView` builds two different chromes and the split is by

@@ -23,6 +23,8 @@ import SwiftUI
 /// That applies everywhere this is used, not only in sheets - keep the two values apart
 /// rather than unifying them.
 struct ProminentBottomButton: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     let title: LocalizedStringKey
     var systemImage: String? = nil
     var isLoading = false
@@ -48,7 +50,7 @@ struct ProminentBottomButton: View {
             .disabled(isDisabled || isLoading)
             .scenePadding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, UIDevice.current.userInterfaceIdiom == .pad ? 16 : 8)
+            .padding(.bottom, horizontalSizeClass == .regular ? 16 : 8)
         #endif
     }
 

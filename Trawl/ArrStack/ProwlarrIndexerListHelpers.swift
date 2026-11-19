@@ -196,6 +196,7 @@ struct UnifiedIndexerRowView: View {
 
 struct DirectIndexerSchemaPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let profile: ArrServiceProfile
     let serviceType: ArrServiceType
@@ -218,6 +219,14 @@ struct DirectIndexerSchemaPickerSheet: View {
     private var filteredSchema: [ArrManagedIndexer] {
         guard let protocolFilter else { return searchedSchema }
         return searchedSchema.filter { listSection(for: $0) == protocolFilter }
+    }
+
+    private var usesNavigationBarSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
     }
 
     /// Built from the whole schema rather than the search results, so the bar doesn't

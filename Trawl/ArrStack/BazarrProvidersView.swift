@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BazarrProvidersView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var settings: [String: JSONValue] = [:]
     @State private var providerStatuses: [BazarrProvider] = []
@@ -57,6 +58,14 @@ struct BazarrProvidersView: View {
                 || provider.key.localizedCaseInsensitiveContains(query)
                 || provider.description?.localizedCaseInsensitiveContains(query) == true
         }
+    }
+
+    private var usesNavigationBarSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
     }
 
     var body: some View {
@@ -678,12 +687,21 @@ private enum BazarrProvidersPreviewData {
 
 private struct BazarrProviderPickerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let enabledKeys: [String]
     let settings: [String: JSONValue]
     let onSave: (BazarrProviderDefinition, [String: String]) async -> Bool
 
     @State private var searchText = ""
+
+    private var usesNavigationBarSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
 
     private var availableProviders: [BazarrProviderDefinition] {
         let providers = BazarrProviderCatalog.providers.filter { !enabledKeys.contains($0.key) }

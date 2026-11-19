@@ -35,32 +35,32 @@ extension View {
     }
 }
 
-/// Where a sheet's search field belongs.
-///
-/// An iPhone sheet has a navigation bar and the room to devote a row to `.searchable`.
-/// iPad and Mac sheets are wider and shallower, so search rides in the segment bar
-/// alongside the filters instead - and on the Mac `.searchable` has no bar to live in
-/// at all, so it lands on top of the sheet's own title.
-var usesNavigationBarSearch: Bool {
-    #if os(iOS)
-    UIDevice.current.userInterfaceIdiom == .phone
-    #else
-    false
-    #endif
-}
-
 extension View {
     /// Applies `.searchable` only where the navigation bar is the right home for it.
-    @ViewBuilder
+    ///
+    /// Size class is intentional: an open iPhone Duo is still a phone, but its regular
+    /// inner canvas has room for the same inline search treatment as an iPad sheet.
     func navigationBarSearchable(text: Binding<String>, prompt: String) -> some View {
+        modifier(NavigationBarSearchableModifier(text: text, prompt: prompt))
+    }
+}
+
+private struct NavigationBarSearchableModifier: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    let text: Binding<String>
+    let prompt: String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
         #if os(iOS)
-        if usesNavigationBarSearch {
-            searchable(text: text, prompt: prompt)
+        if horizontalSizeClass == .compact {
+            content.searchable(text: text, prompt: prompt)
         } else {
-            self
+            content
         }
         #else
-        self
+        content
         #endif
     }
 }
@@ -102,20 +102,21 @@ struct TrawlEditToolbar: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             if isEditing {
-                Button("Cancel") {
+                Button("Cancel", systemImage: "xmark") {
                     onCancel()
                     isEditing = false
                 }
                 .disabled(isSaving)
             } else if let onClose {
-                Button("Close", action: onClose)
+                Button("Close", systemImage: "xmark", action: onClose)
             }
         }
         ToolbarItem(placement: .confirmationAction) {
             if isSaving {
                 ProgressView()
+                    .accessibilityLabel("Saving")
             } else if isEditing {
-                Button(saveTitle, action: onSave)
+                Button(saveTitle, systemImage: "checkmark", action: onSave)
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(!canSave)
             } else {

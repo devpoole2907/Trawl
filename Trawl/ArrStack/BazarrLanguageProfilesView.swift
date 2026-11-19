@@ -960,12 +960,21 @@ private struct LanguageProfileEditorView: View {
 
 private struct LanguagePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let languages: [BazarrLanguage]
     let alreadyAdded: Set<String>
     let onSelect: (String) -> Void
 
     @State private var searchText = ""
+
+    private var usesNavigationBarSearch: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
 
     private var filtered: [BazarrLanguage] {
         let available = languages.filter { !alreadyAdded.contains($0.name) }

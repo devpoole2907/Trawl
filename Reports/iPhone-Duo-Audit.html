@@ -120,13 +120,13 @@
   <header class="hero shell">
     <div class="eyebrow">Trawl · product readiness review</div>
     <h1>iPhone Duo audit</h1>
-    <p class="lede">Trawl already has the right adaptive foundation. Real Duo simulator passes show the app selecting its regular split correctly, but full-open and half-open layouts both expose the same pressure point: the sidebar becomes an overlay and leaves the middle column crowded.</p>
+    <p class="lede">Trawl now has a verified adaptive path across the closed, fully open, and partially open iPhone Duo poses. The compact outer display and regular inner display both use native SwiftUI containers; the remaining visual compromise is the system split view presenting its sidebar as an overlay at Duo inner-display widths.</p>
     <div class="meta">
-      <span class="pill">Audit date · 9 Nov 2026</span>
-      <span class="pill">Source · 6d8576c</span>
+      <span class="pill">Audit date · 19 Nov 2026</span>
+      <span class="pill">Source · iphone-duo-polish branch tip</span>
       <span class="pill">Branch · iphone-duo-polish</span>
       <span class="pill">Xcode 27.2 · Duo runtime 27.1</span>
-      <span class="pill">Audit only · no product changes</span>
+      <span class="pill">Implemented · simulator verified</span>
     </div>
   </header>
 
@@ -134,8 +134,8 @@
     <div class="score-grid">
       <article class="score-card primary">
         <div class="score-label">Readiness</div>
-        <div class="score-value">Promising, not finished</div>
-        <div class="score-note">The app adapts by size class and uses native containers. The remaining risk is concentrated in orientation policy and column economics.</div>
+        <div class="score-value">Duo-ready</div>
+        <div class="score-note">Closed, fully open, and partially open fixture-backed journeys pass on the dedicated Duo simulator. The overlay sidebar is a deliberate native-container trade-off.</div>
       </article>
       <article class="score-card">
         <div class="score-label">Architecture</div>
@@ -144,29 +144,30 @@
       </article>
       <article class="score-card">
         <div class="score-label">Priority</div>
-        <div class="score-value">2 must-fix</div>
-        <div class="score-note">Outer landscape support and device-idiom branching.</div>
+        <div class="score-value">0 blockers</div>
+        <div class="score-note">Orientation and idiom blockers are resolved, including a passing hardware-rotated outer-landscape journey.</div>
       </article>
     </div>
 
     <section id="summary">
       <h2>Executive read</h2>
-      <p class="section-intro">The good news is structural: this is refinement work, not a navigation rewrite.</p>
+      <p class="section-intro">The structural audit led to a contained implementation: no parallel Duo UI and no device-model detection.</p>
       <div class="summary-grid">
         <article class="card">
-          <h3>What the audit found</h3>
+          <h3>What the verified build now does</h3>
           <ul>
-            <li>Full inner display naturally selects Trawl’s regular-width split navigation.</li>
-            <li>Full-open and partially open simulator passes both activate Trawl’s regular split navigation.</li>
-            <li>The current three-column minimum widths make the sidebar a transient overlay. The content + detail pair remains stable, but the overlay covers much of the list and all three columns are not comfortable at once.</li>
-            <li>The compact iPhone proxy confirms the closed-width tab hierarchy remains structurally sound.</li>
-            <li>Phone orientation metadata blocks the outer-display landscape/tent scenario.</li>
-            <li>Three <code>userInterfaceIdiom</code> checks misclassify an open Duo as a narrow phone; two change behavior and one changes padding.</li>
+            <li>Full-open and partially open inner displays select Trawl’s regular three-column split navigation.</li>
+            <li>Tuned column widths preserve a stable content + detail pair; SwiftUI deliberately presents the primary sidebar as a transient overlay at these widths.</li>
+            <li>The closed Duo outer display confirms the compact hierarchy, its vertical system tab rail, and pushed detail routes with real seeded data.</li>
+            <li>Phone orientation metadata now permits outer-display landscape and tent use.</li>
+            <li>Width and size class now drive media-server rows, search placement, and prominent-button spacing instead of <code>userInterfaceIdiom</code>.</li>
+            <li>The regular-width notification footer has an intrinsic compact height and no longer consumes the sidebar.</li>
+            <li>Shared Edit, Save, Cancel, and Close actions carry symbols so they remain legible when system bars become vertical.</li>
           </ul>
         </article>
         <article class="card verdict">
           <h3>Recommendation</h3>
-          <p><strong>Proceed with a focused Duo polish tranche.</strong> Keep the existing root architecture. Fix the two blockers, tune column economics, then validate the shared edit/search/notification chrome across poses before introducing any fold-specific API.</p>
+          <p><strong>Ship the native adaptive architecture.</strong> Keep the current size-class root and balanced split view. Treat the overlay sidebar as expected system behavior, and retain the fixture-backed Duo journey as the regression gate.</p>
           <p class="note">Do not add model detection or a parallel “Duo UI.” The same hierarchy should survive open, close, rotation, and Split View.</p>
         </article>
       </div>
@@ -179,12 +180,12 @@
         <table>
           <thead><tr><th>Surface</th><th>Observed / expected behavior</th><th>Assessment</th></tr></thead>
           <tbody>
-            <tr><td>Outer portrait</td><td>Compact tabs, prominent Search, system bottom chrome.</td><td><span class="status pass"><span class="dot"></span>Baseline works</span></td></tr>
-            <tr><td>Outer landscape / tent</td><td>Required Duo scenario, but excluded by phone orientation metadata.</td><td><span class="status fail"><span class="dot"></span>Blocked</span></td></tr>
+            <tr><td>Outer portrait</td><td>Observed on the closed Duo simulator: compact content, a vertical system tab rail, prominent Search, and working pushed details.</td><td><span class="status pass"><span class="dot"></span>Runtime verified</span></td></tr>
+            <tr><td>Outer landscape / tent</td><td>Observed on the hardware-rotated closed Duo simulator: compact content reflows to 2034 × 1398, vertical system chrome remains reachable, and root plus pushed-detail routes pass.</td><td><span class="status pass"><span class="dot"></span>Runtime verified</span></td></tr>
             <tr><td>Inner fully open</td><td>Observed on Duo simulator: regular split activates; content + detail remain stable and the sidebar presents as an overlay over the list.</td><td><span class="status warn"><span class="dot"></span>Works with trade-off</span></td></tr>
             <tr><td>Inner 50/50 Split View</td><td>Compact width should return to tabs while retaining regular height.</td><td><span class="status pass"><span class="dot"></span>Architecture aligned</span></td></tr>
             <tr><td>Partially folded</td><td>Observed on Duo simulator: the same regular split remains active. The list gets more usable width than full-open, but the sidebar still overlays it and the detail column remains visible at right.</td><td><span class="status warn"><span class="dot"></span>Crowded overlay</span></td></tr>
-            <tr><td>Vertical bars</td><td>System containers are eligible; text-only Cancel/Save/Close actions remain horizontal by platform rule.</td><td><span class="status warn"><span class="dot"></span>Review shared toolbar</span></td></tr>
+            <tr><td>Vertical bars</td><td>System containers are eligible and shared edit actions now include symbols for vertical placement.</td><td><span class="status pass"><span class="dot"></span>Implemented</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -192,7 +193,7 @@
 
     <section id="screens">
       <h2>Simulator evidence</h2>
-      <p class="section-intro">Fixture-backed captures keep the app populated and deterministic. Every Duo image below is from the dedicated simulator’s inner display; physical-device material is intentionally excluded.</p>
+      <p class="section-intro">Fixture-backed captures keep the app populated and deterministic. Every image below is from the dedicated <code>Trawl Duo Audit</code> simulator: closed-pose images use the outer display in portrait and hardware-rotated landscape, while full-open and partially open images use the inner display. Standard iPhone and physical-device material is intentionally excluded.</p>
       <div class="gallery">
         <figure class="shot half">
           <img src="iphone-duo-audit/screenshots/duo-open-final/downloads.png" alt="Trawl Downloads on the fully open iPhone Duo simulator">
@@ -227,24 +228,52 @@
           <figcaption><strong>Duo half-open · Search</strong>Error and empty states center correctly. The compact search field at the bottom of the middle column feels detached once the sidebar overlay is open.</figcaption>
         </figure>
         <figure class="shot wide">
-          <img src="iphone-duo-audit/screenshots/compact-proxy/21-downloads-portrait--portrait.png" alt="Trawl Downloads on a compact iPhone simulator">
-          <figcaption><strong>Compact root · Downloads</strong>The system tab hierarchy reads cleanly. The combined notification accessory and tab bar form a deep bottom stack, leaving noticeably less working height.</figcaption>
+          <img src="iphone-duo-audit/screenshots/duo-closed-landscape-final/downloads.png" alt="Trawl Downloads on the closed iPhone Duo outer display in landscape">
+          <figcaption><strong>Duo closed landscape · Downloads</strong>A hardware-level Device Hub rotation produces a true 2034 × 1398 outer framebuffer. Filters, rows, notification chrome, and the vertical tab rail reflow without clipping.</figcaption>
         </figure>
         <figure class="shot">
-          <img src="iphone-duo-audit/screenshots/compact-proxy/22-series-portrait--portrait.png" alt="Trawl Series on a compact iPhone simulator">
-          <figcaption><strong>Compact root · Series</strong>Native scrolling content and segment controls are safe fold candidates: they should scroll rather than displace.</figcaption>
+          <img src="iphone-duo-audit/screenshots/duo-closed-landscape-final/more.png" alt="Trawl More on the closed iPhone Duo outer display in landscape">
+          <figcaption><strong>Duo closed landscape · More</strong>The compact-only hub remains scrollable and the system rail stays independent of its grouped content.</figcaption>
         </figure>
         <figure class="shot">
-          <img src="iphone-duo-audit/screenshots/compact-proxy/23-movies-portrait--portrait.png" alt="Trawl Movies on a compact iPhone simulator">
-          <figcaption><strong>Compact root · Movies</strong>The same hierarchy can carry across the outer display and a compact-width inner Split View.</figcaption>
+          <img src="iphone-duo-audit/screenshots/duo-closed-landscape-final/movie-detail.png" alt="Trawl movie detail on the closed iPhone Duo outer display in landscape">
+          <figcaption><strong>Duo closed landscape · Movie detail</strong>The pushed detail route uses the wider canvas, moves Back into the vertical rail, and preserves its metadata and action hierarchy.</figcaption>
+        </figure>
+        <figure class="shot wide">
+          <img src="iphone-duo-audit/screenshots/duo-closed-landscape-final/download-detail.png" alt="Trawl download detail on the closed iPhone Duo outer display in landscape">
+          <figcaption><strong>Duo closed landscape · Download detail</strong>The transfer detail, progress, section rows, notification accessory, and vertical Back control all remain reachable in the tent/stand orientation.</figcaption>
+        </figure>
+        <figure class="shot wide">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/downloads.png" alt="Trawl Downloads on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Downloads</strong>The simulated Duo outer display uses iOS 27’s vertical system tab rail. Download rows, toolbar actions, status affordances, Search, and the notification accessory remain readable without a fold-specific layout.</figcaption>
         </figure>
         <figure class="shot">
-          <img src="iphone-duo-audit/screenshots/compact-proxy/27-movie-detail-portrait--portrait.png" alt="Trawl movie detail on a compact iPhone simulator">
-          <figcaption><strong>Dense detail pressure</strong>The bottom chrome overlaps the lowest visible card area. This is the most important closed-pose visual pressure point found in the compact pass.</figcaption>
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/series.png" alt="Trawl Series on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Series</strong>The library preserves its native scrolling hierarchy and alphabet index beside the vertical tab rail. This is the dedicated Duo simulator’s outer display.</figcaption>
         </figure>
         <figure class="shot">
-          <img src="iphone-duo-audit/screenshots/compact-proxy/28-download-detail-portrait--portrait.png" alt="Trawl download detail on a compact iPhone simulator">
-          <figcaption><strong>Download detail</strong>Content remains reachable by scrolling, but two persistent bottom layers consume a large fraction of the viewport.</figcaption>
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/movies.png" alt="Trawl Movies on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Movies</strong>Filters, rows, monitoring actions, and the system rail coexist on the simulated Duo outer canvas.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/search.png" alt="Trawl Search on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Search</strong>The search destination is promoted into the vertical system rail and retains a full-width search field on the remaining canvas.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/more.png" alt="Trawl More on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · More</strong>The compact-only hub remains reachable through the vertical rail. Its grouped destinations fit the outer display and continue scrolling beneath the notification accessory.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/series-detail.png" alt="Trawl series detail on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Series detail</strong>The pushed detail route uses the outer canvas successfully, including back navigation, action cards, badges, and long-form content.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/movie-detail.png" alt="Trawl movie detail on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Movie detail</strong>Dense metadata wraps without colliding with the vertical system controls. The notification accessory consumes some lower space but does not block scrolling.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="iphone-duo-audit/screenshots/duo-closed-final/download-detail.png" alt="Trawl download detail on the closed iPhone Duo outer display">
+          <figcaption><strong>Duo closed · Download detail</strong>The selected transfer, progress, Files, Trackers, and Info sections remain reachable on the simulated Duo outer display.</figcaption>
         </figure>
       </div>
     </section>
@@ -259,33 +288,33 @@
     </section>
 
     <section id="findings">
-      <h2>Prioritized findings</h2>
-      <p class="section-intro">Priority reflects user impact and architectural risk, not estimated implementation time.</p>
+      <h2>Implementation disposition</h2>
+      <p class="section-intro">The original audit findings are retained here with their current resolution and authoritative source evidence.</p>
       <div class="finding-list">
         <article class="finding">
-          <div class="priority p0">P0</div>
-          <div><h3>Enable phone landscape</h3><p>The phone target declares portrait only. Duo guidance explicitly calls for outer landscape because the closed device may be used in tent/stand positions. Until this changes, one of the primary poses cannot be audited or used.</p></div>
-          <div class="evidence">TrawlApp-Info.plist:106–109<br>UISupportedInterfaceOrientations<br>→ Portrait only</div>
+          <div class="priority p3">DONE</div>
+          <div><h3>Phone landscape enabled</h3><p>Both landscape orientations are declared for the phone target, enabling Duo outer-display tent and stand use without model-specific code.</p></div>
+          <div class="evidence">TrawlApp-Info.plist:106–111<br>Landscape Left + Right<br>→ Runtime verified</div>
         </article>
         <article class="finding">
-          <div class="priority p1">P1</div>
-          <div><h3>Replace idiom-based UI decisions</h3><p>An open Duo is still <code>.phone</code>. The Media Server row set and sheet-search placement therefore retain phone choices on a large, regular-width inner display; a shared prominent-button modifier also keeps phone padding. Base these choices on available width or presentation context.</p></div>
-          <div class="evidence">RootTab.swift:38–40<br>ServiceSettingsFormStyle.swift:44–49<br>ProminentBottomButton.swift:51</div>
+          <div class="priority p3">DONE</div>
+          <div><h3>Idiom-based UI decisions removed</h3><p>Media Server rows are consistent across regular contexts, navigation search follows horizontal size class, and prominent-button spacing adapts to the available width.</p></div>
+          <div class="evidence">RootTab.swift:27–46<br>ServiceSettingsFormStyle.swift:38–66<br>ProminentBottomButton.swift:43–54</div>
         </article>
         <article class="finding">
-          <div class="priority p1">P1</div>
-          <div><h3>Decide the inner-display column budget</h3><p>Sidebar 220 + content 390 + detail 400 already totals 1,010 points before dividers. In both captured poses SwiftUI keeps content + detail and presents the sidebar as an overlay. Choose that behavior deliberately, or tune minima and column visibility so all three regions can coexist without reducing the list to a sliver.</p></div>
-          <div class="evidence">ContentView.swift:755–764<br>sidebar min 220<br>content min 390<br>detail min 400</div>
+          <div class="priority p3">DONE</div>
+          <div><h3>Inner-display column budget tuned</h3><p>The sidebar, content, and detail widths are reduced to a Duo-appropriate budget. SwiftUI still overlays the sidebar on this canvas, preserving the more valuable list + detail pair; the behavior is now intentional and verified in both inner poses.</p></div>
+          <div class="evidence">ContentView.swift:767–777, 803–813<br>sidebar 200 / 240 / 300<br>content 300 / 360 / 480<br>detail 340 / 420</div>
         </article>
         <article class="finding">
-          <div class="priority p2">P2</div>
-          <div><h3>Pressure-test the notification accessory</h3><p>The accessory is system-hosted, which is good, but it combines with the tab bar into a tall persistent stack on compact screens and obscures lower sidebar destinations on both Duo inner poses. Verify minimized, expanded, vertical-bar, and folded states.</p></div>
-          <div class="evidence">ContentView.swift:658–680<br>tabViewBottomAccessory<br>+ matched-transition overlay</div>
+          <div class="priority p3">DONE</div>
+          <div><h3>Notification accessory constrained</h3><p>The split-view footer uses an explicit compact presentation with intrinsic height. This fixes the audit-discovered failure where an unbounded inline accessory consumed the entire sidebar safe-area inset.</p></div>
+          <div class="evidence">ContentView.swift:842–872<br>NotificationTabBarAccessory.swift:200–224<br>→ All poses visually verified</div>
         </article>
         <article class="finding">
-          <div class="priority p2">P2</div>
-          <div><h3>Review shared edit actions in vertical-bar poses</h3><p>Cancel, Close, and Save are text-only. Platform behavior keeps text-only items horizontal while icon-bearing items can move vertical. The lifecycle is correct; the audit question is whether the resulting two-axis chrome remains balanced in narrow/half-fold states.</p></div>
-          <div class="evidence">ServiceSettingsFormStyle.swift:103–128<br>TrawlEditToolbar</div>
+          <div class="priority p3">DONE</div>
+          <div><h3>Shared edit actions support vertical bars</h3><p>Cancel, Close, Save, and Edit now combine their localized titles with standard symbols while preserving Trawl’s shared read-only → Edit → Save lifecycle.</p></div>
+          <div class="evidence">ServiceSettingsFormStyle.swift:88–130<br>TrawlEditToolbar</div>
         </article>
         <article class="finding">
           <div class="priority p3">P3</div>
@@ -296,12 +325,12 @@
     </section>
 
     <section id="plan">
-      <h2>Recommended implementation sequence</h2>
-      <p class="section-intro">One small tranche should be enough to turn this audit into a production plan.</p>
+      <h2>Implemented sequence</h2>
+      <p class="section-intro">The polish stayed within the existing architecture and added a repeatable pose-validation path.</p>
       <div class="plan-grid">
-        <article class="card"><div class="step">01 · unblock</div><h3>Orientation + identity</h3><p>Add phone landscape support. Replace the two idiom checks with size/presentation-aware decisions. Add focused navigation coverage.</p></article>
-        <article class="card"><div class="step">02 · tune</div><h3>Column economics</h3><p>Choose explicitly between a stable content+detail pair and a narrower three-column presentation. Validate real sidebar rows, not empty scaffolding.</p></article>
-        <article class="card"><div class="step">03 · polish</div><h3>Folded chrome</h3><p>Audit notifications, edit toolbars, search placement, sheets, alerts, and safe-area asymmetry in closed, vertical-bar, and partial-fold poses.</p></article>
+        <article class="card"><div class="step">01 · complete</div><h3>Orientation + identity</h3><p>Enabled phone landscape and replaced presentation-affecting idiom checks with size-class decisions.</p></article>
+        <article class="card"><div class="step">02 · complete</div><h3>Column economics</h3><p>Tuned all three column widths and verified the native sidebar overlay against populated fixture views.</p></article>
+        <article class="card"><div class="step">03 · complete</div><h3>Folded chrome</h3><p>Constrained the notification footer, symbolized shared edit actions, and exercised root and pushed-detail routes in pose-specific UI tests.</p></article>
       </div>
     </section>
 
@@ -315,19 +344,21 @@
             <li>Created <code>iphone-duo-polish</code> from that exact commit.</li>
             <li>Installed and followed the official Axiom SwiftUI iPhone Duo skill.</li>
             <li>Reviewed root navigation, orientation metadata, device-identity checks, shared form chrome, and fold-specific API usage.</li>
-            <li>Created a dedicated <code>Trawl Duo Audit</code> simulator, then ran fixture-backed full-open and partially open passes plus a compact proxy pass.</li>
-            <li>Explicitly captured Duo display 3 and visually inspected every report image. XCUITest’s default screenshot API selected the inactive black outer display while open, so those invalid frames were discarded.</li>
+            <li>Created a dedicated <code>Trawl Duo Audit</code> simulator, then ran fixture-backed closed portrait, hardware-rotated closed landscape, full-open, and partially open passes.</li>
+            <li>Implemented landscape, size-class, split-column, notification-footer, toolbar, and accessibility-identifier corrections.</li>
+            <li>Captured the active Duo display for each pose with an explicit display selector and visually inspected every report image. Closed-pose evidence comes from the outer display; open and partial evidence comes from the inner display. Default black inactive-display frames were discarded.</li>
+            <li>Passed the fixture-backed Duo UI journey separately in closed, fully open, and partially open poses, then completed an app build on the Duo simulator destination.</li>
           </ol>
         </article>
         <article class="card">
           <h3>Boundaries</h3>
-          <p>This is an audit, not an implementation. No product source was modified. Physical-device captures and interaction were excluded. Outer landscape remains source-audited rather than runtime-audited because the current phone metadata blocks it. Fold-specific APIs such as <code>reservedRegions</code> and <code>ArrangementView</code> are not recommended merely for device detection; they should be introduced only where custom non-scrolling UI demonstrably collides with an active fold or camera region.</p>
+          <p>This report now covers both audit and implementation. Physical-device captures and interaction were excluded; every runtime image is from the dedicated simulator. Outer landscape required a Device Hub hardware rotation in addition to XCTest’s interface orientation, and its complete root + detail journey now passes. Fold-specific APIs such as <code>reservedRegions</code> and <code>ArrangementView</code> were intentionally not introduced: no custom non-scrolling control was observed colliding with an active fold or camera region.</p>
           <p>Primary guidance: <a href="https://charleswiltgen.github.io/Axiom/skills/ui-design/iphone-duo#iphone-duo">Axiom · iPhone Duo</a>.</p>
         </article>
       </div>
     </section>
   </main>
 
-  <footer><div class="shell">Trawl iPhone Duo audit · generated from commit 6d8576c · simulator-only evidence</div></footer>
+  <footer><div class="shell">Trawl iPhone Duo audit + implementation · branch iphone-duo-polish · simulator-only evidence</div></footer>
 </body>
 </html>

@@ -605,7 +605,7 @@ struct ContentView: View {
     @ViewBuilder
     private func compactTabs(services: AppServices, downloadBadge: Int) -> some View {
         TabView(selection: $selectedTab) {
-            Tab("Downloads", systemImage: "tray.and.arrow.down", value: RootTab.downloads) {
+            Tab(value: RootTab.downloads) {
                 NavigationStack {
                     // Inside the stack, not on it. `navigationDestination(for:)`
                     // registers against the stack it is *contained by* - applied to
@@ -616,10 +616,13 @@ struct ContentView: View {
                     downloadsRoot(services: services)
                         .arrMediaNavigationDestinations()
                 }
+            } label: {
+                Label("Downloads", systemImage: "tray.and.arrow.down")
+                    .accessibilityIdentifier(RootTab.downloads.navigationIdentifier)
             }
             .badge(downloadBadge)
 
-            Tab("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage, value: RootTab.series) {
+            Tab(value: RootTab.series) {
                 NavigationStack {
                     SonarrSeriesListView(session: navigationSession.series)
                 }
@@ -627,9 +630,12 @@ struct ContentView: View {
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
+            } label: {
+                Label("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+                    .accessibilityIdentifier(RootTab.series.navigationIdentifier)
             }
 
-            Tab("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage, value: RootTab.movies) {
+            Tab(value: RootTab.movies) {
                 NavigationStack {
                     RadarrMovieListView(session: navigationSession.movies)
                 }
@@ -637,6 +643,9 @@ struct ContentView: View {
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
+            } label: {
+                Label("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage)
+                    .accessibilityIdentifier(RootTab.movies.navigationIdentifier)
             }
 
             if #available(iOS 27.0, macOS 27.0, *) {
@@ -644,6 +653,7 @@ struct ContentView: View {
                     searchRoot(services: services)
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
+                        .accessibilityIdentifier(RootTab.search.navigationIdentifier)
                 }
             } else {
                 Tab(value: RootTab.search, role: .search) {
@@ -651,8 +661,11 @@ struct ContentView: View {
                 }
             }
 
-            Tab("More", systemImage: "ellipsis", value: RootTab.more) {
+            Tab(value: RootTab.more) {
                 moreStack(rootedAt: nil, path: $morePath, services: services)
+            } label: {
+                Label("More", systemImage: "ellipsis")
+                    .accessibilityIdentifier(RootTab.more.navigationIdentifier)
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -756,10 +769,10 @@ struct ContentView: View {
             sidebarColumn(services: services, downloadBadge: downloadBadge)
         } content: {
             contentColumn(for: selectedTab, services: services)
-                .navigationSplitViewColumnWidth(min: 390, ideal: 450, max: 600)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 480)
         } detail: {
             detailColumn(for: selectedTab, services: services)
-                .navigationSplitViewColumnWidth(min: 400, ideal: 500)
+                .navigationSplitViewColumnWidth(min: 340, ideal: 420)
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.selectLibraryTitle, selectLibraryTitle)
@@ -787,7 +800,7 @@ struct ContentView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .refreshesConfigurationAudit(forContextualBanner: true)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         #else
         sidebarList(downloadBadge: downloadBadge)
             .safeAreaInset(edge: .top) {
@@ -797,7 +810,7 @@ struct ContentView: View {
                 sidebarNotificationBar(services: services)
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 340)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         #endif
     }
 
@@ -844,17 +857,17 @@ struct ContentView: View {
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
             #else
-            NotificationTabBarAccessory()
+            NotificationTabBarAccessory(prefersCompactLayout: true)
                 .environment(services.syncService)
                 .environment(downloadsNavigator)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
                 // Glass, because here the bar floats over a column rather than
                 // sitting in a tab bar that already has a material behind it - what
                 // `tabViewBottomAccessory` gives the compact chrome for free.
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 6)
+                .padding(.bottom, 6)
             #endif
         }
     }
@@ -1881,6 +1894,38 @@ extension ContentView {
             previewIsInWelcomeFlow: true
         )
     }
+}
+
+#Preview("Duo Inner - Three Column", traits: .fixedLayout(width: 951, height: 669)) {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        appServices: AppServices.disconnected(),
+        notificationCenter: InAppNotificationCenter(previewNotifications: [])
+    ) {
+        ContentView(
+            previewSelectedTab: .downloads,
+            previewAppServices: AppServices.disconnected()
+        )
+    }
+    .environment(\.horizontalSizeClass, .regular)
+    .environment(\.verticalSizeClass, .regular)
+}
+
+#Preview("Duo Outer - Landscape", traits: .fixedLayout(width: 678, height: 466)) {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        appServices: AppServices.disconnected(),
+        notificationCenter: InAppNotificationCenter(previewNotifications: [])
+    ) {
+        ContentView(
+            previewSelectedTab: .downloads,
+            previewAppServices: AppServices.disconnected()
+        )
+    }
+    .environment(\.horizontalSizeClass, .compact)
+    .environment(\.verticalSizeClass, .compact)
 }
 #endif
 

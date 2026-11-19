@@ -19,6 +19,8 @@ extension EnvironmentValues {
 }
 
 struct NotificationTabBarAccessory: View {
+    var prefersCompactLayout = false
+
     #if os(iOS)
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     #endif
@@ -39,10 +41,11 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var isInline: Bool {
+        if prefersCompactLayout { return true }
         #if os(iOS)
-        placement == .inline
+        return placement == .inline
         #else
-        false
+        return false
         #endif
     }
 
@@ -213,7 +216,11 @@ struct NotificationTabBarAccessory: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        // Keep an intrinsic height when this compact form is used as a sidebar
+        // safe-area inset. `maxHeight: .infinity` is appropriate only when the
+        // system tab accessory supplies a finite slot; in a split-view footer it
+        // consumes the entire sidebar and leaves the navigation rows off-screen.
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .center)
         .contentShape(Rectangle())
     }
 
