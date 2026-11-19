@@ -400,9 +400,6 @@ struct SearchView: View {
             #else
             .listStyle(.inset)
             #endif
-            .safeAreaInset(edge: .top) {
-                Color.clear.frame(height: 44)
-            }
             .confirmationDialog(
                 pendingQuickAdd.map { "Add \($0.title) to which server?" } ?? "",
                 isPresented: Binding(
