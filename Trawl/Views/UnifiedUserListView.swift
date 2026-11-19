@@ -25,6 +25,10 @@ struct UnifiedUserListView: View {
         seerrClient.map(ObjectIdentifier.init)
     }
 
+    private func userCountText(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "user" : "users")"
+    }
+
     var body: some View {
         Group {
             if let viewModel {
@@ -32,7 +36,9 @@ struct UnifiedUserListView: View {
                 // once - what Jellyfin allows them and what Seerr lets them request -
                 // and a layout that replaces the list with one account turns every
                 // comparison between two accounts into a round trip.
-                TrawlListDetailPanes(title: "Users") {
+                // The count lives in the subtitle, where Downloads, Series and Movies
+                // put theirs, rather than in a section header of its own.
+                TrawlListDetailPanes(title: "Users", subtitle: viewModel.users.isEmpty ? nil : userCountText(viewModel.users.count)) {
                     content(viewModel: viewModel)
                 } detail: {
                     selectedUserDetail(viewModel: viewModel)
@@ -129,6 +135,7 @@ struct UnifiedUserListView: View {
                     systemImage: "person.2.slash",
                     description: Text("No user accounts were found.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 if let error = viewModel.jellyfinLoadError {
@@ -172,8 +179,6 @@ struct UnifiedUserListView: View {
                                     }
                                 }
                         }
-                    } header: {
-                        Text("\(viewModel.users.count) \(viewModel.users.count == 1 ? "user" : "users")")
                     }
                 }
             }
