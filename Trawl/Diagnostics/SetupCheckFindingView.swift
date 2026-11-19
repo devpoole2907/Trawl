@@ -49,7 +49,10 @@ struct SetupCheckFindingView: View {
                 Text(issue.detail)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let discriminator = issue.discriminator {
+                // A path, host or category is worth showing. A bare server id - which
+                // some checks use to tell two findings apart - names nothing a person
+                // can act on, and the header already says which server this is.
+                if let discriminator = issue.discriminator, UUID(uuidString: discriminator) == nil {
                     LabeledContent("Target") {
                         Text(discriminator)
                             .font(.caption.monospaced())
