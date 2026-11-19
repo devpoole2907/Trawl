@@ -144,7 +144,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         baseContent
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitleText)
+            .navigationSubtitle(showsTitleMenu && titleMenuLeads ? "" : navigationSubtitleText)
             #if os(iOS)
             .toolbarTitleDisplayMode(showsTitleMenu || editMode.isEditing ? .inline : .inlineLarge)
             .environment(\.editMode, swiftUIEditMode)
@@ -199,8 +199,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         searchText: $viewModel.searchText,
                         searchHint: "Search \(nounPlural.lowercased())",
                         isSearchExpanded: filterSearchExpandedBinding,
-                        searchPlacement: .leading,
-                        alignment: .leading
+                        searchPlacement: .leading
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
 
@@ -443,10 +442,21 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     private var titleMenuPlacement: ToolbarItemPlacement {
-        #if os(macOS)
-        .navigation
+        platformTopBarLeadingPlacement
+    }
+
+    /// Whether the title menu sits on the leading edge and carries its own subtitle.
+    ///
+    /// Always on iOS. It used to take `.principal` whenever there was no detail
+    /// column, which iOS centres as soon as the bar has room: a narrow iPhone hid
+    /// that, but on the folded iPhone Duo in landscape "Downloads" floated in the
+    /// middle of the screen while More's title stayed leading. Leading everywhere
+    /// is what the split-view column already did.
+    private var titleMenuLeads: Bool {
+        #if os(iOS)
+        true
         #else
-        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        detailSelection != nil
         #endif
     }
 
@@ -458,10 +468,10 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                     options: titleMenuOptions,
                     selection: titleMenuSelection,
                     isCompact: isTitleCompact,
-                    subtitle: detailSelection == nil ? nil : navigationSubtitleText
+                    subtitle: titleMenuLeads ? navigationSubtitleText : nil
                 )
             }
-            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
+            .sharedBackgroundVisibility(titleMenuLeads ? .hidden : .automatic)
         }
     }
 

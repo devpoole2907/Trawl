@@ -259,8 +259,7 @@ struct DownloadsView: View {
                         searchText: $viewModel.searchText,
                         searchHint: "Search downloads",
                         isSearchExpanded: isSearchExpandedBinding,
-                        searchPlacement: .leading,
-                        alignment: .leading
+                        searchPlacement: .leading
                     )
                 }
             }
@@ -302,22 +301,25 @@ struct DownloadsView: View {
         )
     }
 
-    /// Where the title menu sits.
-    ///
-    /// On iOS `.principal` centres it in the navigation bar of the column it belongs to,
-    /// which is the whole screen. macOS has one unified toolbar for the entire window,
-    /// so `.principal` threw "Downloads / 5 items" across to the window's trailing edge -
-    /// above the empty detail pane rather than above the list it counts.
-    ///
-    /// `.navigation` rather than `platformTopBarLeadingPlacement`, because that helper
-    /// resolves to `.automatic` on the Mac and automatic in a split view's content column
-    /// settles trailing too - the very place this is moving away from. `.navigation` is
-    /// macOS's actual leading group, beside the sidebar toggle.
+    /// Where the title menu sits: the leading group on both platforms. On the Mac
+    /// that is `.navigation`, beside the sidebar toggle - `.principal` there threw
+    /// "Downloads / 5 items" across to the window's trailing edge.
     private var titleMenuPlacement: ToolbarItemPlacement {
-        #if os(macOS)
-        .navigation
+        platformTopBarLeadingPlacement
+    }
+
+    /// Whether the title menu sits on the leading edge and carries its own subtitle.
+    ///
+    /// Always on iOS. It used to take `.principal` whenever there was no detail
+    /// column, which iOS centres as soon as the bar has room: a narrow iPhone hid
+    /// that, but on the folded iPhone Duo in landscape "Downloads" floated in the
+    /// middle of the screen while More's title stayed leading. Leading everywhere
+    /// is what the split-view column already did.
+    private var titleMenuLeads: Bool {
+        #if os(iOS)
+        true
         #else
-        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        detailSelection != nil
         #endif
     }
 
@@ -341,10 +343,10 @@ struct DownloadsView: View {
                     },
                     selection: userChosenTitleDestination,
                     isCompact: isTitleCompact,
-                    subtitle: detailSelection == nil ? nil : navigationSubtitle
+                    subtitle: titleMenuLeads ? navigationSubtitle : nil
                 )
             }
-            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
+            .sharedBackgroundVisibility(titleMenuLeads ? .hidden : .automatic)
         }
     }
 
@@ -504,7 +506,7 @@ struct DownloadsView: View {
             }
             .background(backgroundGradient)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitle)
+            .navigationSubtitle(showsTitleMenu && titleMenuLeads ? "" : navigationSubtitle)
             #if os(iOS)
             // Inline while selecting: a large "3 Selected" would tower over the
             // Select All / Done pair it sits between, and it is a transient count
