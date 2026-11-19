@@ -247,6 +247,20 @@ routes reported successful taps while landing on the wrong screen, and the failu
 surfaced several assertions later pointing at the wrong cause. Asserting the navigation
 bar at each step is what makes a mistargeted tap fail where it happened.
 
+## iPhone capture pass
+
+`IPadSurfaceCaptureUITests.testCaptureIPhoneSurfaces` photographs the compact chrome end to
+end (tabs, detail screens, every More hub and the screens under them, then the Search
+states) for `Reports/UI-Consistency-Audit.html`. It makes no assertions about layout and
+is opt-in: pass `TEST_RUNNER_TRAWL_IPHONE_CAPTURE=1` and
+`TEST_RUNNER_TRAWL_SCREENSHOT_EXPORT_DIR=<dir>` to `xcodebuild test`, plus
+`-default-test-execution-time-allowance 1800`, because the walk takes about 11 minutes on
+iOS 27 and the plan's default limit is 10 minutes. Search runs last because an active search
+on iOS 26 collapses the tab bar. The pass uses its own `popCompactStack` because
+`popToRoot`'s back-button tap can race an iOS 27 transition and abort the run. The
+Search active-state spacing (no extra top inset under the scope bar) is checked only by
+these captures.
+
 ## iPhone Duo chrome
 
 `IPadSurfaceCaptureUITests.testCaptureDuoPrimarySurfaces` owns the seeded pose walk.

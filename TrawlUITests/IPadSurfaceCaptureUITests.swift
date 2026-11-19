@@ -296,6 +296,140 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
     }
 
+    // MARK: - iPhone pass
+
+    /// Photographs the compact chrome end to end - every tab, the Search states,
+    /// the three detail screens, every More hub and the screens filed under them -
+    /// for a side-by-side consistency audit across iOS versions.
+    ///
+    /// Opt-in like the Duo pass: pass `TEST_RUNNER_TRAWL_IPHONE_CAPTURE=1` to
+    /// `xcodebuild test` (the `TEST_RUNNER_` prefix is what carries a variable into
+    /// the test runner; a bare host variable never arrives). Pair it with
+    /// `TEST_RUNNER_TRAWL_SCREENSHOT_EXPORT_DIR` to choose where the PNGs land.
+    @MainActor
+    func testCaptureIPhoneSurfaces() async throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["TRAWL_IPHONE_CAPTURE"] == "1",
+            "iPhone capture is opt-in; pass TEST_RUNNER_TRAWL_IPHONE_CAPTURE=1."
+        )
+        try requireCompactChrome()
+        let app = try await launchFullyConfiguredApp(orientation: .portrait)
+        guard ensureRootChromeIsReady(in: app, timeout: 30) else {
+            capture(app, "00-UNREACHED-tab-ui")
+            XCTFail("Compact chrome never appeared")
+            return
+        }
+
+        var index = 1
+        func shot(_ name: String) {
+            settleLoading(app)
+            capture(app, String(format: "%02d-%@", index, name))
+            index += 1
+        }
+
+        for tab in ["Downloads", "Series", "Movies", "More"] {
+            guard goToTab(app, tab) else { shot("\(tab.lowercased())-MISS"); continue }
+            settleRootTab(app, tab)
+            shot(tab.lowercased())
+        }
+
+        for (tab, row, title, name) in [
+            ("Series", Self.headlineSeriesTitle, Self.headlineSeriesTitle, "series-detail"),
+            ("Movies", Self.headlineMovieTitle, Self.headlineMovieTitle, "movie-detail"),
+            ("Downloads", Self.qbittorrentTorrentName, Self.qbittorrentTorrentName, "download-detail")
+        ] {
+            let ok = captureDetail(app, tab: tab, row: row, expecting: title,
+                                   named: String(format: "%02d-%@", index, name))
+            if !ok { XCTContext.runActivity(named: "\(name) not reached") { _ in } }
+            index += 1
+        }
+
+        let screens: [TrawlDestination] = [
+            .libraryManagement, .requestsAndAccess, .mediaServer, .automation, .system,
+            .missing, .settings,
+            .requests, .issues, .users,
+            .jellyfinLibraries, .jellyfinSessions,
+            .indexers, .downloadClients, .cleanuparr,
+            .rootFolders, .qualityProfiles, .naming,
+            .setupCheck, .health, .tasks, .logs, .diskSpace, .updates, .backups
+        ]
+        for screen in screens {
+            popCompactStack(app)
+            let slug = screen.title.lowercased()
+                .replacingOccurrences(of: " & ", with: "-")
+                .replacingOccurrences(of: " ", with: "-")
+            if openDestination(screen, in: app) {
+                shot(slug)
+                // Setup Check is a sheet on compact; back buttons cannot pop it.
+                let done = app.buttons["Done"]
+                if screen == .setupCheck, done.waitForExistence(timeout: 2) {
+                    tapEvenIfNotHittable(done)
+                    _ = done.waitForNonExistence(timeout: 5)
+                }
+            } else {
+                shot("\(slug)-MISS")
+            }
+        }
+        popCompactStack(app)
+
+        // Last: on iOS 26 an active search collapses the tab bar behind a "…" button,
+        // and nothing after it could reach the other tabs.
+        // Search: idle, active with no text (recent searches), and with results.
+        if openDestination(.search, in: app) {
+            settleRootTab(app, "Search")
+            let field = app.searchFields.firstMatch
+            if !field.exists || !hasFocusedKeyboard(app) {
+                shot("search-idle")
+                if field.waitForExistence(timeout: 5) { tapEvenIfNotHittable(field) }
+            }
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
+            shot("search-active")
+            if app.keyboards.firstMatch.exists {
+                app.typeText("Fixture\n")
+                settle(app, untilAnyOf: [app.buttons["All"]], timeout: 10)
+                shot("search-results")
+            }
+            let close = app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Close")).firstMatch
+            if close.exists { tapEvenIfNotHittable(close) }
+            let cancel = app.buttons["Cancel"]
+            if cancel.exists { tapEvenIfNotHittable(cancel) }
+        } else {
+            shot("search-MISS")
+        }
+
+    }
+
+    /// `popToRoot` taps a back button it saw a moment earlier; on iOS 27 that button
+    /// can vanish mid-transition and the tap aborts the whole run. This waits for the
+    /// button to be hittable before tapping, and for it to leave before looking again.
+    @MainActor
+    private func popCompactStack(_ app: XCUIApplication) {
+        let backPredicate = NSPredicate(format: "identifier == %@ OR label ==[c] %@", "BackButton", "Back")
+        for _ in 0..<4 {
+            let back = app.buttons.matching(backPredicate).firstMatch
+            guard back.waitForExistence(timeout: 2) else { return }
+            let deadline = Date().addingTimeInterval(3)
+            while back.exists, !back.isHittable, Date() < deadline {
+                _ = back.waitForNonExistence(timeout: 0.3)
+            }
+            guard back.exists, back.isHittable else { return }
+            back.tap()
+            _ = back.waitForNonExistence(timeout: 2)
+        }
+    }
+
+    /// Waits, without sleeping, for spinners to clear so a capture shows content.
+    @MainActor
+    private func settleLoading(_ app: XCUIApplication) {
+        let spinner = app.activityIndicators.firstMatch
+        if spinner.exists { _ = spinner.waitForNonExistence(timeout: 8) }
+    }
+
+    @MainActor
+    private func hasFocusedKeyboard(_ app: XCUIApplication) -> Bool {
+        app.keyboards.firstMatch.exists
+    }
+
     // MARK: - Chrome diagnostic
 
     /// Not a capture: a read-out of what each iPad chrome actually contains.
