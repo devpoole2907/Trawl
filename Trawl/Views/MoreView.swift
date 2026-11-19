@@ -1936,7 +1936,7 @@ enum MoreSearchIndex {
                 icon: "server.rack",
                 color: MoreDestinationAccent.jellyfin.color,
                 title: "Media Server",
-                subtitle: "Sessions, transcoding, and plugins",
+                subtitle: "Libraries, sessions, transcoding, and plugins",
                 category: "Media Server",
                 keywords: ["media server", "users", "activity", "tasks", "transcoding"]
             ),
@@ -1953,11 +1953,11 @@ enum MoreSearchIndex {
             .init(
                 id: "jellyfin-libraries",
                 destination: .jellyfinLibraries,
-                icon: "folder.fill",
+                icon: "books.vertical.fill",
                 color: .orange,
                 title: "Jellyfin Libraries",
                 subtitle: "Media libraries and scans",
-                category: "Library Management",
+                category: "Media Server",
                 keywords: ["library", "scan", "media", "folders", "collections"]
             ),
             .init(
@@ -3943,6 +3943,17 @@ private struct JellyfinManagementView: View {
                 )
             } else {
                 Section {
+                    // First, as in the iPad sidebar. It used to be missing here, which
+                    // left Libraries reachable on iPhone only through search.
+                    NavigationLink(value: MoreDestination.jellyfinLibraries) {
+                        NavigationMenuRow(
+                            icon: "books.vertical.fill",
+                            color: .orange,
+                            title: "Libraries",
+                            subtitle: "Media libraries and scans"
+                        )
+                    }
+
                     NavigationLink(value: MoreDestination.jellyfinSessions) {
                         NavigationMenuRow(
                             icon: "play.rectangle.fill",
