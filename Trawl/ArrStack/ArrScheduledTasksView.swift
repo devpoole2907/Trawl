@@ -140,8 +140,7 @@ struct ArrScheduledTasksView: View {
                     searchText: $taskSearchText,
                     searchHint: "Search tasks",
                     isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
+                    searchPlacement: .leading
                 )
             }
         }
@@ -243,6 +242,7 @@ struct ArrScheduledTasksView: View {
 
         if sections.isEmpty {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         } else {
             ForEach(sections) { section in

@@ -87,6 +87,7 @@ struct JellyfinSessionsView: View {
                         systemImage: "play.slash",
                         description: Text("No playback sessions are currently active on Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

@@ -86,6 +86,8 @@ struct DownloadsView: View {
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     private let session: DownloadsViewSession
     @Bindable private var viewModel: DownloadsViewModel
+    /// The screen's width, which decides the title menu's slot - see `titleMenuPlacement`.
+    @State private var titleBarWidth: CGFloat = 0
     @State private var showAddTorrent = false
     @State private var torrentPendingDeletion: Torrent?
     @State private var sabJobPendingDeletion: SABnzbdJob?
@@ -267,8 +269,7 @@ struct DownloadsView: View {
                         searchText: $viewModel.searchText,
                         searchHint: "Search downloads",
                         isSearchExpanded: isSearchExpandedBinding,
-                        searchPlacement: .leading,
-                        alignment: .leading
+                        searchPlacement: .leading
                     )
                 }
             }
@@ -324,11 +325,23 @@ struct DownloadsView: View {
     /// resolves to `.automatic` on the Mac and automatic in a split view's content column
     /// settles trailing too - the very place this is moving away from. `.navigation` is
     /// macOS's actual leading group, beside the sidebar toggle.
+    /// The principal slot on a narrow bar, the leading slot on a wide one, and the
+    /// leading slot beside a detail column. See `TrawlTitleMenu.prefersPrincipalSlot`.
     private var titleMenuPlacement: ToolbarItemPlacement {
         #if os(macOS)
         .navigation
         #else
-        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        titleMenuLeads ? platformTopBarLeadingPlacement : .principal
+        #endif
+    }
+
+    /// Whether the menu is in the leading slot and so carries its own subtitle and
+    /// drops its glass backing. On the Mac that is whenever a detail column is open.
+    private var titleMenuLeads: Bool {
+        #if os(macOS)
+        detailSelection != nil
+        #else
+        detailSelection != nil || !TrawlTitleMenu<Int>.prefersPrincipalSlot(barWidth: titleBarWidth)
         #endif
     }
 
@@ -352,10 +365,10 @@ struct DownloadsView: View {
                     },
                     selection: userChosenTitleDestination,
                     isCompact: isTitleCompact,
-                    subtitle: detailSelection == nil ? nil : navigationSubtitle
+                    subtitle: titleMenuLeads ? navigationSubtitle : nil
                 )
             }
-            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
+            .sharedBackgroundVisibility(titleMenuLeads ? .hidden : .automatic)
         }
     }
 
@@ -525,7 +538,8 @@ struct DownloadsView: View {
             }
             .background(backgroundGradient)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitle)
+            .navigationSubtitle(showsTitleMenu && titleMenuLeads ? "" : navigationSubtitle)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleBarWidth = $0 }
             #if os(iOS)
             // Inline while selecting: a large "3 Selected" would tower over the
             // Select All / Done pair it sits between, and it is a transient count

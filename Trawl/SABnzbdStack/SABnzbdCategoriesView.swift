@@ -77,8 +77,7 @@ struct SABnzbdCategoriesView: View {
                     items: [
                         TrawlSegmentBarItem("Categories", value: 0),
                         TrawlSegmentBarItem("Scripts", value: 1)
-                    ],
-                    alignment: .center
+                    ]
                 )
             }
         }

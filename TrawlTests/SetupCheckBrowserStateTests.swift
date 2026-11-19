@@ -125,18 +125,81 @@ struct SetupCheckBrowserStateTests {
         #expect(browser.selectedIssueID != top.id)
     }
 
-    /// No match means no selection, so the detail column falls back to its
-    /// placeholder instead of rendering a stale finding.
-    @Test("When the filter matches nothing, nothing is selected")
-    func emptyFilterClearsSelection() {
+    /// A filter whose last finding was fixed or ignored is no longer offered, so it
+    /// cannot stay chosen with nothing in the bar selected. It falls back to All,
+    /// and the selection follows.
+    @Test("A filter left with nothing in it falls back to All")
+    func emptiedFilterFallsBackToAll() {
         let browser = SetupCheckBrowserState()
         let onlyProblems = Self.mixed.filter { $0.severity == .problem }
-        browser.selectedIssueID = onlyProblems.first?.id
-
         browser.filter = .notes
+
         browser.reconcileSelection(issues: onlyProblems)
 
+        #expect(browser.filter == .all)
+        #expect(browser.selectedIssueID == onlyProblems.first?.id)
+    }
+
+    /// No findings means no selection, so the detail column falls back to its
+    /// all-clear or placeholder instead of rendering a stale finding.
+    @Test("With no findings, nothing is selected")
+    func noFindingsClearsSelection() {
+        let browser = SetupCheckBrowserState()
+        browser.selectedIssueID = Self.mixed.first?.id
+
+        browser.reconcileSelection(issues: [])
+
         #expect(browser.selectedIssueID == nil)
+    }
+
+    @Test("Only severities with findings are offered as filters")
+    func offersOnlyNonEmptyFilters() {
+        #expect(SetupCheckFilter.available(for: Self.mixed) == [.all, .problems, .unverified, .notes])
+        #expect(SetupCheckFilter.available(for: Self.mixed.filter { $0.severity != .unknown }) == [.all, .problems, .notes])
+        #expect(SetupCheckFilter.available(for: []) == [.all])
+    }
+
+    // MARK: Summary
+
+    private static func summary(
+        coverage: SetupCheckCoverage = .audited(["Sonarr"]),
+        audited: Bool = true,
+        problems: Int = 0,
+        unknowns: Int = 0,
+        notes: Int = 0
+    ) -> SetupCheckSummary {
+        SetupCheckSummary(coverage: coverage, hasCompletedAnAudit: audited, problems: problems, unknowns: unknowns, notes: notes)
+    }
+
+    /// The header, the navigation subtitle and the System row all read this, so the
+    /// order of these rules is the order the screen claims things in.
+    @Test("The summary never calls an unchecked or partial setup clear")
+    func summaryStatusOrder() {
+        #expect(Self.summary(coverage: .nothingConfigured, problems: 3).status == .nothingConfigured)
+        #expect(Self.summary(audited: false).status == .checking)
+        #expect(Self.summary(problems: 1, unknowns: 2).status == .problems)
+        #expect(Self.summary(unknowns: 1, notes: 4).status == .incomplete)
+        #expect(Self.summary(notes: 2).status == .clear)
+        #expect(Self.summary().status == .clear)
+    }
+
+    @Test("The subtitle counts the most serious thing")
+    func summarySubtitle() {
+        #expect(Self.summary(problems: 1).subtitle == "1 Problem")
+        #expect(Self.summary(problems: 4, notes: 2).subtitle == "4 Problems")
+        #expect(Self.summary(unknowns: 2).subtitle == "2 Unverified")
+        #expect(Self.summary(notes: 1).subtitle == "1 Note")
+        #expect(Self.summary().subtitle == "All Clear")
+        #expect(Self.summary(coverage: .nothingConfigured).subtitle == "Nothing to Check")
+    }
+
+    /// The all-clear names what was read, so it cannot claim services that are not
+    /// configured.
+    @Test("An all-clear names only the services it checked")
+    func allClearNamesCoverage() {
+        let clear = Self.summary(coverage: .audited(["Radarr", "Sonarr"]))
+        #expect(clear.message.contains("Radarr and Sonarr"))
+        #expect(!clear.message.contains("Prowlarr"))
     }
 
     // MARK: What an empty result may claim

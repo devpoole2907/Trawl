@@ -27,7 +27,7 @@ struct SeerrIssueListView: View {
     var body: some View {
         Group {
             if let viewModel {
-                TrawlListDetailPanes(title: "Issues", subtitle: "Seerr") {
+                TrawlListDetailPanes(title: "Issues", subtitle: viewModel.issues.isEmpty ? nil : issueCountText(for: viewModel)) {
                     issueList(viewModel: viewModel)
                 } detail: {
                     selectedIssueDetail(viewModel: viewModel)
@@ -115,11 +115,13 @@ struct SeerrIssueListView: View {
                         systemImage: "checkmark.bubble",
                         description: Text("No issues match the current status filter.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else if filteredIssues.isEmpty {
                 if viewModel.errorMessage == nil {
                     ContentUnavailableView.search(text: query)
+                        .centredInVisibleList()
                         .listRowBackground(Color.clear)
                 }
             } else {
@@ -136,8 +138,6 @@ struct SeerrIssueListView: View {
                         }
                     } header: {
                         Text(viewModel.selectedFilter.rawValue)
-                    } footer: {
-                        Text(issueCountText(for: viewModel))
                     }
                 } else {
                     ForEach(issueSearchSections(matching: query, in: viewModel)) { section in
@@ -167,8 +167,7 @@ struct SeerrIssueListView: View {
             searchText: $issueSearchText,
             searchHint: "Search issues",
             isSearchExpanded: $isSearchExpanded,
-            searchPlacement: .leading,
-            alignment: .leading)
+            searchPlacement: .leading)
             .clipped()
             .transition(.opacity.combined(with: .move(edge: .top)))
         }

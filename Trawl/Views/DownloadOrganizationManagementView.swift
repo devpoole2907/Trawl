@@ -154,8 +154,7 @@ private struct DownloadOrganizationCategoriesView: View {
                 items: [
                     TrawlSegmentBarItem("qBittorrent", value: .qbittorrent),
                     TrawlSegmentBarItem("SABnzbd", value: .sabnzbd)
-                ],
-                alignment: .center
+                ]
             )
         }
         .toolbar {
@@ -212,6 +211,7 @@ private struct DownloadOrganizationCategoriesView: View {
     @ViewBuilder private var qbittorrentCategories: some View {
         if syncService.sortedCategoryNames.isEmpty {
             ContentUnavailableView("No Categories", systemImage: "tag", description: Text("Create categories here, then assign them from torrent detail views."))
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         } else {
             Section {
@@ -229,6 +229,7 @@ private struct DownloadOrganizationCategoriesView: View {
         let categories = sabnzbdServiceManager.categoryConfigs.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
         if categories.isEmpty {
             ContentUnavailableView("No Categories", systemImage: "tag", description: Text("SABnzbd has no categories configured."))
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         } else {
             Section {

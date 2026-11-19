@@ -105,6 +105,7 @@ struct ArrDownloadClientListView: View {
                     systemImage: "nosign",
                     description: Text("\(serviceType.displayName) does not support download client management in Trawl.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else if clients.isEmpty {
                 ContentUnavailableView(
@@ -112,6 +113,7 @@ struct ArrDownloadClientListView: View {
                     systemImage: "arrow.down.circle",
                     description: Text("No download clients are configured in \(selectedLabel).")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 clientSections

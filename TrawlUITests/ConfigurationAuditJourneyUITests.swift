@@ -4,7 +4,7 @@
 //
 //  The configuration audit reconciles facts that live in different services, and
 //  its rules are unit-covered. What those tests cannot show is that the finding
-//  reaches the user: the audit runs against live clients, and the wizard is the
+//  reaches the user: the audit runs against live clients, and Setup Check is the
 //  only place it surfaces. This walks the real route - More -> System -> Setup
 //  Check - against a Sonarr that genuinely has no download client and no indexer.
 //
@@ -35,15 +35,15 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         let app = launchApp(sonarr: sonarr)
 
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
-        // The two chromes reach the wizard differently, and deliberately so. On the
+        // The two chromes reach Setup Check differently, and deliberately so. On the
         // sidebar chrome the Setup Check *is* the screen - every other row of the
         // System hub was promoted, so a hub there would be one button opening a
         // sheet. On compact the hub is still how you get there, and the row carries
-        // the finding before the wizard is ever opened.
+        // the finding before Setup Check is ever opened.
         //
         // Which is why compact stops at the *hub* rather than asking for
         // `.setupCheck`: `openDestination` walks a hub-behind-More destination all
-        // the way to its screen, so naming the wizard here would arrive with the hub
+        // the way to its screen, so naming Setup Check here would arrive with the hub
         // already gone - and the row's subtitle, asserted below, is half of what this
         // test is for. The row would still be *found* afterwards, because a TabView
         // keeps the tab it left mounted, but it is off screen and never becomes
@@ -52,7 +52,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             XCTAssertTrue(openDestination(.setupCheck, in: app), "Setup Check should be reachable.")
             XCTAssertTrue(
                 app.navigationBars["Setup Check"].waitForExistence(timeout: 10),
-                "The sidebar's Setup Check row should open the wizard as the screen itself."
+                "The sidebar's Setup Check row should open Setup Check as the screen itself."
             )
         } else {
             XCTAssertTrue(openDestination(.system, in: app), "The System hub should be reachable.")
@@ -63,7 +63,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             )
 
             // The audit runs on appear, so the row's own subtitle is the first place
-            // a problem becomes visible - before the wizard is ever opened.
+            // a problem becomes visible - before Setup Check is ever opened.
             let problemSubtitle = app.staticTexts.matching(
                 NSPredicate(format: "label CONTAINS[c] %@", "problem")
             ).firstMatch
@@ -77,10 +77,14 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             // plain-styled button hit-tests only what it draws, so this exact tap used
             // to do nothing at all. `.contentShape` inside the label is what makes the
             // whole row the target, and this is the assertion that says so.
-            XCTAssertTrue(tapWhenHittable(setupCheck, in: app, timeout: 10), "Setup Check should open the wizard.")
+            XCTAssertTrue(tapWhenHittable(setupCheck, in: app, timeout: 10), "Setup Check should open.")
             XCTAssertTrue(
                 app.navigationBars["Setup Check"].waitForExistence(timeout: 10),
-                "Setup Check should present the configuration wizard."
+                "The System row should push Setup Check, the same screen the sidebar shows."
+            )
+            XCTAssertFalse(
+                app.buttons["Next"].exists,
+                "Setup Check is a list on every chrome now, not the old step-by-step wizard."
             )
         }
 
@@ -91,13 +95,23 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] %@", "no download client")
         ).firstMatch
         XCTAssertTrue(
-            downloadClientIssue.exists || issueHeadline.waitForExistence(in: app, timeout: 15),
-            "The wizard must name the missing download client, which is the fault the fixture actually has."
+            downloadClientIssue.waitForExistence(in: app, timeout: 15) || issueHeadline.exists,
+            "Setup Check must name the missing download client, which is the fault the fixture actually has."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["setup-check-summary"].waitForExistence(in: app, timeout: 10),
+            "The list should open on a summary of where the check stands, not only when it is clean."
         )
 
+        // The same finding screen on both chromes: pushed on a phone, selected into
+        // the detail column beside the list.
         XCTAssertTrue(
-            app.buttons["configuration-wizard-fix"].waitForExistence(in: app, timeout: 10),
-            "A problem the wizard can route to should offer its fix action."
+            tapWhenHittable(downloadClientIssue, in: app, timeout: 10),
+            "The finding's row should open it."
+        )
+        XCTAssertTrue(
+            app.buttons["setup-check-fix"].waitForExistence(in: app, timeout: 10),
+            "A problem Trawl can route to should offer its fix."
         )
 
         // The filter only exists beside a detail pane; the phone walks findings one at
@@ -130,9 +144,67 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         }
     }
 
+    /// Ignoring a finding used to drop it for the rest of the session with no way to
+    /// see it or take the decision back - `restoreDismissed()` existed and nothing
+    /// called it. An ignored finding is now listed under Ignored and can be restored
+    /// from its own screen, which this drives through the real buttons on whichever
+    /// chrome is running.
+    @MainActor
+    func testIgnoredFindingIsListedAndCanBeRestored() async throws {
+        let sonarr = try await SonarrFixtureServer(seriesJSON: #"[{"id":1,"title":"Audit Fixture Series"}]"#)
+        self.sonarr = sonarr
+        let app = launchApp(sonarr: sonarr)
+
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        XCTAssertTrue(openDestination(.setupCheck, in: app), "Setup Check should be reachable.")
+
+        let finding = app.descendants(matching: .any)
+            .matching(identifier: "configuration-issue-noDownloadClient")
+            .firstMatch
+        XCTAssertTrue(finding.waitForExistence(in: app, timeout: 30), "The fixture's missing download client should be listed.")
+        XCTAssertTrue(tapWhenHittable(finding, in: app, timeout: 10), "The finding's row should open it.")
+
+        // The triage buttons are the last rows of the finding, which on a phone puts
+        // them under the floating Notifications accessory: a tap there opens the
+        // notifications sheet instead. Scrolled clear first, as a person would.
+        let ignore = app.buttons["setup-check-ignore"]
+        XCTAssertTrue(ignore.waitForExistence(in: app, timeout: 10), "An open finding should offer Ignore.")
+        app.scroller(for: ignore).swipeUp()
+        XCTAssertTrue(tapWhenHittable(ignore, in: app, timeout: 10), "Ignore should be tappable.")
+
+        let ignoredHeader = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Ignored (1)")).firstMatch
+        XCTAssertTrue(
+            ignoredHeader.waitForExistence(in: app, timeout: 10),
+            "An ignored finding should be listed under Ignored rather than disappearing."
+        )
+
+        // Still a row, now under Ignored at the foot of the list, and still openable.
+        app.scroller(for: finding).swipeUp()
+        XCTAssertTrue(tapWhenHittable(finding, in: app, timeout: 10), "The ignored finding should still open.")
+        let restore = app.buttons["setup-check-restore"]
+        XCTAssertTrue(restore.waitForExistence(in: app, timeout: 10), "An ignored finding should offer Stop Ignoring.")
+        app.scroller(for: restore).swipeUp()
+        XCTAssertTrue(tapWhenHittable(restore, in: app, timeout: 10), "Stop Ignoring should be tappable.")
+        XCTAssertTrue(
+            ignore.waitForExistence(in: app, timeout: 10),
+            "Once restored the finding is active again and offers Ignore."
+        )
+
+        if !TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                tapWhenHittable(app.navigationBars.buttons["BackButton"], in: app, timeout: 10),
+                "The finding should pop back to the list."
+            )
+        }
+        XCTAssertTrue(
+            ignoredHeader.waitForNonExistence(timeout: 10),
+            "With nothing ignored the Ignored section should be gone."
+        )
+    }
+
     /// System wiring is persistent attention, not notification history. The live
     /// card therefore has to appear even when the notification log is empty and
-    /// lead to the same repair wizard as the System hub.
+    /// lead to the same Setup Check as the System hub.
     @MainActor
     func testNotificationsSurfaceSetupAttentionAndOpenTheWizard() async throws {
         let sonarr = try await SonarrFixtureServer(seriesJSON: #"[{"id":1,"title":"Audit Fixture Series"}]"#)
@@ -153,16 +225,16 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(
             tapWhenHittable(setupAttention, in: app, timeout: 10),
-            "Setup attention should open the repair wizard."
+            "Setup attention should open Setup Check."
         )
         XCTAssertTrue(
             app.navigationBars["Setup Check"].waitForExistence(in: app, timeout: 10),
-            "The notifications card should present the shared configuration wizard."
+            "The notifications card should present the shared Setup Check."
         )
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "no download client"))
                 .firstMatch.waitForExistence(in: app, timeout: 15),
-            "The wizard opened from notifications should retain the live audit finding."
+            "Setup Check opened from notifications should retain the live audit finding."
         )
     }
 
@@ -220,7 +292,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         headline.tap()
         XCTAssertTrue(
             app.navigationBars["Setup Check"].waitForExistence(in: app, timeout: 10),
-            "Either route leads to the same wizard as the System hub, not to a second repair flow - as a sheet on the compact chrome, and as the sidebar's own destination where there is one to select."
+            "Either route leads to the same Setup Check as the System hub, not to a second repair flow - as a sheet on the compact chrome, and as the sidebar's own destination where there is one to select."
         )
     }
 
@@ -240,7 +312,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         // reason.
         XCTAssertTrue(openDestination(.setupCheck, in: app), "Setup Check should be reachable.")
         // The wording differs by chrome and that is the point of visiting: the hub
-        // row counts the problems ("2 problems found"), while the wizard-as-screen
+        // row counts the problems ("2 problems found"), while Setup Check as the screen
         // states one ("Problem 1 of 2"). Either proves the audit has run, which is
         // all this step is here to establish before asserting on an absence.
         XCTAssertTrue(
@@ -264,7 +336,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
     /// whose indexers point at `<host>/<id>/api` is one whose indexers are being
     /// managed somewhere Trawl has never been told about. The Indexers screen is
     /// where a person goes looking for them, so it is where it says so - and the
-    /// nudge has to reach the wizard, or it is a dead end that names a problem and
+    /// nudge has to reach Setup Check, or it is a dead end that names a problem and
     /// offers nothing.
     @MainActor
     func testIndexersScreenOffersToAddAProwlarrItCanSee() async throws {
@@ -309,14 +381,16 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         XCTAssertTrue(setItUp.waitForExistence(in: app, timeout: 10), "The nudge should offer to set it up.")
         setItUp.tap()
 
-        XCTAssertTrue(
-            app.navigationBars["Setup Check"].waitForExistence(in: app, timeout: 30),
-            "Setting it up should lead to the same wizard the System hub opens, not a second flow."
-        )
+        // Opened about this finding: it comes up first - pushed on a phone, selected
+        // beside the list - rather than the check at large.
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "managing your indexers"))
-                .firstMatch.waitForExistence(in: app, timeout: 15),
-            "The wizard should carry the same finding, so the nudge and the audit cannot disagree about it."
+                .firstMatch.waitForExistence(in: app, timeout: 30),
+            "Setup Check should open on the same finding, so the nudge and the audit cannot disagree about it."
+        )
+        XCTAssertTrue(
+            app.buttons["setup-check-ignore"].waitForExistence(in: app, timeout: 10),
+            "The focused finding should be open, with its own actions, not just listed."
         )
     }
 

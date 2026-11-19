@@ -679,7 +679,7 @@ struct ArrCalendarView: View {
                 TrawlSegmentBar("Scope", selection: Binding(
                     get: { scope },
                     set: { newValue in withAnimation { scope = newValue } }
-                ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
+                ), items: CalendarScope.allCases.map(\.segmentBarItem))
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }

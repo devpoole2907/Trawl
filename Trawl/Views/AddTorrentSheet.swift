@@ -213,8 +213,7 @@ struct AddTorrentSheet: View {
                         }
                     }
                 ),
-                items: vm.availableSources.map(\.segmentBarItem),
-                alignment: .leading
+                items: vm.availableSources.map(\.segmentBarItem)
             )
         }
     }

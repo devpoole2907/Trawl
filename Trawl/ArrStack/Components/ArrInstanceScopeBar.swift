@@ -26,8 +26,7 @@ struct ArrInstanceScopeBar: View {
                     get: { selection ?? instances.first?.id },
                     set: { newValue in withAnimation { selection = newValue } }
                 ),
-                items: instances.map { TrawlSegmentBarItem(label(for: $0), value: Optional($0.id)) },
-                alignment: .leading
+                items: instances.map { TrawlSegmentBarItem(label(for: $0), value: Optional($0.id)) }
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }

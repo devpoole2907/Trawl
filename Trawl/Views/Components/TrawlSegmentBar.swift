@@ -5,7 +5,6 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
     @Binding var selection: Selection
     let items: [TrawlSegmentBarItem<Selection>]
     var horizontalPadding: CGFloat = 15
-    var alignment: TrawlSegmentBarAlignment = .leading
     var searchHint: String?
     var searchText: Binding<String>?
     var externalSearchExpanded: Binding<Bool>?
@@ -22,14 +21,12 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
         _ title: String,
         selection: Binding<Selection>,
         items: [TrawlSegmentBarItem<Selection>],
-        horizontalPadding: CGFloat = 15,
-        alignment: TrawlSegmentBarAlignment = .leading
+        horizontalPadding: CGFloat = 15
     ) {
         self.title = title
         _selection = selection
         self.items = items
         self.horizontalPadding = horizontalPadding
-        self.alignment = alignment
     }
 
     init(
@@ -41,14 +38,12 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
         isSearchExpanded: Binding<Bool>? = nil,
         searchPlacement: TrawlSegmentBarSearchPlacement = .trailing,
         horizontalPadding: CGFloat = 15,
-        alignment: TrawlSegmentBarAlignment = .leading,
         onSearchActivated: @escaping (Bool) -> Void = { _ in }
     ) {
         self.title = title
         _selection = selection
         self.items = items
         self.horizontalPadding = horizontalPadding
-        self.alignment = alignment
         self.searchText = searchText
         self.searchHint = searchHint
         self.externalSearchExpanded = isSearchExpanded
@@ -111,8 +106,16 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
         }
     }
 
+    /// One rule for every bar in the app: a plain pair of choices (Discover /
+    /// Library, Categories / Tags) is centred, and anything longer - an "All"
+    /// filter, three or more scopes, or a bar with a search button - starts at the
+    /// leading edge, where it can scroll and where the search field expands from.
     private var frameAlignment: Alignment {
-        alignment == .center && searchText == nil ? .center : .leading
+        Self.centresItems(itemCount: items.count, hasSearch: searchText != nil) ? .center : .leading
+    }
+
+    static func centresItems(itemCount: Int, hasSearch: Bool) -> Bool {
+        itemCount == 2 && !hasSearch
     }
 
     @ViewBuilder

@@ -87,6 +87,22 @@ struct TrawlTitleMenu<Value: Hashable>: View {
     }
 }
 
+extension TrawlTitleMenu {
+    /// Whether a screen with no detail column should put this menu in the
+    /// `.principal` slot rather than `.topBarLeading`.
+    ///
+    /// `.principal` centres its item whenever the bar has room. A narrow iPhone has
+    /// none, so the menu sits at the leading edge anyway and the trailing buttons get
+    /// their full space. A wide compact bar - the folded iPhone Duo in landscape, an
+    /// iPhone in landscape - does have room, and "Downloads" floated mid-bar while
+    /// More's title stayed leading. `.topBarLeading` fixes that, but on a narrow bar
+    /// it competes with the trailing buttons and pushed Sort into the overflow menu,
+    /// so it is used only where the bar is wide enough for both.
+    static func prefersPrincipalSlot(barWidth: CGFloat) -> Bool {
+        barWidth < 600
+    }
+}
+
 extension View {
     /// Reports whether the scroll view has moved off the top, so a `TrawlTitleMenu`
     /// can shrink the way a system large title does.

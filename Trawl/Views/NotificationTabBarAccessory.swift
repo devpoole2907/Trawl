@@ -572,22 +572,7 @@ struct RecentNotificationsSheet: View {
             }
         }
         .sheet(isPresented: $showSetupCheck) {
-            if let configurationAuditStore {
-                ConfigurationWizardView(
-                    issues: configurationAuditStore.issues,
-                    onDismissIssue: { configurationAuditStore.dismiss($0) },
-                    onRecheck: {
-                        await configurationAuditStore.refresh(
-                            serviceManager: arrServiceManager,
-                            trawlClients: trawlClientHosts,
-                            seerrServiceManager: seerrServiceManager,
-                            cleanuparrServiceManager: cleanuparrServiceManager,
-                            inputRevision: auditInputRevision
-                        )
-                    }
-                )
-                .environment(arrServiceManager)
-            }
+            SetupCheckSheet()
         }
     }
 
@@ -809,8 +794,7 @@ struct RecentNotificationsSheet: View {
                 get: { selectedSection },
                 set: { newSection in withAnimation { selectedSection = newSection } }
             ),
-            items: NotificationSheetSection.allCases.map(\.segmentBarItem),
-            alignment: .center
+            items: NotificationSheetSection.allCases.map(\.segmentBarItem)
         )
     }
 

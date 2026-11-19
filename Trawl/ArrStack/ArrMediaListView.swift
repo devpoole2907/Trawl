@@ -44,6 +44,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     let detailDestination: (ArrMergeKey) -> Detail
     var session: ArrMediaListSession? = nil
 
+    /// The screen's width, which decides the title menu's slot - see `titleMenuPlacement`.
+    @State private var titleBarWidth: CGFloat = 0
     @State private var localListScrollPosition: ArrMergeKey?
     @Namespace private var namespace
     @State private var showSettings = false
@@ -144,7 +146,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         baseContent
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .navigationTitle(navigationTitleText)
-            .navigationSubtitle(showsTitleMenu && detailSelection != nil ? "" : navigationSubtitleText)
+            .navigationSubtitle(showsTitleMenu && titleMenuLeads ? "" : navigationSubtitleText)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleBarWidth = $0 }
             #if os(iOS)
             .toolbarTitleDisplayMode(showsTitleMenu || editMode.isEditing ? .inline : .inlineLarge)
             .environment(\.editMode, swiftUIEditMode)
@@ -199,8 +202,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         searchText: $viewModel.searchText,
                         searchHint: "Search \(nounPlural.lowercased())",
                         isSearchExpanded: filterSearchExpandedBinding,
-                        searchPlacement: .leading,
-                        alignment: .leading
+                        searchPlacement: .leading
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
 
@@ -442,11 +444,23 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         }
     }
 
+    /// The principal slot on a narrow bar, the leading slot on a wide one, and the
+    /// leading slot beside a detail column. See `TrawlTitleMenu.prefersPrincipalSlot`.
     private var titleMenuPlacement: ToolbarItemPlacement {
         #if os(macOS)
         .navigation
         #else
-        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        titleMenuLeads ? platformTopBarLeadingPlacement : .principal
+        #endif
+    }
+
+    /// Whether the menu is in the leading slot and so carries its own subtitle and
+    /// drops its glass backing. On the Mac that is whenever a detail column is open.
+    private var titleMenuLeads: Bool {
+        #if os(macOS)
+        detailSelection != nil
+        #else
+        detailSelection != nil || !TrawlTitleMenu<Int>.prefersPrincipalSlot(barWidth: titleBarWidth)
         #endif
     }
 
@@ -458,10 +472,10 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                     options: titleMenuOptions,
                     selection: titleMenuSelection,
                     isCompact: isTitleCompact,
-                    subtitle: detailSelection == nil ? nil : navigationSubtitleText
+                    subtitle: titleMenuLeads ? navigationSubtitleText : nil
                 )
             }
-            .sharedBackgroundVisibility(detailSelection == nil ? .automatic : .hidden)
+            .sharedBackgroundVisibility(titleMenuLeads ? .hidden : .automatic)
         }
     }
 

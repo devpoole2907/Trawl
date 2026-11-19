@@ -82,6 +82,7 @@ struct ProwlarrProxiesListView: View {
                     systemImage: "shield.lefthalf.filled",
                     description: Text("Add an HTTP, SOCKS, or FlareSolverr proxy so tagged indexers can route their requests through it.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 Section {

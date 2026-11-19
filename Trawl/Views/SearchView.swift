@@ -121,8 +121,7 @@ struct SearchView: View {
                         TrawlSegmentBar(
                             "Scope",
                             selection: $viewModel.scope,
-                            items: SearchScope.segmentBarItems,
-                            alignment: .center
+                            items: SearchScope.segmentBarItems
                         )
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     } else if !viewModel.searchText.isEmpty {
@@ -712,8 +711,7 @@ struct SearchView: View {
                     }
                 }
             ),
-            items: SearchResultFilter.segmentBarItems,
-            alignment: .leading
+            items: SearchResultFilter.segmentBarItems
         )
     }
 

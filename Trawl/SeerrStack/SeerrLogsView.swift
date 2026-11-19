@@ -48,6 +48,7 @@ struct SeerrLogsView: View {
                             ContentUnavailableView.search(text: committedSearchText)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {
@@ -91,8 +92,7 @@ struct SeerrLogsView: View {
                 searchText: $searchText,
                 searchHint: "Search logs",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }

@@ -218,6 +218,7 @@ struct ArrUpdatesView: View {
                     systemImage: "arrow.down.app",
                     description: Text("No version history available for \(service.displayName).")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(data.allVersions) { update in
@@ -300,6 +301,7 @@ struct ArrUpdatesView: View {
                     systemImage: "arrow.down.app",
                     description: Text("No version history available for \(service.displayName).")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(data.allVersions) { update in

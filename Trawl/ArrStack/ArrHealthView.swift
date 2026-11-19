@@ -46,13 +46,12 @@ struct ArrServiceFilterBar: View {
     let title: String
     @Binding var selection: ArrServiceFilter
     let filters: [ArrServiceFilter]
-    var alignment: TrawlSegmentBarAlignment = .center
 
     var body: some View {
         TrawlSegmentBar(title, selection: Binding(
             get: { selection },
             set: { newValue in withAnimation { selection = newValue } }
-        ), items: filters.map(\.segmentBarItem), alignment: alignment)
+        ), items: filters.map(\.segmentBarItem))
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
@@ -165,7 +164,7 @@ struct ArrHealthView: View {
         .background(backgroundGradient)
         .safeAreaInset(edge: .top) {
             if hasConfiguredService {
-                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
+                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters)
             }
         }
         .task(id: healthReloadKey) {
@@ -280,6 +279,7 @@ struct ArrHealthView: View {
                     systemImage: "checkmark.circle",
                     description: Text("No health warnings reported for the selected services.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(filteredChecks) { item in

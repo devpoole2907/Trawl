@@ -268,6 +268,7 @@ struct ArrEventsView: View {
                             ContentUnavailableView.search(text: query)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {
@@ -321,8 +322,7 @@ struct ArrEventsView: View {
                 searchText: $searchText,
                 searchHint: "Search events",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
         }
         .refreshable {

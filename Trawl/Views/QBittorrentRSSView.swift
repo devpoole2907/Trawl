@@ -41,6 +41,7 @@ struct QBittorrentRSSView: View {
                         systemImage: "dot.radiowaves.left.and.right",
                         description: Text("Add RSS feed URLs to automatically monitor trackers.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

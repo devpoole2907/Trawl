@@ -138,7 +138,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 ), items: [
                     TrawlSegmentBarItem("Categories", value: 0),
                     TrawlSegmentBarItem("Tags", value: 1)
-                ], alignment: .center)
+                ])
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -154,6 +154,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 systemImage: "tag",
                 description: Text("Create categories here, then assign them from torrent detail views.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             SwiftUI.Section {
@@ -208,6 +209,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 systemImage: "number",
                 description: Text("Create tags here, then assign them from torrent detail views.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             SwiftUI.Section {

@@ -72,10 +72,12 @@ struct JellyfinActivityLogView: View {
                         systemImage: "list.bullet.rectangle",
                         description: Text("No activity log entries were returned by Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else if entries.isEmpty {
                 ContentUnavailableView.search(text: searchText)
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
             } else {
                 Section {
@@ -130,8 +132,7 @@ struct JellyfinActivityLogView: View {
                     searchText: $searchText,
                     searchHint: "Search activity",
                     isSearchExpanded: $isSearchExpanded,
-                    searchPlacement: .leading,
-                    alignment: .leading
+                    searchPlacement: .leading
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

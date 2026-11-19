@@ -36,6 +36,12 @@ final class ConfigurationAuditStore {
     var problemCount: Int { problems.count }
     var hasCompletedAnAudit: Bool { lastAuditDate != nil }
 
+    /// Findings the user has waved away this session that the last audit still
+    /// found. Kept rather than dropped so the Setup Check can list them and offer
+    /// them back: they used to vanish with no way to see or restore them short of
+    /// relaunching.
+    private(set) var ignoredIssues: [ConfigurationIssue] = []
+
     /// Issues the user has waved away this session. They stay out of the counts so a
     /// deliberate setup - a Docker hostname, a server left bare on purpose - stops
     /// nagging, without being written to disk where a real fault could be buried
@@ -47,11 +53,23 @@ final class ConfigurationAuditStore {
 
     func dismiss(_ issue: ConfigurationIssue) {
         dismissedIDs.insert(issue.id)
-        issues.removeAll { $0.id == issue.id }
+        guard let index = issues.firstIndex(where: { $0.id == issue.id }) else { return }
+        let removed = issues.remove(at: index)
+        ignoredIssues = (ignoredIssues + [removed]).displayOrdered
+    }
+
+    /// Puts one ignored finding back where it was.
+    func restore(_ issue: ConfigurationIssue) {
+        dismissedIDs.remove(issue.id)
+        guard let index = ignoredIssues.firstIndex(where: { $0.id == issue.id }) else { return }
+        let restored = ignoredIssues.remove(at: index)
+        issues = (issues + [restored]).displayOrdered
     }
 
     func restoreDismissed() {
         dismissedIDs.removeAll()
+        issues = (issues + ignoredIssues).displayOrdered
+        ignoredIssues = []
     }
 
     /// Re-reads every service and recomputes the findings.
@@ -76,6 +94,7 @@ final class ConfigurationAuditStore {
         )
         let found = ConfigurationAudit.issues(in: snapshot)
         issues = found.filter { !dismissedIDs.contains($0.id) }
+        ignoredIssues = found.filter { dismissedIDs.contains($0.id) }
         lastAuditDate = .now
         lastInputRevision = inputRevision
         Self.logger.info("Configuration audit found \(found.count) issues (\(found.problems.count) problems)")

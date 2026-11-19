@@ -78,6 +78,7 @@ struct QBittorrentLogView: View {
                             ContentUnavailableView.search(text: query)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {
@@ -127,8 +128,7 @@ struct QBittorrentLogView: View {
                 searchText: $searchText,
                 searchHint: "Search log",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
         }
         .task {

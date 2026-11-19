@@ -249,9 +249,11 @@ struct BazarrLanguageProfilesView: View {
                 systemImage: "globe",
                 description: Text("No language profiles are configured in Bazarr.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         }
     }

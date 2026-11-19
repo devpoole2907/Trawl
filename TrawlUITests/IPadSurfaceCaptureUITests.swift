@@ -360,11 +360,19 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                 .replacingOccurrences(of: " ", with: "-")
             if openDestination(screen, in: app) {
                 shot(slug)
-                // Setup Check is a sheet on compact; back buttons cannot pop it.
-                let done = app.buttons["Done"]
-                if screen == .setupCheck, done.waitForExistence(timeout: 2) {
-                    tapEvenIfNotHittable(done)
-                    _ = done.waitForNonExistence(timeout: 5)
+                // Setup Check pushes its findings like any list. Photograph one, so
+                // the finding screen is in the audit too; the stack pop before the
+                // next screen takes it back off.
+                if screen == .setupCheck {
+                    let finding = app.descendants(matching: .any)
+                        .matching(NSPredicate(format: "identifier BEGINSWITH %@", "configuration-issue-"))
+                        .firstMatch
+                    if finding.waitForExistence(timeout: 10), finding.isHittable {
+                        finding.tap()
+                        if app.buttons["setup-check-ignore"].waitForExistence(timeout: 5) {
+                            shot("\(slug)-finding")
+                        }
+                    }
                 }
             } else {
                 shot("\(slug)-MISS")

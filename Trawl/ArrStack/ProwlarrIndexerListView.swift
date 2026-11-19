@@ -71,18 +71,10 @@ struct ProwlarrIndexerListView: View {
             }
         }
         .sheet(isPresented: $showSetupCheck) {
-            if let auditStore {
-                ConfigurationWizardView(
-                    issues: auditStore.issues,
-                    onDismissIssue: { auditStore.dismiss($0) },
-                    onRecheck: { await refreshAudit() },
-                    // Opened about the nudge that was tapped, not about the setup at
-                    // large: a screen that offers to add Prowlarr and then presents a
-                    // download-client repair has answered a question nobody asked.
-                    focusedKind: .prowlarrDetectedButNotConnected
-                )
-                .environment(serviceManager)
-            }
+            // Opened about the nudge that was tapped, not about the setup at large: a
+            // screen that offers to add Prowlarr and then presents a download-client
+            // repair has answered a question nobody asked.
+            SetupCheckSheet(focusedKind: .prowlarrDetectedButNotConnected)
         }
         .task {
             guard !showsSelectedIndexer else { return }
@@ -1060,9 +1052,11 @@ struct ProwlarrIndexerListView: View {
                 systemImage: "magnifyingglass.circle",
                 description: Text("Use the add button to create an indexer in Prowlarr, Sonarr, or Radarr.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         }
     }

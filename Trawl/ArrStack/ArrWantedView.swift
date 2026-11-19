@@ -357,8 +357,13 @@ struct ArrWantedView: View {
         if isSearchingAll {
             ProgressView()
         } else {
-            Button("Search All Missing") {
+            // An icon, not the words: a text button this wide pushed the inline
+            // title to the leading edge, the only pushed screen besides Backups
+            // that did. The label still carries the full name for VoiceOver.
+            Button {
                 showSearchAllConfirm = true
+            } label: {
+                Label("Search All Missing", systemImage: "sparkle.magnifyingglass")
             }
             .disabled(!canSearchAllMissing)
         }

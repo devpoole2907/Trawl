@@ -65,6 +65,7 @@ struct SeerrJobsView: View {
                         systemImage: "clock.arrow.2.circlepath",
                         description: Text("No scheduled jobs were returned by Seerr.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

@@ -129,6 +129,7 @@ struct SeerrDashboardView: View {
             } else if filteredRequests.isEmpty {
                 if viewModel.errorMessage == nil {
                     ContentUnavailableView.search(text: query)
+                        .centredInVisibleList()
                         .listRowBackground(Color.clear)
                 }
             } else {
@@ -220,8 +221,7 @@ struct SeerrDashboardView: View {
                 searchText: $requestSearchText,
                 searchHint: "Search requests",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
+                searchPlacement: .leading
             )
             // The shared bar leaves its scroll viewport unclipped for glass effects.
             // Contain this bar within the request pane, away from the detail view.
@@ -289,6 +289,7 @@ struct SeerrDashboardView: View {
             systemImage: "tray",
             description: Text("No requests match the current filter.")
         )
+        .centredInVisibleList()
         .listRowBackground(Color.clear)
     }
 

@@ -84,6 +84,7 @@ struct ProwlarrApplicationsListView: View {
                     systemImage: "app.connected.to.app.below.fill",
                     description: Text("Link Sonarr or Radarr so Prowlarr can keep their indexers in sync.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 Section {

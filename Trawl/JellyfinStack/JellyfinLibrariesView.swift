@@ -115,6 +115,7 @@ struct JellyfinLibrariesView: View {
                         systemImage: "folder",
                         description: Text("No media libraries were returned by Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

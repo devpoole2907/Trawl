@@ -1162,8 +1162,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             searchText: $searchText,
             searchHint: "Search releases",
             isSearchExpanded: $isFilterSearchExpanded,
-            searchPlacement: .leading,
-            alignment: .leading
+            searchPlacement: .leading
         )
     }
 
