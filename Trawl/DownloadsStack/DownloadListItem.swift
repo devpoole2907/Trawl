@@ -151,6 +151,46 @@ enum DownloadListItem: Identifiable {
 enum DownloadBatchTarget: Equatable {
     case torrent(Torrent)
     case sab(SABnzbdJob)
+
+    var canPause: Bool {
+        switch self {
+        case .torrent(let torrent):
+            !torrent.state.isStopped
+        case .sab(let job):
+            job.source == .queue && job.normalizedStatus.isActive && job.normalizedStatus != .paused
+        }
+    }
+
+    var canResume: Bool {
+        switch self {
+        case .torrent(let torrent):
+            torrent.state.isStopped
+        case .sab(let job):
+            job.source == .queue && job.normalizedStatus == .paused
+        }
+    }
+
+    var canRecheck: Bool {
+        if case .torrent = self { true } else { false }
+    }
+
+    var canDelete: Bool { true }
+
+    var identity: String {
+        switch self {
+        case .torrent(let torrent): "torrent:\(torrent.hash.lowercased())"
+        case .sab(let job): "sab:\(job.source.rawValue):\(job.id.lowercased())"
+        }
+    }
+}
+
+extension TorrentState {
+    var isStopped: Bool {
+        switch self {
+        case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP: true
+        default: false
+        }
+    }
 }
 
 extension DownloadListItem {

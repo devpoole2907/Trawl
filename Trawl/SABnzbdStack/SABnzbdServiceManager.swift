@@ -241,12 +241,18 @@ final class SABnzbdServiceManager {
 
         do {
             async let queueResult = client.getQueue(start: 0, limit: 200)
-            async let historyResult = client.getHistory(
+            async let firstHistoryResult = client.getHistory(
                 start: 0,
                 limit: 200,
                 lastHistoryUpdate: history?.lastHistoryUpdate
             )
-            let (fetchedQueue, fetchedHistory) = try await (queueResult, historyResult)
+            let (fetchedQueue, firstHistory) = try await (queueResult, firstHistoryResult)
+            let fetchedHistory: SABnzbdHistory?
+            if let firstHistory {
+                fetchedHistory = try await fetchCompleteHistory(firstPage: firstHistory, client: client)
+            } else {
+                fetchedHistory = nil
+            }
             // This payload describes whichever server `client` points at. If the
             // manager has since moved on, publishing it would show the old
             // server's queue under the new profile and misattribute completions.
@@ -287,6 +293,39 @@ final class SABnzbdServiceManager {
             connectionError = error.localizedDescription
             backoff.recordFailure()
         }
+    }
+
+    /// SABnzbd's history change token makes pagination cheap during polling: an
+    /// unchanged ledger returns `history: false`, while a changed one returns the
+    /// first page. Only that changed response walks the remaining pages.
+    private func fetchCompleteHistory(
+        firstPage: SABnzbdHistory,
+        client: SABnzbdAPIClient,
+        pageSize: Int = 200
+    ) async throws -> SABnzbdHistory {
+        guard firstPage.slots.count < firstPage.noOfSlots else { return firstPage }
+
+        var slots = firstPage.slots
+        var seen = Set(slots.map(\.nzoID))
+        for start in Self.historyPageStarts(
+            total: firstPage.noOfSlots,
+            loaded: firstPage.slots.count,
+            pageSize: pageSize
+        ) {
+            try Task.checkCancellation()
+            guard let page = try await client.getHistory(start: start, limit: pageSize),
+                  !page.slots.isEmpty else { break }
+            for slot in page.slots where seen.insert(slot.nzoID).inserted {
+                slots.append(slot)
+            }
+        }
+
+        return SABnzbdHistory(copying: firstPage, slots: Array(slots.prefix(firstPage.noOfSlots)))
+    }
+
+    nonisolated static func historyPageStarts(total: Int, loaded: Int, pageSize: Int) -> [Int] {
+        guard pageSize > 0, loaded < total else { return [] }
+        return Array(stride(from: loaded, to: total, by: pageSize))
     }
 
     /// True only while `client` is still the manager's live client for the
@@ -390,14 +429,26 @@ final class SABnzbdServiceManager {
     // MARK: - Job actions
 
     func pause(job: SABnzbdJob) async throws {
+        try await pause(jobs: [job])
+    }
+
+    func pause(jobs: [SABnzbdJob]) async throws {
         guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
-        try await client.pauseJobs(ids: [job.id])
+        let ids = jobs.filter { $0.source == .queue }.map(\.id)
+        guard !ids.isEmpty else { return }
+        try await client.pauseJobs(ids: ids)
         await refresh()
     }
 
     func resume(job: SABnzbdJob) async throws {
+        try await resume(jobs: [job])
+    }
+
+    func resume(jobs: [SABnzbdJob]) async throws {
         guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
-        try await client.resumeJobs(ids: [job.id])
+        let ids = jobs.filter { $0.source == .queue }.map(\.id)
+        guard !ids.isEmpty else { return }
+        try await client.resumeJobs(ids: ids)
         await refresh()
     }
 
@@ -408,14 +459,25 @@ final class SABnzbdServiceManager {
     }
 
     func delete(job: SABnzbdJob, deleteFiles: Bool = false) async throws {
-        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
-        try await client.deleteQueueJobs(ids: [job.id], deleteFiles: deleteFiles)
-        await refresh()
+        try await delete(jobs: [job], deleteFiles: deleteFiles)
     }
 
     func deleteHistory(job: SABnzbdJob, permanently: Bool = false, deleteFiles: Bool = false) async throws {
         guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.deleteHistoryJobs(ids: [job.id], permanently: permanently, deleteFiles: deleteFiles)
+        await refresh()
+    }
+
+    func delete(jobs: [SABnzbdJob], deleteFiles: Bool = false) async throws {
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
+        let queueIDs = jobs.filter { $0.source == .queue }.map(\.id)
+        let historyIDs = jobs.filter { $0.source == .history }.map(\.id)
+        if !queueIDs.isEmpty {
+            try await client.deleteQueueJobs(ids: queueIDs, deleteFiles: deleteFiles)
+        }
+        if !historyIDs.isEmpty {
+            try await client.deleteHistoryJobs(ids: historyIDs, permanently: true, deleteFiles: deleteFiles)
+        }
         await refresh()
     }
 

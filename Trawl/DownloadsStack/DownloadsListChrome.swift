@@ -28,8 +28,10 @@ final class DownloadsListChrome {
     /// not support are dropped rather than shown disabled - a permanently greyed
     /// Recheck on a SABnzbd queue is noise, where a greyed Pause with nothing
     /// selected is a hint.
-    var supportsRecheck = false
-    var supportsPauseResume = false
+    var canRecheck = false
+    var canPause = false
+    var canResume = false
+    var canDelete = false
 
     var beginSelecting: (() -> Void)?
     var endSelecting: (() -> Void)?
@@ -68,8 +70,10 @@ final class DownloadsListChrome {
         isSelecting = false
         selectedCount = 0
         totalCount = 0
-        supportsRecheck = false
-        supportsPauseResume = false
+        canRecheck = false
+        canPause = false
+        canResume = false
+        canDelete = false
         beginSelecting = nil
         endSelecting = nil
         toggleSelectAll = nil

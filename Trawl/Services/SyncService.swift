@@ -22,6 +22,10 @@ final class SyncService {
     private(set) var tags: [String] = []
     private(set) var serverState: ServerState?
     private(set) var isPolling: Bool = false
+    /// True once qBittorrent has answered or failed at least once. An empty torrent
+    /// collection is valid, so views need a separate first-load signal to tell it
+    /// apart from a request that has not completed yet.
+    private(set) var hasRefreshedOnce: Bool = false
     private(set) var lastError: QBError?
     private(set) var activeTorrentCount: Int = 0
     var defaultSavePath: String?
@@ -200,6 +204,7 @@ final class SyncService {
                     self.lastError = error as? QBError ?? .networkError(error.localizedDescription)
                     self.backoff.recordFailure()
                 }
+                if !self.hasRefreshedOnce { self.hasRefreshedOnce = true }
                 await self.waitForPollingInterval(self.backoff.interval(base: self.pollingInterval))
             }
         }
@@ -220,6 +225,9 @@ final class SyncService {
     /// here returns the loop to base cadence, which is what makes a Retry that
     /// works also fix the polling behind it.
     func refreshNow() async {
+        defer {
+            if !hasRefreshedOnce { hasRefreshedOnce = true }
+        }
         do {
             let data = try await apiClient.syncMainData(rid: rid)
             backoff.recordSuccess()

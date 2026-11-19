@@ -19,6 +19,20 @@ struct SABnzbdDecodingTests {
         for section in DownloadSection.allCases {
             #expect(DownloadsTitleDestination.downloads.supports(section))
         }
+        #expect(!DownloadsTitleDestination.torrents.supports(.history))
+        #expect(DownloadsTitleDestination.torrents.supports(.completed))
+    }
+
+    @Test("History pagination requests every SABnzbd page after the first")
+    func sabnzbdHistoryPageStarts() {
+        #expect(SABnzbdServiceManager.historyPageStarts(total: 450, loaded: 200, pageSize: 200) == [200, 400])
+        #expect(SABnzbdServiceManager.historyPageStarts(total: 200, loaded: 200, pageSize: 200).isEmpty)
+    }
+
+    @Test("Arr history pagination includes the final partial page")
+    func arrHistoryPages() {
+        #expect(ArrServiceManager.remainingHistoryPages(total: 250, pageSize: 100) == [2, 3])
+        #expect(ArrServiceManager.remainingHistoryPages(total: 100, pageSize: 100).isEmpty)
     }
 
     // MARK: - Queue

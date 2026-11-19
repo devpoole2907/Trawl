@@ -1341,8 +1341,8 @@ final class ArrServiceManager {
             return
         }
 
-        async let s = fanOutQueueSnapshots(sonarr)
-        async let r = fanOutQueueSnapshots(radarr)
+        async let s = fanOutQueueSnapshots(sonarr, existingHistory: sonarrHistory)
+        async let r = fanOutQueueSnapshots(radarr, existingHistory: radarrHistory)
         let (sv, rv) = await (s, r)
         // Compared at the call site, deliberately. A generic `assign(&x, v)` helper
         // does not work here: passing an `@Observable` property `inout` performs a
@@ -1374,14 +1374,18 @@ final class ArrServiceManager {
     /// queue still renders, which matters when a 4K server is offline and the HD
     /// one is happily downloading.
     private func fanOutQueueSnapshots<C: SharedArrClient>(
-        _ instances: [(ref: ArrInstanceRef, client: C)]
+        _ instances: [(ref: ArrInstanceRef, client: C)],
+        existingHistory: [ArrInstanced<ArrHistoryRecord>]
     ) async -> (queue: [ArrInstanced<ArrQueueItem>], history: [ArrInstanced<ArrHistoryRecord>], errors: [String]) {
         var queue: [ArrInstanced<ArrQueueItem>] = []
         var history: [ArrInstanced<ArrHistoryRecord>] = []
         var errors: [String] = []
 
         for (ref, client) in instances {
-            let snapshot = await fetchQueueSnapshot(client, ref: ref)
+            let previousHistory = existingHistory
+                .filter { $0.instance.id == ref.id }
+                .map(\.value)
+            let snapshot = await fetchQueueSnapshot(client, ref: ref, previousHistory: previousHistory)
             queue += snapshot.queue.instanced(on: ref)
             history += snapshot.history.instanced(on: ref)
             if let error = snapshot.error { errors.append(error) }
@@ -1455,17 +1459,23 @@ final class ArrServiceManager {
     /// from cache and so cannot testify that a server is up.
     private func fetchQueueSnapshot<C: SharedArrClient>(
         _ client: C?,
-        ref: ArrInstanceRef
+        ref: ArrInstanceRef,
+        previousHistory: [ArrHistoryRecord]
     ) async -> ArrQueueSnapshot {
         guard let client else { return .empty }
         do {
             async let queue = client.getQueue(page: 1, pageSize: 100, timeoutInterval: TrawlTimeout.poll)
-            async let history = client.getHistory(page: 1, pageSize: 100, timeoutInterval: TrawlTimeout.poll)
-            let (queuePage, historyPage) = try await (queue, history)
+            let firstHistoryPage = try await client.getHistory(page: 1, pageSize: 100, timeoutInterval: TrawlTimeout.poll)
+            let history = try await fetchCompleteHistory(
+                firstPage: firstHistoryPage,
+                previous: previousHistory,
+                client: client
+            )
+            let queuePage = try await queue
             recordInstanceOutcome(ref, error: nil)
             return ArrQueueSnapshot(
                 queue: queuePage.records ?? [],
-                history: historyPage.records ?? [],
+                history: history,
                 error: nil
             )
         } catch {
@@ -1476,6 +1486,50 @@ final class ArrServiceManager {
                 error: "\(ref.displayName): \(error.localizedDescription)"
             )
         }
+    }
+
+    /// Returns the complete history ledger while keeping the fast queue poll cheap.
+    /// A routine first-page refresh reuses the already-loaded tail. Missing pages
+    /// are requested only on the first load or when the server reports a larger
+    /// total than the cache can satisfy.
+    private func fetchCompleteHistory<C: SharedArrClient>(
+        firstPage: ArrHistoryPage,
+        previous: [ArrHistoryRecord],
+        client: C
+    ) async throws -> [ArrHistoryRecord] {
+        var records = firstPage.records ?? []
+        let total = max(firstPage.totalRecords ?? records.count, records.count)
+        guard records.count < total else { return Array(records.prefix(total)) }
+
+        var seen = Set(records.map(\.id))
+        if previous.count >= total {
+            for record in previous where seen.insert(record.id).inserted {
+                records.append(record)
+            }
+            return Array(records.prefix(total))
+        }
+
+        let pageSize = max(firstPage.pageSize ?? 100, 1)
+        for pageNumber in Self.remainingHistoryPages(total: total, pageSize: pageSize) {
+            try Task.checkCancellation()
+            let page = try await client.getHistory(
+                page: pageNumber,
+                pageSize: pageSize,
+                timeoutInterval: TrawlTimeout.poll
+            )
+            let pageRecords = page.records ?? []
+            guard !pageRecords.isEmpty else { break }
+            for record in pageRecords where seen.insert(record.id).inserted {
+                records.append(record)
+            }
+        }
+        return Array(records.prefix(total))
+    }
+
+    nonisolated static func remainingHistoryPages(total: Int, pageSize: Int) -> [Int] {
+        guard pageSize > 0, total > pageSize else { return [] }
+        let pageCount = Int(ceil(Double(total) / Double(pageSize)))
+        return Array(2...pageCount)
     }
 
     // MARK: - Health & Blocklist

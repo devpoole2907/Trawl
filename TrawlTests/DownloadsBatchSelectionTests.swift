@@ -83,6 +83,16 @@ struct DownloadsBatchSelectionTests {
         return SABnzbdJob(queueSlot: try decoder.decode(SABnzbdQueueSlot.self, from: Data(json.utf8)))
     }
 
+    private static func sabHistoryJob(
+        id: String = "SABnzbd_history_1",
+        status: String = "Completed"
+    ) throws -> SABnzbdJob {
+        let json = """
+        { "nzo_id": "\(id)", "name": "History.Job", "status": "\(status)", "size": "1 GB" }
+        """
+        return SABnzbdJob(historySlot: try decoder.decode(SABnzbdHistorySlot.self, from: Data(json.utf8)))
+    }
+
     private static func arrQueueItem(id: Int = 1, downloadID: String? = nil, status: String? = nil) throws -> ArrQueueItem {
         let statusField = status.map { ", \"status\": \"\($0)\"" } ?? ""
         let downloadField = downloadID.map { ", \"downloadId\": \"\($0)\"" } ?? ""
@@ -387,6 +397,24 @@ struct DownloadsBatchSelectionTests {
         #expect(DownloadListItem.arrHistory(historyItem).batchTarget == nil)
     }
 
+    @Test("Batch pause and resume only target states their clients can perform")
+    func batchActionEligibilityMatchesClientState() throws {
+        let runningTorrent = DownloadBatchTarget.torrent(try Self.torrent(hash: "running"))
+        let pausedTorrent = DownloadBatchTarget.torrent(try Self.torrent(hash: "paused", state: "pausedDL"))
+        let runningSAB = DownloadBatchTarget.sab(try Self.sabJob(id: "running-sab"))
+        let pausedSAB = DownloadBatchTarget.sab(try Self.sabJob(id: "paused-sab", status: "Paused"))
+        let completedSAB = DownloadBatchTarget.sab(try Self.sabHistoryJob())
+
+        #expect(runningTorrent.canPause && !runningTorrent.canResume)
+        #expect(!pausedTorrent.canPause && pausedTorrent.canResume)
+        #expect(runningSAB.canPause && !runningSAB.canResume)
+        #expect(!pausedSAB.canPause && pausedSAB.canResume)
+        #expect(!completedSAB.canPause && !completedSAB.canResume)
+        #expect(completedSAB.canDelete)
+        #expect(runningTorrent.canRecheck)
+        #expect(!runningSAB.canRecheck)
+    }
+
     // MARK: - The toolbar the selection drives
 
     /// Every list publishes into one coordinator, so a stale value from the
@@ -398,8 +426,10 @@ struct DownloadsBatchSelectionTests {
         chrome.isSelecting = true
         chrome.selectedCount = 3
         chrome.totalCount = 9
-        chrome.supportsRecheck = true
-        chrome.supportsPauseResume = true
+        chrome.canRecheck = true
+        chrome.canPause = true
+        chrome.canResume = true
+        chrome.canDelete = true
         chrome.beginSelecting = {}
         chrome.pauseSelected = {}
         chrome.extraActions = [
@@ -412,8 +442,10 @@ struct DownloadsBatchSelectionTests {
         #expect(!chrome.isSelecting)
         #expect(chrome.selectedCount == 0)
         #expect(chrome.totalCount == 0)
-        #expect(!chrome.supportsRecheck)
-        #expect(!chrome.supportsPauseResume)
+        #expect(!chrome.canRecheck)
+        #expect(!chrome.canPause)
+        #expect(!chrome.canResume)
+        #expect(!chrome.canDelete)
         #expect(chrome.beginSelecting == nil)
         #expect(chrome.pauseSelected == nil)
         #expect(chrome.extraActions.isEmpty)

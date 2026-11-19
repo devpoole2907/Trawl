@@ -110,6 +110,8 @@ struct DownloadsView: View {
     /// (a row background that stayed opaque over the gradient) was invisible until
     /// someone looked at it in dark mode.
     @State private var showBatchDeleteConfirm = false
+    @State private var alternativeSpeedEnabled = false
+    @State private var isUpdatingAlternativeSpeed = false
 
     /// Set by the split view's content column, so a tap selects instead of pushing.
     /// Nil in the tab chrome, where the row keeps its `NavigationLink`.
@@ -198,7 +200,9 @@ struct DownloadsView: View {
     /// be made again later.
     private func applyRequestedSection(_ requested: DownloadSection?) {
         guard let requested else { return }
-        withAnimation { selectedSection = requested }
+        withAnimation {
+            selectedSection = isSectionAvailable(requested, in: titleDestination) ? requested : .active
+        }
         downloadsNavigator?.requestedSection = nil
     }
 
@@ -210,7 +214,11 @@ struct DownloadsView: View {
             // search still offers it, and selecting the list is what that should mean -
             // pushing a second copy would give the same view two homes, and the pushed
             // one would need navigation chrome that the embedded one must not have.
-            withAnimation { titleDestination = .torrents }
+            if hasQBittorrentServer {
+                withAnimation { titleDestination = .torrents }
+            } else {
+                managementRoute = .clients
+            }
         } else {
             managementRoute = requested
         }
@@ -297,6 +305,9 @@ struct DownloadsView: View {
             set: { newValue in
                 guard newValue != titleDestination else { return }
                 titleDestination = newValue
+                if !isSectionAvailable(selectedSection, in: newValue) {
+                    selectedSection = .active
+                }
                 queueSwitchTip.invalidate(reason: .actionPerformed)
             }
         )
@@ -366,29 +377,28 @@ struct DownloadsView: View {
             }
 
             ToolbarItemGroup(placement: platformBottomBarPlacement) {
-                if chrome.supportsPauseResume {
+                if chrome.canPause {
                     Button {
                         chrome.pauseSelected?()
                     } label: {
                         Label("Pause", systemImage: "pause.fill")
                     }
-                    .disabled(!chrome.hasSelection)
+                }
 
+                if chrome.canResume {
                     Button {
                         chrome.resumeSelected?()
                     } label: {
                         Label("Resume", systemImage: "play.fill")
                     }
-                    .disabled(!chrome.hasSelection)
                 }
 
-                if chrome.supportsRecheck {
+                if chrome.canRecheck {
                     Button {
                         chrome.recheckSelected?()
                     } label: {
                         Label("Recheck", systemImage: "arrow.clockwise")
                     }
-                    .disabled(!chrome.hasSelection)
                 }
 
                 Button(role: .destructive) {
@@ -397,7 +407,7 @@ struct DownloadsView: View {
                     Label("Delete", systemImage: "trash")
                 }
                 .tint(.red)
-                .disabled(!chrome.hasSelection)
+                .disabled(!chrome.canDelete)
             }
         } else {
             if hasQBittorrentServer || hasSABnzbdServer {
@@ -480,6 +490,17 @@ struct DownloadsView: View {
         return destinations
     }
 
+    private func isSectionAvailable(
+        _ section: DownloadSection,
+        in destination: DownloadsTitleDestination
+    ) -> Bool {
+        guard destination.supports(section) else { return false }
+        if section == .history, destination == .downloads {
+            return hasSABnzbdServer || hasArrDownloadSource
+        }
+        return true
+    }
+
     private var downloadsContent: some View {
         content
             // Applied before .safeAreaInset so the RefreshAction stays scoped to the list.
@@ -532,6 +553,15 @@ struct DownloadsView: View {
                     withAnimation { selectedSection = .active }
                 }
             }
+            .onChange(of: availableTitleDestinations) { _, destinations in
+                guard destinations.contains(titleDestination) else {
+                    withAnimation { titleDestination = .downloads }
+                    return
+                }
+                if !titleDestination.supports(selectedSection) {
+                    withAnimation { selectedSection = .active }
+                }
+            }
             .navigationDestination(item: managementRouteBinding) { route in
                 managementDestination(route)
             }
@@ -568,6 +598,13 @@ struct DownloadsView: View {
                 await sabnzbdServiceManager.refresh()
                 sabnzbdServiceManager.startPolling()
                 viewModel.startPolling(serviceManager: arrServiceManager)
+            }
+            .task(id: hasQBittorrentServer) {
+                guard hasQBittorrentServer else {
+                    alternativeSpeedEnabled = false
+                    return
+                }
+                alternativeSpeedEnabled = (try? await torrentService.isAlternativeSpeedEnabled()) ?? false
             }
             .onDisappear {
                 sabnzbdServiceManager.stopPolling()
@@ -608,6 +645,21 @@ struct DownloadsView: View {
                 Button("Cancel", role: .cancel) { sabJobPendingDeletion = nil }
             } message: {
                 Text("This action can’t be undone.")
+            }
+            .confirmationDialog(
+                "Delete Selected Downloads?",
+                isPresented: $showBatchDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete and Remove Files", role: .destructive) {
+                    performBatchDelete(deleteFiles: true)
+                }
+                Button("Delete Jobs Only", role: .destructive) {
+                    performBatchDelete(deleteFiles: false)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes the selected downloads from their clients. This action can’t be undone.")
             }
 
     }
@@ -689,11 +741,7 @@ struct DownloadsView: View {
 
     @ViewBuilder
     private var content: some View {
-        // Gated on the first load rather than on `isLoadingQueue`, which flips true on
-        // every poll - an empty queue would otherwise flicker spinner/empty each cycle.
-        if arrServiceManager.isLoadingQueue && !arrServiceManager.hasLoadedQueueOnce && items.isEmpty {
-            TrawlInitialLoadingView(label: "Loading download queue")
-        } else if let scopedFailure, items.isEmpty {
+        if let scopedFailure, items.isEmpty {
             // A scope names one client, so when that client is unreachable this list
             // has to say so. Showing an empty list instead would report "no
             // downloads" for a server that is simply refusing to answer - and an
@@ -704,11 +752,14 @@ struct DownloadsView: View {
                 identity: scopedFailure.identity,
                 onRetry: { scopedFailure.retry() }
             )
+        } else if isInitialLoadPending && items.isEmpty {
+            TrawlInitialLoadingView(label: "Loading downloads")
         } else if let errorMessage = arrServiceManager.queueError,
                   items.isEmpty,
-                  syncService.torrents.isEmpty,
+                  titleDestination == .downloads,
                   !hasQBittorrentServer,
-                  !hasSABnzbdServer {
+                  !hasSABnzbdServer,
+                  hasArrDownloadSource {
             ServiceErrorView(
                 title: "Downloads Unavailable",
                 message: errorMessage,
@@ -720,7 +771,7 @@ struct DownloadsView: View {
             // results drop to empty. Swapping the List out for the empty state
             // tears down the scroll container and resigns first responder.
             VStack(spacing: 0) {
-                sabnzbdConnectionWarning
+                sourceWarnings
 
                 ZStack {
                     list
@@ -735,6 +786,26 @@ struct DownloadsView: View {
         }
     }
 
+    private var isInitialLoadPending: Bool {
+        switch titleDestination {
+        case .downloads:
+            let arrPending = hasArrDownloadSource && !arrServiceManager.hasLoadedQueueOnce
+            let torrentPending = hasQBittorrentServer && !syncService.hasRefreshedOnce && syncService.lastError == nil
+            let sabPending = hasSABnzbdServer
+                && !sabnzbdServiceManager.hasRefreshedOnce
+                && sabnzbdServiceManager.connectionError == nil
+            return arrPending || torrentPending || sabPending
+        case .sabQueue:
+            return hasSABnzbdServer
+                && !sabnzbdServiceManager.hasRefreshedOnce
+                && sabnzbdServiceManager.connectionError == nil
+        case .torrents:
+            return hasQBittorrentServer
+                && !syncService.hasRefreshedOnce
+                && syncService.lastError == nil
+        }
+    }
+
     /// A failing SABnzbd must not blank this screen - it is a unified view and
     /// qBittorrent may still be perfectly healthy - but it must not fail silently
     /// either. Before this, a rejected API key simply made SABnzbd's jobs vanish
@@ -742,14 +813,37 @@ struct DownloadsView: View {
     /// place that surfaced `connectionError` was the SABnzbd manager screen, four
     /// navigations away.
     @ViewBuilder
-    private var sabnzbdConnectionWarning: some View {
-        if hasSABnzbdServer, let message = sabnzbdServiceManager.connectionError {
+    private var sourceWarnings: some View {
+        if titleDestination != .torrents,
+           hasSABnzbdServer,
+           let message = sabnzbdServiceManager.connectionError {
             ServiceErrorView(
                 title: "SABnzbd Unavailable",
                 message: message,
                 identity: .sabnzbd,
                 hasContent: true,
                 onRetry: { await sabnzbdServiceManager.refresh() }
+            )
+        }
+        if titleDestination != .sabQueue,
+           hasQBittorrentServer,
+           let error = syncService.lastError {
+            ServiceErrorView(
+                title: "qBittorrent Unavailable",
+                message: error.localizedDescription,
+                identity: .qbittorrent,
+                hasContent: true,
+                onRetry: { await syncService.refreshNow() }
+            )
+        }
+        if titleDestination == .downloads,
+           hasArrDownloadSource,
+           let message = arrServiceManager.queueError {
+            ServiceErrorView(
+                title: "Arr Queue Unavailable",
+                message: message,
+                hasContent: true,
+                onRetry: { await viewModel.refresh(serviceManager: arrServiceManager, retryDisconnected: true) }
             )
         }
     }
@@ -906,18 +1000,21 @@ struct DownloadsView: View {
     /// selection, and getting it wrong means silently skipping downloads or acting
     /// on the wrong client.
     private var selectedTargets: [DownloadBatchTarget] {
-        selectedItems.compactMap(\.batchTarget)
+        var seen: Set<String> = []
+        return selectedItems.compactMap(\.batchTarget).filter {
+            seen.insert($0.identity).inserted
+        }
     }
 
-    private var selectedTorrentHashes: [String] {
-        selectedTargets.compactMap {
+    private func torrentHashes(in targets: [DownloadBatchTarget]) -> [String] {
+        targets.compactMap {
             if case .torrent(let torrent) = $0 { return torrent.hash }
             return nil
         }
     }
 
-    private var selectedSABJobs: [SABnzbdJob] {
-        selectedTargets.compactMap {
+    private func sabJobs(in targets: [DownloadBatchTarget]) -> [SABnzbdJob] {
+        targets.compactMap {
             if case .sab(let job) = $0 { return job }
             return nil
         }
@@ -929,11 +1026,12 @@ struct DownloadsView: View {
     /// acted on at all.
     private func performBatch(
         verb: String,
+        targets: [DownloadBatchTarget],
         torrents: @escaping ([String]) async throws -> Void,
-        sab: ((SABnzbdJob) async throws -> Void)?
+        sab: (([SABnzbdJob]) async throws -> Void)?
     ) {
-        let hashes = selectedTorrentHashes
-        let jobs = sab == nil ? [] : selectedSABJobs
+        let hashes = torrentHashes(in: targets)
+        let jobs = sab == nil ? [] : sabJobs(in: targets)
         let skipped = selectedItems.count - (hashes.count + jobs.count)
         guard !hashes.isEmpty || !jobs.isEmpty else { return }
 
@@ -942,10 +1040,8 @@ struct DownloadsView: View {
             if !hashes.isEmpty {
                 do { try await torrents(hashes) } catch { failures.append(error.localizedDescription) }
             }
-            if let sab {
-                for job in jobs {
-                    do { try await sab(job) } catch { failures.append(error.localizedDescription) }
-                }
+            if let sab, !jobs.isEmpty {
+                do { try await sab(jobs) } catch { failures.append(error.localizedDescription) }
             }
             await syncService.refreshNow()
             await sabnzbdServiceManager.refresh()
@@ -966,6 +1062,16 @@ struct DownloadsView: View {
         }
     }
 
+    private func performBatchDelete(deleteFiles: Bool) {
+        let targets = selectedTargets.filter(\.canDelete)
+        performBatch(
+            verb: "Deleted",
+            targets: targets,
+            torrents: { try await torrentService.deleteTorrents(hashes: $0, deleteFiles: deleteFiles) },
+            sab: { try await sabnzbdServiceManager.delete(jobs: $0, deleteFiles: deleteFiles) }
+        )
+    }
+
     /// The rows a batch could actually act on. `Select All` and the toolbar's
     /// enablement are counted over these rather than over every row, so a list of
     /// nothing but history doesn't offer a selection that can't do anything.
@@ -980,7 +1086,13 @@ struct DownloadsView: View {
             String(selectedRowIDs.count),
             String(items.count),
             String(selectableItems.count),
-            String(selectedTorrentHashes.count)
+            String(selectedTargets.count),
+            String(selectedTargets.count(where: \.canPause)),
+            String(selectedTargets.count(where: \.canResume)),
+            String(selectedTargets.count(where: \.canRecheck)),
+            String(alternativeSpeedEnabled),
+            String(isUpdatingAlternativeSpeed),
+            String(sabnzbdServiceManager.queue?.paused ?? false)
         ].joined(separator: "|")
     }
 
@@ -991,8 +1103,10 @@ struct DownloadsView: View {
         chrome.totalCount = selectableItems.count
         // Recheck is a qBittorrent concept, so it appears only when the selection
         // actually contains torrents rather than sitting permanently greyed.
-        chrome.supportsRecheck = !selectedTorrentHashes.isEmpty
-        chrome.supportsPauseResume = true
+        chrome.canRecheck = selectedTargets.contains(where: \.canRecheck)
+        chrome.canPause = selectedTargets.contains(where: \.canPause)
+        chrome.canResume = selectedTargets.contains(where: \.canResume)
+        chrome.canDelete = selectedTargets.contains(where: \.canDelete)
         chrome.beginSelecting = { withAnimation { editMode = .active } }
         chrome.endSelecting = {
             withAnimation {
@@ -1007,26 +1121,90 @@ struct DownloadsView: View {
         chrome.pauseSelected = {
             performBatch(
                 verb: "Paused",
+                targets: selectedTargets.filter(\.canPause),
                 torrents: { try await torrentService.pauseTorrents(hashes: $0) },
-                sab: { try await sabnzbdServiceManager.pause(job: $0) }
+                sab: { try await sabnzbdServiceManager.pause(jobs: $0) }
             )
         }
         chrome.resumeSelected = {
             performBatch(
                 verb: "Resumed",
+                targets: selectedTargets.filter(\.canResume),
                 torrents: { try await torrentService.resumeTorrents(hashes: $0) },
-                sab: { try await sabnzbdServiceManager.resume(job: $0) }
+                sab: { try await sabnzbdServiceManager.resume(jobs: $0) }
             )
         }
         chrome.recheckSelected = {
             performBatch(
                 verb: "Rechecked",
+                targets: selectedTargets.filter(\.canRecheck),
                 torrents: { try await torrentService.recheckTorrents(hashes: $0) },
                 sab: nil
             )
         }
         chrome.deleteSelected = { showBatchDeleteConfirm = true }
-        chrome.extraActions = []
+        chrome.extraActions = globalClientActions
+    }
+
+    private var globalClientActions: [DownloadsListChrome.ExtraAction] {
+        var actions: [DownloadsListChrome.ExtraAction] = []
+        if hasSABnzbdServer && titleDestination != .torrents {
+            let isPaused = sabnzbdServiceManager.queue?.paused ?? false
+            actions.append(.init(
+                id: "sab-pause-all",
+                title: isPaused ? "Resume All SABnzbd Jobs" : "Pause All SABnzbd Jobs",
+                systemImage: isPaused ? "play.fill" : "pause.fill",
+                perform: toggleSABnzbdQueue
+            ))
+        }
+        if hasQBittorrentServer && titleDestination != .sabQueue {
+            actions.append(.init(
+                id: "qb-alt-speed",
+                title: "Alternative Speed Mode",
+                systemImage: "gauge.with.dots.needle.33percent",
+                isOn: alternativeSpeedEnabled,
+                isEnabled: !isUpdatingAlternativeSpeed,
+                perform: toggleAlternativeSpeedMode
+            ))
+        }
+        return actions
+    }
+
+    private func toggleSABnzbdQueue() {
+        let resume = sabnzbdServiceManager.queue?.paused ?? false
+        Task { @MainActor in
+            do {
+                if resume {
+                    try await sabnzbdServiceManager.resumeAll()
+                } else {
+                    try await sabnzbdServiceManager.pauseAll()
+                }
+                notificationCenter.showSuccess(
+                    title: resume ? "SABnzbd Resumed" : "SABnzbd Paused",
+                    message: resume ? "All queued jobs resumed." : "All queued jobs paused."
+                )
+            } catch {
+                notificationCenter.showError(title: "SABnzbd Action Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func toggleAlternativeSpeedMode() {
+        guard !isUpdatingAlternativeSpeed else { return }
+        isUpdatingAlternativeSpeed = true
+        Task { @MainActor in
+            defer { isUpdatingAlternativeSpeed = false }
+            do {
+                try await torrentService.toggleAlternativeSpeed()
+                alternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
+                notificationCenter.showSuccess(
+                    title: "Speed Mode Changed",
+                    message: "Alternative speed mode is now \(alternativeSpeedEnabled ? "enabled" : "disabled")."
+                )
+            } catch {
+                notificationCenter.showError(title: "Couldn’t Toggle Speed Mode", message: error.localizedDescription)
+            }
+        }
     }
 
     private var selectedItems: [DownloadListItem] {
@@ -1637,13 +1815,25 @@ struct DownloadsView: View {
     }
 
     private var emptyDescription: String {
-        switch selectedSection {
-        case .active: "Downloads, repairs, unpacking, and imports in progress will appear here."
-        case .queue: "Downloads waiting for a client or import will appear here."
-        case .completed: "Finished downloads will appear here."
-        case .seeding: "Finished torrents that are still uploading will appear here."
-        case .history: "Completed grabs and imports will appear here."
-        case .issues: "Client failures and imports requiring attention will appear here."
+        switch (titleDestination, selectedSection) {
+        case (.sabQueue, .active): "Downloads, repairs, unpacking, and post-processing will appear here."
+        case (.sabQueue, .queue): "Paused and waiting SABnzbd jobs will appear here."
+        case (.sabQueue, .history): "Completed and failed SABnzbd jobs will appear here."
+        case (.sabQueue, .issues): "Failed SABnzbd jobs will appear here."
+        case (.torrents, .active): "Downloading torrents will appear here."
+        case (.torrents, .queue): "Paused and queued torrents will appear here."
+        case (.torrents, .completed): "Finished torrents that are stopped or paused will appear here."
+        case (.torrents, .seeding): "Finished torrents that are still uploading will appear here."
+        case (.torrents, .issues): "Torrents with client errors will appear here."
+        case (.downloads, .active): "Downloads, repairs, unpacking, and imports in progress will appear here."
+        case (.downloads, .queue): "Downloads waiting for a client or import will appear here."
+        case (.downloads, .completed): "Finished downloads will appear here."
+        case (.downloads, .seeding): "Finished torrents that are still uploading will appear here."
+        case (.downloads, .history): "Completed and failed grabs and imports will appear here."
+        case (.downloads, .issues): "Client failures and imports requiring attention will appear here."
+        case (.sabQueue, .completed): "Finished SABnzbd jobs appear in History."
+        case (.sabQueue, .seeding): "SABnzbd jobs do not have a seeding state."
+        case (_, .history): "Download history will appear here."
         }
     }
 
@@ -1692,11 +1882,24 @@ struct DownloadsView: View {
 
             return switch section {
             case .completed:
-                (hasQBittorrentServer || hasSABnzbdServer)
-                    && (hasCompletedDownloads || selectedSection == .completed)
+                switch titleDestination {
+                case .downloads:
+                    (hasQBittorrentServer || hasSABnzbdServer)
+                        && (hasCompletedDownloads || selectedSection == .completed)
+                case .torrents:
+                    hasQBittorrentServer && (hasCompletedTorrents || selectedSection == .completed)
+                case .sabQueue:
+                    false
+                }
             case .seeding:
                 hasQBittorrentServer && (hasSeedingTorrents || selectedSection == .seeding)
-            case .active, .queue, .history, .issues:
+            case .history:
+                switch titleDestination {
+                case .downloads: hasSABnzbdServer || hasArrDownloadSource
+                case .sabQueue: true
+                case .torrents: false
+                }
+            case .active, .queue, .issues:
                 true
             }
         }
@@ -1721,6 +1924,10 @@ struct DownloadsView: View {
 
     private var hasSABnzbdServer: Bool {
         !sabnzbdProfiles.isEmpty
+    }
+
+    private var hasArrDownloadSource: Bool {
+        arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
     }
 
     /// Keyed on every configured server, not the active pair: the queue this screen
@@ -1834,6 +2041,8 @@ enum DownloadsTitleDestination: String, CaseIterable, Identifiable, Hashable {
     func supports(_ section: DownloadSection) -> Bool {
         switch (self, section) {
         case (.sabQueue, .completed), (.sabQueue, .seeding):
+            false
+        case (.torrents, .history):
             false
         default:
             true

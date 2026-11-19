@@ -339,6 +339,18 @@ nonisolated struct SABnzbdHistory: Decodable, Sendable {
         slots = try container.decodeIfPresent([SABnzbdHistorySlot].self, forKey: .slots) ?? []
     }
 
+    init(copying history: SABnzbdHistory, slots: [SABnzbdHistorySlot]) {
+        noOfSlots = history.noOfSlots
+        postProcessingSlots = history.postProcessingSlots
+        daySize = history.daySize
+        weekSize = history.weekSize
+        monthSize = history.monthSize
+        totalSize = history.totalSize
+        lastHistoryUpdate = history.lastHistoryUpdate
+        version = history.version
+        self.slots = slots
+    }
+
     private enum CodingKeys: String, CodingKey {
         case version, slots
         case noOfSlots = "noofslots"
