@@ -18,6 +18,11 @@ final class SetupCheckBrowserState {
     var filter: SetupCheckFilter = .all
 
     func reconcileSelection(issues: [ConfigurationIssue]) {
+        // A filter whose last finding was fixed or ignored is no longer offered, so
+        // it cannot stay chosen - the bar would have nothing selected in it.
+        if !SetupCheckFilter.available(for: issues).contains(filter) {
+            filter = .all
+        }
         let matching = filter.filter(issues: issues)
         if let selected = selectedIssueID, matching.contains(where: { $0.id == selected }) {
             return
@@ -34,6 +39,12 @@ enum SetupCheckFilter: String, CaseIterable, Hashable, Identifiable {
     case notes = "Notes"
 
     var id: String { rawValue }
+
+    /// The filters worth offering: All, plus each severity that has something in
+    /// it. "Unverified (0)" was a segment that could only ever show an empty list.
+    static func available(for issues: [ConfigurationIssue]) -> [SetupCheckFilter] {
+        allCases.filter { $0 == .all || !$0.filter(issues: issues).isEmpty }
+    }
 
     func filter(issues: [ConfigurationIssue]) -> [ConfigurationIssue] {
         switch self {

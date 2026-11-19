@@ -3323,14 +3323,7 @@ private struct RequestsAndAccessHubView: View {
 /// unavailable state, so the rows stay visible even with nothing configured
 /// (matching how these rows behaved on the More dashboard before regrouping).
 private struct SystemHubView: View {
-    @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(ConfigurationAuditStore.self) private var auditStore
-    @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
-    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
-    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
-    @Query private var qbittorrentServers: [ServerProfile]
-    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
-    @State private var showSetupCheck = false
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSizeClass
     #endif
@@ -3343,24 +3336,6 @@ private struct SystemHubView: View {
         #else
         true
         #endif
-    }
-
-    /// The download clients Trawl itself is connected to. The audit compares these
-    /// against what each Arr has been told, which is the whole point of it.
-    private var trawlClientHosts: [DownloadClientLinkKind: [String]] {
-        ConfigurationAuditInput.trawlClientHosts(
-            qbittorrentServers: qbittorrentServers,
-            sabnzbdProfiles: sabnzbdProfiles
-        )
-    }
-
-    private var auditInputRevision: String {
-        ConfigurationAuditInput.revision(
-            arrServiceManager: arrServiceManager,
-            trawlClients: trawlClientHosts,
-            seerrServiceManager: seerrServiceManager,
-            cleanuparrServiceManager: cleanuparrServiceManager
-        )
     }
 
     private var setupCheckSubtitle: String {
@@ -3402,23 +3377,13 @@ private struct SystemHubView: View {
         SetupCheckView()
     }
 
-    private func refreshAudit() async {
-        await auditStore.refresh(
-            serviceManager: arrServiceManager,
-            trawlClients: trawlClientHosts,
-            seerrServiceManager: seerrServiceManager,
-            cleanuparrServiceManager: cleanuparrServiceManager,
-            sabnzbdServiceManager: sabnzbdServiceManager,
-            inputRevision: auditInputRevision
-        )
-    }
-
     private var hubList: some View {
         List {
             Section {
-                Button {
-                    showSetupCheck = true
-                } label: {
+                // Pushed like every other row here. It used to open a step-by-step
+                // wizard in a sheet - Done and Next over the tab bar, no back
+                // gesture - the only row on this hub that did.
+                NavigationLink(value: MoreDestination.setupCheck) {
                     NavigationMenuRow(
                         icon: auditStore.problemCount > 0 ? "exclamationmark.triangle.fill" : "checklist",
                         color: auditStore.problemCount > 0 ? .orange : .teal,
@@ -3426,7 +3391,6 @@ private struct SystemHubView: View {
                         subtitle: setupCheckSubtitle
                     )
                 }
-                .buttonStyle(.plain)
                 .accessibilityIdentifier("more-setup-check")
 
                 // Hidden where each of these is a sidebar row of its own: repeating
@@ -3484,24 +3448,7 @@ private struct SystemHubView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        // On the List, not on a Section: a sheet attached to a Section inside a
-        // List never presents - the Setup Check row toggled its flag and nothing
-        // appeared.
-        .sheet(isPresented: $showSetupCheck) {
-            ConfigurationWizardView(
-                issues: auditStore.issues,
-                onDismissIssue: { auditStore.dismiss($0) },
-                onRecheck: { await refreshAudit() }
-            )
-            .environment(arrServiceManager)
-        }
         .refreshesConfigurationAudit()
-        // Returning from a repair re-checks, so the row and the wizard cannot keep
-        // reporting a fault the user has just fixed.
-        .onChange(of: showSetupCheck) { wasPresented, isPresented in
-            guard wasPresented, !isPresented else { return }
-            Task { await refreshAudit() }
-        }
     }
 }
 

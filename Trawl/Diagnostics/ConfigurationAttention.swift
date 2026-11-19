@@ -146,14 +146,14 @@ extension View {
 
 /// A short line about the setup, on the screen it stops working.
 ///
-/// Deliberately not the wizard, and not a modal. The wizard is the place to walk
+/// Deliberately not the Setup Check, and not a modal. That is the place to walk
 /// every finding; this is the place to notice one - so it names the first, counts the
-/// rest, opens the wizard, and gets out of the way. It renders nothing at all when
+/// rest, opens the Setup Check, and gets out of the way. It renders nothing at all when
 /// the topic is clear, which is why `configurationAttention(_:)` can be applied
 /// unconditionally.
 ///
 /// Notes are excluded on purpose. "These two hostnames differ" is worth reading once
-/// in the wizard and is not worth a standing banner on the Downloads screen: a banner
+/// in the Setup Check and is not worth a standing banner on the Downloads screen: a banner
 /// people learn to ignore is worse than no banner.
 struct ConfigurationAttentionBanner: View {
     /// The screen's subject, or `nil` for a banner that is not attached to a screen
@@ -231,7 +231,7 @@ struct ConfigurationAttentionBanner: View {
     }
 }
 
-/// Owns the banner, the wizard it opens, and the audit that feeds both.
+/// Owns the banner, the Setup Check it opens, and the audit that feeds both.
 ///
 /// The sheet lives here rather than on the banner itself: a `.sheet` attached inside
 /// a `safeAreaInset`'s content does not present, so the button only reports the tap
@@ -240,13 +240,6 @@ private struct ConfigurationAttentionInset: ViewModifier {
     let topic: ConfigurationIssueTopic
 
     @Environment(\.showsSidebarAttentionBanner) private var sidebarCarriesTheBanner
-    @Environment(ArrServiceManager.self) private var arrServiceManager
-    @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
-    @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
-    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
-    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
-    @Query private var qbittorrentServers: [ServerProfile]
-    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var showSetupCheck = false
 
     /// Only where the screen is the whole window.
@@ -271,14 +264,7 @@ private struct ConfigurationAttentionInset: ViewModifier {
                 }
                 .refreshesConfigurationAudit(forContextualBanner: true)
                 .sheet(isPresented: $showSetupCheck) {
-                    if let auditStore {
-                        ConfigurationWizardView(
-                            issues: auditStore.issues,
-                            onDismissIssue: { auditStore.dismiss($0) },
-                            onRecheck: { await recheck(auditStore) }
-                        )
-                        .environment(arrServiceManager)
-                    }
+                    SetupCheckSheet()
                 }
         } else {
             // An inset whose content conditionally renders `EmptyView` is still an
@@ -287,26 +273,6 @@ private struct ConfigurationAttentionInset: ViewModifier {
             content
                 .refreshesConfigurationAudit(forContextualBanner: true)
         }
-    }
-
-    private func recheck(_ auditStore: ConfigurationAuditStore) async {
-        let clients = ConfigurationAuditInput.trawlClientHosts(
-            qbittorrentServers: qbittorrentServers,
-            sabnzbdProfiles: sabnzbdProfiles
-        )
-        await auditStore.refresh(
-            serviceManager: arrServiceManager,
-            trawlClients: clients,
-            seerrServiceManager: seerrServiceManager,
-            cleanuparrServiceManager: cleanuparrServiceManager,
-            sabnzbdServiceManager: sabnzbdServiceManager,
-            inputRevision: ConfigurationAuditInput.revision(
-                arrServiceManager: arrServiceManager,
-                trawlClients: clients,
-                seerrServiceManager: seerrServiceManager,
-                cleanuparrServiceManager: cleanuparrServiceManager
-            )
-        )
     }
 }
 
