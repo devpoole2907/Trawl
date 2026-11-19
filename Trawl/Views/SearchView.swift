@@ -592,7 +592,7 @@ struct SearchView: View {
     private var libraryRows: [SearchResultEntry] {
         let series: [SearchResultEntry] = (shouldShow(.series) ? viewModel.matchedSeries.map(SearchResultEntry.series) : [])
         let movies: [SearchResultEntry] = (shouldShow(.movies) ? viewModel.matchedMovies.map(SearchResultEntry.movie) : [])
-        return (series + movies).sorted { $0.sortKey < $1.sortKey }
+        return SearchRelevance.ranked(series + movies, query: viewModel.searchText, candidate: \.relevanceCandidate)
     }
 
     @ViewBuilder
@@ -731,7 +731,7 @@ struct SearchView: View {
         let movieResults = viewModel.radarrLookupVM?.searchResults ?? []
         let series: [SearchResultEntry] = (shouldShow(.series) ? seriesResults.map(SearchResultEntry.series) : [])
         let movies: [SearchResultEntry] = (shouldShow(.movies) ? movieResults.map(SearchResultEntry.movie) : [])
-        return (series + movies).sorted { $0.sortKey < $1.sortKey }
+        return SearchRelevance.ranked(series + movies, query: viewModel.searchText, candidate: \.relevanceCandidate)
     }
 
     private var hasAnyArrConfigured: Bool {
@@ -1268,10 +1268,10 @@ fileprivate enum SearchResultEntry: Identifiable {
         }
     }
 
-    var sortKey: String {
+    var relevanceCandidate: SearchRelevance.Candidate {
         switch self {
-        case .series(let s): (s.sortTitle ?? s.title).lowercased()
-        case .movie(let m): (m.sortTitle ?? m.title).lowercased()
+        case .series(let s): s.searchRelevanceCandidate
+        case .movie(let m): m.searchRelevanceCandidate
         }
     }
 }
