@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trawl iPhone UI Audit</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f6f7fb; --muted: #aeb4c4; --quiet: #767d91;
+      --panel: rgba(21, 25, 39, .82); --panel-2: rgba(30, 35, 53, .82);
+      --line: rgba(255,255,255,.11);
+      --cyan: #63d8ff; --lime: #75e9a1; --amber: #ffc76b; --rose: #ff8fa3;
+      --page: #080a12;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; color: var(--ink);
+      background:
+        radial-gradient(900px 520px at 12% -5%, rgba(83,93,255,.23), transparent 64%),
+        radial-gradient(760px 500px at 92% 2%, rgba(0,206,255,.12), transparent 62%),
+        var(--page);
+      font: 15px/1.58 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    }
+    code { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: .9em; color: #d9defa; }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    .hero { padding: 64px 0 34px; }
+    .eyebrow { color: var(--cyan); font-size: 12px; font-weight: 760; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { margin: 12px 0 16px; font-size: clamp(38px, 7vw, 68px); line-height: 1; letter-spacing: -.05em; }
+    .lede { max-width: 780px; margin: 0; color: #cbd0dc; font-size: clamp(17px, 2.2vw, 21px); }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    .pill { padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.035); font-size: 12px; }
+    section { margin: 0 0 64px; }
+    h2 { margin: 0 0 10px; font-size: clamp(26px, 4vw, 38px); letter-spacing: -.03em; }
+    h3 { margin: 0 0 6px; font-size: 19px; }
+    .intro { max-width: 760px; margin: 0 0 22px; color: var(--muted); font-size: 16px; }
+    .card, .finding, .pair { border: 1px solid var(--line); background: var(--panel); border-radius: 20px; }
+    .card { padding: 22px; }
+    .card.done { border-left: 3px solid var(--lime); }
+    .finding-list { display: grid; gap: 14px; }
+    .finding { display: grid; grid-template-columns: 70px 1fr; gap: 18px; padding: 20px; }
+    .finding p { margin: 6px 0 0; color: #cfd3de; }
+    .finding .where { margin-top: 10px; color: var(--quiet); font-size: 13px; }
+    .finding .fix { margin-top: 8px; color: var(--muted); font-size: 14px; }
+    .finding .fix strong { color: var(--lime); font-weight: 650; }
+    .thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .thumbs figure { margin: 0; width: 150px; }
+    .thumbs img { width: 100%; border-radius: 14px; border: 1px solid var(--line); display: block; }
+    .thumbs figcaption { color: var(--quiet); font-size: 12px; margin-top: 4px; }
+    .priority { display: inline-flex; justify-content: center; height: fit-content; padding: 5px 8px; border-radius: 9px; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+    .p1 { color: #2b0010; background: var(--rose); }
+    .p2 { color: #2b1600; background: var(--amber); }
+    .p3 { color: #06121a; background: var(--cyan); }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+    .pair { padding: 14px; }
+    .pair h3 { font-size: 15px; margin-bottom: 10px; }
+    .pair .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .pair img { width: 100%; border-radius: 12px; display: block; border: 1px solid var(--line); }
+    .pair .lbl { color: var(--quiet); font-size: 11px; margin-top: 4px; text-align: center; }
+    .pair .missing { display: grid; place-items: center; aspect-ratio: 1206/2622; border-radius: 12px; border: 1px dashed var(--line); color: var(--quiet); font-size: 12px; text-align: center; padding: 8px; }
+    ul.plain { margin: 10px 0 0; padding-left: 18px; color: #cfd3de; }
+    ul.plain li + li { margin-top: 6px; }
+    @media (max-width: 640px) {
+      .finding { grid-template-columns: 1fr; gap: 8px; }
+      .thumbs figure { width: calc(50% - 5px); }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <div class="eyebrow">Trawl · iPhone · 20 November 2026</div>
+    <h1>iPhone UI audit</h1>
+    <p class="lede">I captured every iPhone tab, the three detail screens, every More hub and the screens under them on iOS 26.4 and iOS 27.0, then went through them for alignment problems and inconsistencies between screens. Three problems are worth fixing soon. The rest are smaller inconsistencies that add up.</p>
+    <div class="meta">
+      <span class="pill">iPhone 17 Pro simulator</span>
+      <span class="pill">iOS 26.4 + iOS 27.0</span>
+      <span class="pill">Seeded fixture services</span>
+      <span class="pill">Branch iphone-duo-polish</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Fixed this session</h2>
+    <p class="intro">These are already on <code>iphone-duo-polish</code>.</p>
+    <div class="finding-list">
+      <div class="card done">
+        <h3>Gap above "Recently Searched"</h3>
+        <p style="color:#cfd3de;margin:6px 0 0">The recent-searches list had its own 44pt empty top inset, on top of the inset that already holds the Discover/Library bar, which left a wide empty band. I removed the extra inset in <code>SearchView.swift</code>.</p>
+        <div class="thumbs">
+          <figure><img src="search-tab-ios27/6-ios26-active-empty.jpg" alt="Before: gap under Discover and Library"><figcaption>Before (iOS 26.4)</figcaption></figure>
+          <figure><img src="ui-consistency-audit/ios26/34-search-active.jpg" alt="After: list sits under the scope bar"><figcaption>After (iOS 26.4)</figcaption></figure>
+          <figure><img src="ui-consistency-audit/ios27/34-search-active.jpg" alt="After on iOS 27"><figcaption>After (iOS 27.0)</figcaption></figure>
+        </div>
+      </div>
+      <div class="card done">
+        <h3>Bottom search field on iOS 27</h3>
+        <p style="color:#cfd3de;margin:6px 0 0">On iOS 27 the Search tab used the new <code>.prominent</code> role. That role only changes how the tab looks, so the field stayed at the top of the screen. The tab is <code>.search</code> again on every iOS version. On iOS 27 the tab view also uses <code>.tabViewSearchActivation(.searchTabSelection)</code>, which brings back the bottom field. On iOS 27 the keyboard now opens as soon as you tap Search; iOS 26 is unchanged.</p>
+        <div class="thumbs">
+          <figure><img src="search-tab-ios27/1-before-ios27.jpg" alt="Before on iOS 27: field at top"><figcaption>Before (iOS 27)</figcaption></figure>
+          <figure><img src="search-tab-ios27/3-after-ios27-results.jpg" alt="After on iOS 27: field at bottom"><figcaption>After (iOS 27)</figcaption></figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Findings</h2>
+    <p class="intro">P1 means visibly broken, P2 means inconsistent enough that users will notice, and P3 is polish. Each finding names the code it comes from and a suggested fix. None of these are fixed yet.</p>
+    <div class="finding-list">
+
+      <article class="finding">
+        <span class="priority p1">P1</span>
+        <div>
+          <h3>Detail search buttons break words mid-way</h3>
+          <p>On Series and Movie detail, the Automatic and Interactive buttons wrap their titles with a hyphen ("Automat-ic", "Interac-tive") and cut their subtitles to "Search all…". Each button is about 175pt wide. After the leading icon, two 12pt gaps, the trailing arrow and the padding, the title has about 75pt, which "Automatic" only just fits.</p>
+          <p class="where"><code>SonarrSeriesDetailView.swift:1005</code> · <code>RadarrMovieDetailView.swift:1086</code> (two copies of the same label)</p>
+          <p class="fix"><strong>Fix:</strong> share one label view. Give the title <code>.lineLimit(1)</code> and <code>.minimumScaleFactor(0.85)</code>, cut the spacing to 8, and drop the trailing arrow on compact width, or stack the two buttons vertically on iPhone.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/05-series-detail.jpg" alt=""><figcaption>Series detail · 26.4</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/06-movie-detail.jpg" alt=""><figcaption>Movie detail · 26.4</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios27/05-series-detail.jpg" alt=""><figcaption>Series detail · 27.0</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p1">P1</span>
+        <div>
+          <h3>Empty and error states are not vertically centred, and differ from screen to screen</h3>
+          <p>Some states sit in the top third of the screen and others in the middle. <code>ServiceErrorView</code> and <code>scrollableUnavailableState()</code> both give the state a fixed <code>minHeight: 360</code> slot at the top of a list or scroll view, and Health places its <code>ContentUnavailableView</code> as a list row. Search's "No Results" is a bare <code>ContentUnavailableView</code>, so it centres in the whole screen. The result: Search idle, Missing, Requests and Health all show their icons at different heights, and none of them line up with "No Results".</p>
+          <p class="where"><code>ServiceErrorView.swift:39</code> · <code>View+ScrollableUnavailableState.swift:16</code> · <code>ArrHealthView.swift:279</code></p>
+          <p class="fix"><strong>Fix:</strong> give both containers the scroll view's height instead of 360 (for example <code>.containerRelativeFrame(.vertical)</code> inside the <code>ScrollView</code>), and in lists show the state as an <code>.overlay</code> on the empty <code>List</code> rather than as a row.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/33-search-idle.jpg" alt=""><figcaption>Search idle</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/13-missing.jpg" alt=""><figcaption>Missing</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/15-requests.jpg" alt=""><figcaption>Requests</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/27-health.jpg" alt=""><figcaption>Health</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/35-search-results.jpg" alt=""><figcaption>No results (centred)</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p1">P1</span>
+        <div>
+          <h3>Jellyfin Libraries is filed in a different place on iPhone and iPad</h3>
+          <p>The iPad sidebar puts Libraries under Media Server. On iPhone, the Media Server hub lists only Sessions, Transcoding and Plugins, and Jellyfin Libraries appears under Library Management instead. Media Server's own "not set up" message still promises "sessions, libraries, transcoding, and plugins". The capture walk, which follows the iPad filing, couldn't find it on either iOS version.</p>
+          <p class="where"><code>RootTab.swift:35</code> (sidebar) · <code>MoreView.swift:1960</code> (category "Library Management") · <code>MoreView.swift:3946</code> (hub rows)</p>
+          <p class="fix"><strong>Fix:</strong> choose one home. Media Server matches the sidebar and the empty-state text, so add a Libraries row to the compact Media Server hub, or move it in both places.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/10-media-server.jpg" alt=""><figcaption>Media Server hub (no Libraries)</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/08-library-management.jpg" alt=""><figcaption>Library Management hub</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p2">P2</span>
+        <div>
+          <h3>Some navigation titles are left-aligned, most are centred</h3>
+          <p>Pushed screens centre their title, except Missing and Backups. iOS moves an inline title to the leading edge when the trailing toolbar items are too wide. On Missing that's the text button "Search All Missing", and on Backups it's three separate icon buttons.</p>
+          <p class="where"><code>ArrWantedView.swift:313-318</code> · <code>ArrBackupsView.swift:386</code></p>
+          <p class="fix"><strong>Fix:</strong> make "Search All Missing" an icon button with that accessibility label, and put Backups' three actions in one <code>Menu</code>, which matches Users and Indexers.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/13-missing.jpg" alt=""><figcaption>Missing: leading</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/32-backups.jpg" alt=""><figcaption>Backups: leading</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/30-disk-space.jpg" alt=""><figcaption>Disk Space: centred</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p2">P2</span>
+        <div>
+          <h3>Segment bars use mixed alignment, even on the same screen</h3>
+          <p>Thirty of the 32 <code>TrawlSegmentBar</code>s are leading-aligned. Search's Discover/Library scope bar and Calendar's scope bar are centred. Search shows both kinds: the centred scope bar while you type, then a leading All/Series/Movies bar once results appear, so the buttons jump sideways when the first result lands.</p>
+          <p class="where"><code>SearchView.swift:125</code> · <code>ArrCalendarView.swift:679</code> · default in <code>TrawlSegmentBar.swift:8</code></p>
+          <p class="fix"><strong>Fix:</strong> make both Search bars leading, or both centred. Leading matches the rest of the app.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/34-search-active.jpg" alt=""><figcaption>Scope bar: centred</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/35-search-results.jpg" alt=""><figcaption>Filter bar: leading</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/24-quality-profiles.jpg" alt=""><figcaption>Elsewhere: leading</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p2">P2</span>
+        <div>
+          <h3>Root tab titles have two different styles</h3>
+          <p>Downloads, Series and Movies use a compact inline-large title with a count under it ("2 items", "12 series"). More and Search use the full large title with no count. Moving between tabs, the title changes size and position.</p>
+          <p class="fix"><strong>Fix:</strong> pick one title style for all five tabs. If the counts matter, give More and Search a quiet subtitle too.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/01-downloads.jpg" alt=""><figcaption>Downloads</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/02-series.jpg" alt=""><figcaption>Series</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/04-more.jpg" alt=""><figcaption>More</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/33-search-idle.jpg" alt=""><figcaption>Search</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p2">P2</span>
+        <div>
+          <h3>Counts appear in four different places</h3>
+          <p>Downloads, Series and Movies put their count in the navigation subtitle. Users puts it in a section header ("2 users"), Issues in a footer ("1 issue"), and Setup Check in the row subtitle on the System hub ("6 problems found").</p>
+          <p class="fix"><strong>Fix:</strong> use the navigation subtitle wherever a screen has one list, which Issues and Updates already use for their service name.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/17-users.jpg" alt=""><figcaption>Users: header</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/16-issues.jpg" alt=""><figcaption>Issues: footer</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p2">P2</span>
+        <div>
+          <h3>Setup Check behaves like a sheet inside a push stack</h3>
+          <p>Every other row on the System hub pushes a screen with a back button. Setup Check opens with "Done" and "Next" and covers the tab bar, so back gestures and the tab bar don't work on it. On iOS 27 it also stopped the capture walk until "Done" was tapped.</p>
+          <p class="where"><code>MoreView.swift:684</code></p>
+          <p class="fix"><strong>Fix:</strong> make it a pushed screen from System and save the sheet for the first-run flow, or present it explicitly as a sheet everywhere.</p>
+          <div class="thumbs">
+            <figure><img src="ui-consistency-audit/ios26/12-system.jpg" alt=""><figcaption>System hub</figcaption></figure>
+            <figure><img src="ui-consistency-audit/ios26/26-setup-check.jpg" alt=""><figcaption>Setup Check</figcaption></figure>
+          </div>
+        </div>
+      </article>
+
+      <article class="finding">
+        <span class="priority p3">P3</span>
+        <div>
+          <h3>Smaller inconsistencies</h3>
+          <ul class="plain">
+            <li><strong>Refresh controls.</strong> Updates and Users have a refresh button in the toolbar, while every other list relies on pull to refresh.</li>
+            <li><strong>Row icons.</strong> Hub rows use tinted rounded tiles. Settings' service list, Root Folders and Disk Space use bare glyphs, and Download Clients uses its own arrow chain.</li>
+            <li><strong>Search button in segment bars.</strong> Downloads, Series, Movies, Requests and Issues start their segment bar with a search button. Health, Missing, Updates and Backups have no search at all, even with long lists.</li>
+            <li><strong>Raw error text.</strong> Missing's error shows the decoder's own message ("The data couldn't be read because it isn't in the correct format"), once per service. It comes from a fixture gap here, but real servers can return the same thing.</li>
+            <li><strong>Detail page styles.</strong> Series and Movie detail use a full-bleed tinted page with a poster. Download detail uses the plain grouped style with an icon tile. That's defensible, but they read as different apps.</li>
+          </ul>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>iOS 26.4 vs iOS 27.0</h2>
+    <p class="intro">Apart from the search tab, which is fixed, the two versions render almost identically. The differences are system styling: iOS 27 draws the More search field and the detail-page glass buttons flatter and greyer. The notification accessory shows different text on each because the two simulators had different notification history. The one behaviour difference is intended: on iOS 27 tapping Search goes straight into active search with the keyboard up, so it has no idle Search screen to capture. Every pair below comes from the same walk.</p>
+    <div class="gallery">
+      <figure class="pair"><h3>Downloads</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/01-downloads.jpg" alt="Downloads on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/01-downloads.jpg" alt="Downloads on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Series</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/02-series.jpg" alt="Series on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/02-series.jpg" alt="Series on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Movies</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/03-movies.jpg" alt="Movies on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/03-movies.jpg" alt="Movies on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>More</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/04-more.jpg" alt="More on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/04-more.jpg" alt="More on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Series Detail</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/05-series-detail.jpg" alt="Series Detail on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/05-series-detail.jpg" alt="Series Detail on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Movie Detail</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/06-movie-detail.jpg" alt="Movie Detail on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/06-movie-detail.jpg" alt="Movie Detail on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Download Detail</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/07-download-detail.jpg" alt="Download Detail on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/07-download-detail.jpg" alt="Download Detail on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Library Management</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/08-library-management.jpg" alt="Library Management on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/08-library-management.jpg" alt="Library Management on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Requests Access</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/09-requests-access.jpg" alt="Requests Access on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/09-requests-access.jpg" alt="Requests Access on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Media Server</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/10-media-server.jpg" alt="Media Server on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/10-media-server.jpg" alt="Media Server on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Integrations Automation</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/11-integrations-automation.jpg" alt="Integrations Automation on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/11-integrations-automation.jpg" alt="Integrations Automation on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>System</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/12-system.jpg" alt="System on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/12-system.jpg" alt="System on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Missing</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/13-missing.jpg" alt="Missing on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/13-missing.jpg" alt="Missing on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Settings</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/14-settings.jpg" alt="Settings on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/14-settings.jpg" alt="Settings on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Requests</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/15-requests.jpg" alt="Requests on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/15-requests.jpg" alt="Requests on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Issues</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/16-issues.jpg" alt="Issues on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/16-issues.jpg" alt="Issues on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Users</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/17-users.jpg" alt="Users on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/17-users.jpg" alt="Users on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Libraries (Not Reached)</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/18-libraries-MISS.jpg" alt="Libraries (Not Reached) on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/18-libraries-MISS.jpg" alt="Libraries (Not Reached) on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Sessions</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/19-sessions.jpg" alt="Sessions on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/19-sessions.jpg" alt="Sessions on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Indexers</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/20-indexers.jpg" alt="Indexers on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/20-indexers.jpg" alt="Indexers on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Download Clients</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/21-download-clients.jpg" alt="Download Clients on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/21-download-clients.jpg" alt="Download Clients on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Cleanuparr</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/22-cleanuparr.jpg" alt="Cleanuparr on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/22-cleanuparr.jpg" alt="Cleanuparr on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Root Folders</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/23-root-folders.jpg" alt="Root Folders on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/23-root-folders.jpg" alt="Root Folders on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Quality Profiles</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/24-quality-profiles.jpg" alt="Quality Profiles on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/24-quality-profiles.jpg" alt="Quality Profiles on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Naming</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/25-naming.jpg" alt="Naming on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/25-naming.jpg" alt="Naming on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Setup Check</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/26-setup-check.jpg" alt="Setup Check on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/26-setup-check.jpg" alt="Setup Check on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Health</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/27-health.jpg" alt="Health on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/27-health.jpg" alt="Health on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Tasks</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/28-tasks.jpg" alt="Tasks on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/28-tasks.jpg" alt="Tasks on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Logs Activity</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/29-logs-activity.jpg" alt="Logs Activity on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/29-logs-activity.jpg" alt="Logs Activity on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Disk Space</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/30-disk-space.jpg" alt="Disk Space on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/30-disk-space.jpg" alt="Disk Space on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Updates</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/31-updates.jpg" alt="Updates on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/31-updates.jpg" alt="Updates on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Backups</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/32-backups.jpg" alt="Backups on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/32-backups.jpg" alt="Backups on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Search Idle</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/33-search-idle.jpg" alt="Search Idle on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><div class="missing">Not captured on iOS 27.0</div><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Search Active</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/34-search-active.jpg" alt="Search Active on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/34-search-active.jpg" alt="Search Active on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+      <figure class="pair"><h3>Search Results</h3><div class="imgs"><div><img loading="lazy" src="ui-consistency-audit/ios26/35-search-results.jpg" alt="Search Results on iOS 26.4"><div class="lbl">iOS 26.4</div></div><div><img loading="lazy" src="ui-consistency-audit/ios27/35-search-results.jpg" alt="Search Results on iOS 27.0"><div class="lbl">iOS 27.0</div></div></div></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>How these were made</h2>
+    <p class="intro">The screenshots come from the new opt-in <code>testCaptureIPhoneSurfaces</code> in <code>TrawlUITests/IPadSurfaceCaptureUITests.swift</code>, which seeds every service from the existing fixture servers. To rerun it:</p>
+    <div class="card"><code>TEST_RUNNER_TRAWL_IPHONE_CAPTURE=1 TEST_RUNNER_TRAWL_SCREENSHOT_EXPORT_DIR=/tmp/shots xcodebuild test -project Trawl.xcodeproj -scheme Trawl -destination 'platform=iOS Simulator,id=&lt;sim&gt;' -default-test-execution-time-allowance 1800 -only-testing:TrawlUITests/IPadSurfaceCaptureUITests/testCaptureIPhoneSurfaces</code></div>
+    <p class="intro" style="margin-top:14px">TMDb is deliberately unreachable in fixtures, so posters are placeholders and Search's idle screen shows "Couldn't Load Trending". The Missing error is a fixture gap, not an app bug.</p>
+  </section>
+</div>
+</body>
+</html>

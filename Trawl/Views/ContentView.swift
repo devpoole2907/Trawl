@@ -648,17 +648,15 @@ struct ContentView: View {
                     .accessibilityIdentifier(RootTab.movies.navigationIdentifier)
             }
 
-            if #available(iOS 27.0, macOS 27.0, *) {
-                Tab(value: RootTab.search, role: .prominent) {
-                    searchRoot(services: services)
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                        .accessibilityIdentifier(RootTab.search.navigationIdentifier)
-                }
-            } else {
-                Tab(value: RootTab.search, role: .search) {
-                    searchRoot(services: services)
-                }
+            // `.search` on every OS, not iOS 27's `.prominent`: `.prominent` only
+            // styles the tab, and a `.search` tab gets that same look when no tab
+            // claims `.prominent`. The bottom search field itself comes from
+            // `searchTabActivatesSearch()` on the TabView below.
+            Tab(value: RootTab.search, role: .search) {
+                searchRoot(services: services)
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+                    .accessibilityIdentifier(RootTab.search.navigationIdentifier)
             }
 
             Tab(value: RootTab.more) {
@@ -669,6 +667,7 @@ struct ContentView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
+        .searchTabActivatesSearch()
         #if os(iOS)
         .tabViewBottomAccessory(isEnabled: !isTabChromeHidden) {
             NotificationTabBarAccessory()
@@ -2014,4 +2013,25 @@ private struct PendingDeepLink {
     let morePath: [MoreDestination]
     /// Only meaningful for `.downloads`; steers the segment bar once the tab is up.
     var downloadsSection: DownloadSection?
+}
+
+private extension View {
+    /// On iOS 27 selecting a `.search` tab no longer turns the tab bar into a
+    /// search field at the bottom of the screen, as it did on iOS 26: the
+    /// screen's own field shows at the top under its title instead. Linking
+    /// search activation to the tab's selection brings the bottom field back,
+    /// with the keyboard up and a close button that returns to the previous tab.
+    /// iOS 26 keeps its default, which already shows the bottom field.
+    @ViewBuilder
+    func searchTabActivatesSearch() -> some View {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            tabViewSearchActivation(.searchTabSelection)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
 }
