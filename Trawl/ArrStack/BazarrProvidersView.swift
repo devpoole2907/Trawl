@@ -303,9 +303,11 @@ struct BazarrProvidersView: View {
                 systemImage: "person.2.slash",
                 description: Text("Use the add button to enable a Bazarr subtitle provider.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         }
     }
@@ -735,6 +737,7 @@ private struct BazarrProviderPickerView: View {
                             ContentUnavailableView.search(text: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 } else {
                     ForEach(availableProviders) { provider in

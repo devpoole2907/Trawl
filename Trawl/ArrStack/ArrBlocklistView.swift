@@ -463,6 +463,7 @@ struct ArrBlocklistView: View {
         List(selection: hasDetailPane ? detailSelection : nil) {
             if sections.isEmpty {
                 ContentUnavailableView.search(text: suppressionSearchQuery)
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(sections) { section in

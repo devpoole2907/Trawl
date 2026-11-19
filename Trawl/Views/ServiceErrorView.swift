@@ -8,7 +8,7 @@ struct TrawlInitialLoadingView: View {
     var body: some View {
         ProgressView()
             .controlSize(.large)
-            .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
+            .centredInVisibleList()
             .accessibilityLabel(label)
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -36,8 +36,22 @@ struct ServiceErrorView: View {
             showsRetryCountdown: false,
             onRetry: onRetry.map { retry in { Task { await retry() } } }
         )
-        .frame(minHeight: hasContent ? nil : 360)
+        .modifier(FirstLoadErrorSizing(fillsList: !hasContent))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
+    }
+}
+
+/// A failed first load is the whole screen, so it centres like an empty state. A failed
+/// refresh is a card above content that is still usable, so it keeps its own height.
+private struct FirstLoadErrorSizing: ViewModifier {
+    let fillsList: Bool
+
+    func body(content: Content) -> some View {
+        if fillsList {
+            content.centredInVisibleList()
+        } else {
+            content
+        }
     }
 }

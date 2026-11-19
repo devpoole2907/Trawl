@@ -154,6 +154,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 systemImage: "tag",
                 description: Text("Create categories here, then assign them from torrent detail views.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             SwiftUI.Section {
@@ -208,6 +209,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 systemImage: "number",
                 description: Text("Create tags here, then assign them from torrent detail views.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             SwiftUI.Section {

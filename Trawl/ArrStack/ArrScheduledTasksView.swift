@@ -242,6 +242,7 @@ struct ArrScheduledTasksView: View {
 
         if sections.isEmpty {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         } else {
             ForEach(sections) { section in

@@ -91,6 +91,7 @@ struct JellyfinTranscodingSettingsView: View {
                     systemImage: "cpu",
                     description: Text("Jellyfin did not return playback and transcoding settings.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             }
         }

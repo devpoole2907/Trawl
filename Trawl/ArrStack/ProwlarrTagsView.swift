@@ -103,6 +103,7 @@ struct ProwlarrTagsListView: View {
                     systemImage: "tag",
                     description: Text("Create a tag, then assign it to indexers and a proxy to route those indexers through the proxy.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 Section {

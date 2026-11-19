@@ -268,6 +268,7 @@ struct ArrEventsView: View {
                             ContentUnavailableView.search(text: query)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

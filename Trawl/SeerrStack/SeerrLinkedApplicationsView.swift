@@ -78,6 +78,7 @@ struct SeerrLinkedApplicationsView: View {
                     systemImage: "app.connected.to.app.below.fill",
                     description: Text("Link Sonarr or Radarr so Seerr can route requests to them.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 Section {

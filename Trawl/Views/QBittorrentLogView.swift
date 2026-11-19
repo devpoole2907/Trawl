@@ -78,6 +78,7 @@ struct QBittorrentLogView: View {
                             ContentUnavailableView.search(text: query)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

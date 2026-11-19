@@ -136,6 +136,7 @@ struct ArrRemotePathMappingListView: View {
                     systemImage: "arrow.triangle.swap",
                     description: Text("Add a mapping when Sonarr, Radarr, Bazarr, and your download client are on different machines or use different paths.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 Section {

@@ -469,6 +469,7 @@ struct ArrBackupsView: View {
                         systemImage: "externaldrive",
                         description: Text("No backups found for \(serviceManager.scopeLabel(for: instance)).")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {
@@ -602,6 +603,7 @@ struct ArrBackupsView: View {
                         systemImage: "externaldrive",
                         description: Text("No backups found for Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

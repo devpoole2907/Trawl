@@ -48,6 +48,7 @@ struct SeerrLogsView: View {
                             ContentUnavailableView.search(text: committedSearchText)
                         }
                     }
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

@@ -279,6 +279,7 @@ struct ArrHealthView: View {
                     systemImage: "checkmark.circle",
                     description: Text("No health warnings reported for the selected services.")
                 )
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(filteredChecks) { item in

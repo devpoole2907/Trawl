@@ -1060,9 +1060,11 @@ struct ProwlarrIndexerListView: View {
                 systemImage: "magnifyingglass.circle",
                 description: Text("Use the add button to create an indexer in Prowlarr, Sonarr, or Radarr.")
             )
+            .centredInVisibleList()
             .listRowBackground(Color.clear)
         } else {
             ContentUnavailableView.search(text: query)
+                .centredInVisibleList()
                 .listRowBackground(Color.clear)
         }
     }

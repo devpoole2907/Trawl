@@ -129,6 +129,7 @@ struct SeerrDashboardView: View {
             } else if filteredRequests.isEmpty {
                 if viewModel.errorMessage == nil {
                     ContentUnavailableView.search(text: query)
+                        .centredInVisibleList()
                         .listRowBackground(Color.clear)
                 }
             } else {
@@ -288,6 +289,7 @@ struct SeerrDashboardView: View {
             systemImage: "tray",
             description: Text("No requests match the current filter.")
         )
+        .centredInVisibleList()
         .listRowBackground(Color.clear)
     }
 

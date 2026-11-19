@@ -76,6 +76,7 @@ struct JellyfinPluginsView: View {
                         systemImage: "puzzlepiece.extension",
                         description: Text("No plugins were returned by Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

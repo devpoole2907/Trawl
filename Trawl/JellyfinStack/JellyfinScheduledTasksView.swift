@@ -60,6 +60,7 @@ struct JellyfinScheduledTasksView: View {
                         systemImage: "clock.badge.questionmark",
                         description: Text("No scheduled tasks were returned by Jellyfin.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                 }
             } else {

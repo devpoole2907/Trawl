@@ -223,6 +223,7 @@ struct LibraryImportScanView: View {
                         systemImage: "doc.text.magnifyingglass",
                         description: Text("No unmapped files found in this directory.")
                     )
+                    .centredInVisibleList()
                     .listRowBackground(Color.clear)
                     .selectionDisabled()
                 }
@@ -818,6 +819,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                             systemImage: "doc.text.magnifyingglass",
                             description: Text("No manual-import candidates were found at this queue item's import path.")
                         )
+                        .centredInVisibleList()
                         .listRowBackground(Color.clear)
                     }
                 }
@@ -1729,6 +1731,7 @@ struct LibraryImportGroupSheet: View {
                             systemImage: "checkmark.circle.fill",
                             description: Text("All files in this group have been imported.")
                         )
+                        .centredInVisibleList()
                         .listRowBackground(Color.clear)
                     }
                 } else {
@@ -1898,6 +1901,7 @@ private struct LibraryImportSelectionReviewSheet: View {
                 if allImportableGroups.isEmpty && unresolvedGroups.isEmpty {
                     Section {
                         ContentUnavailableView("No Files Selected", systemImage: "checkmark.circle", description: Text("Everything in this selection has been cleared."))
+                            .centredInVisibleList()
                             .listRowBackground(Color.clear)
                     }
                 }
