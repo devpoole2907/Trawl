@@ -33,7 +33,9 @@ struct NotificationTabBarAccessory: View {
     private var pendingApprovalCount: Int { seerrServiceManager.pendingRequests.count }
 
     private var latestNotification: NotificationLogEntry? {
-        inAppNotificationCenter.recentNotifications.first
+        inAppNotificationCenter.recentNotifications.first {
+            $0.timestamp > inAppNotificationCenter.lastReadDate
+        }
     }
 
     private var unreadCount: Int {
@@ -382,6 +384,8 @@ struct RecentNotificationsSheet: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(ConfigurationAuditStore.self) private var configurationAuditStore: ConfigurationAuditStore?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Environment(\.navigateToSeriesTab) private var navigateToSeriesTab
+    @Environment(\.navigateToMoviesTab) private var navigateToMoviesTab
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     @Environment(\.navigateToSetupCheck) private var navigateToSetupCheck
     /// Optional so the sheet still works anywhere a navigator isn't injected.
@@ -1354,7 +1358,14 @@ struct RecentNotificationsSheet: View {
     private func notificationRow(for entry: NotificationLogEntry) -> some View {
         let long = isLongMessage(entry.message)
         Group {
-            if long {
+            if entry.destination != nil {
+                Button {
+                    openNotificationDestination(entry)
+                } label: {
+                    notificationRowBody(entry: entry, truncate: long)
+                }
+                .buttonStyle(.plain)
+            } else {
                 NavigationLink {
                     NotificationDetailView(
                         entry: entry,
@@ -1362,10 +1373,8 @@ struct RecentNotificationsSheet: View {
                         tint: color(for: entry.style)
                     )
                 } label: {
-                    notificationRowBody(entry: entry, truncate: true)
+                    notificationRowBody(entry: entry, truncate: long)
                 }
-            } else {
-                notificationRowBody(entry: entry, truncate: false)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -1374,6 +1383,17 @@ struct RecentNotificationsSheet: View {
             } label: {
                 Label("Remove", systemImage: "trash")
             }
+        }
+    }
+
+    private func openNotificationDestination(_ entry: NotificationLogEntry) {
+        guard let destination = entry.destination else { return }
+        dismiss()
+        switch destination {
+        case .series:
+            navigateToSeriesTab()
+        case .movies:
+            navigateToMoviesTab()
         }
     }
 

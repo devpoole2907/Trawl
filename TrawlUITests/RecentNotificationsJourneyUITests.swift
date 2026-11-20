@@ -78,6 +78,35 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
             "The logged notification should retain the affected server library as its message."
         )
 
+        let recentNotification = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Library Removed"))
+            .firstMatch
+        XCTAssertTrue(
+            tapWhenHittable(recentNotification, in: app, timeout: 5),
+            "A short notification should open detail just like a long notification."
+        )
+        let detail = app.navigationBars["Notification"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts[JellyfinLibrariesUIFixtureServer.libraryName].exists)
+        capture(app, "notification-short-message-detail")
+
+        XCTAssertTrue(tapWhenHittable(backButton(in: detail), in: app, timeout: 5))
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        dismissSheet(sheet, in: app)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(
+            String(describing: notifications.value).contains("Library Removed"),
+            "Opening history marks it read, so the accessory must not advertise that old event forever."
+        )
+
+        XCTAssertTrue(tapWhenHittable(notifications, in: app, timeout: 5))
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["Library Removed"].waitForExistence(timeout: 5),
+            "Read history remains in Recent even after it leaves the accessory headline."
+        )
+        capture(app, "notification-read-history-retained")
+
         let clear = sheet.buttons["Clear"]
         XCTAssertTrue(tapWhenHittable(clear, in: app, timeout: 5))
         let clearConfirmation = app.alerts["Clear Notifications?"]
@@ -139,5 +168,20 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
         guard action.exists && action.isHittable else { return false }
         action.tap()
         return true
+    }
+
+    @MainActor
+    private func dismissSheet(_ navigationBar: XCUIElement, in app: XCUIApplication) {
+        let start = navigationBar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    @MainActor
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

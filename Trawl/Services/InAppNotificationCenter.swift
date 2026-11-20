@@ -81,11 +81,23 @@ final class InAppNotificationCenter {
         )
     }
 
-    func showSuccess(title: String, message: String, action: InAppBannerAction? = nil, source: NotificationLogEntry.Source = .inApp) {
+    func showSuccess(
+        title: String,
+        message: String,
+        action: InAppBannerAction? = nil,
+        source: NotificationLogEntry.Source = .inApp,
+        destination: NotificationLogDestination? = nil
+    ) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
-        appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: source)
+        appendLog(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            style: .success,
+            source: source,
+            destination: destination
+        )
 
         #if os(iOS)
         if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
@@ -107,14 +119,21 @@ final class InAppNotificationCenter {
         key: String,
         title: String,
         message: String,
-        action: InAppBannerAction? = nil
+        action: InAppBannerAction? = nil,
+        destination: NotificationLogDestination? = nil
     ) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
 
         // Record in recent notifications and update unread count
-        appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: .inApp)
+        appendLog(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            style: .success,
+            source: .inApp,
+            destination: destination
+        )
 
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
@@ -490,8 +509,21 @@ final class InAppNotificationCenter {
         )
     }
 
-    private func appendLog(title: String, message: String, style: InAppBannerStyle, source: NotificationLogEntry.Source) {
-        let entry = NotificationLogEntry(title: title, message: message, style: style, source: source, timestamp: Date())
+    private func appendLog(
+        title: String,
+        message: String,
+        style: InAppBannerStyle,
+        source: NotificationLogEntry.Source,
+        destination: NotificationLogDestination? = nil
+    ) {
+        let entry = NotificationLogEntry(
+            title: title,
+            message: message,
+            style: style,
+            source: source,
+            timestamp: Date(),
+            destination: destination
+        )
         recentNotifications.insert(entry, at: 0)
         if recentNotifications.count > 200 {
             recentNotifications.removeLast(recentNotifications.count - 200)
@@ -545,6 +577,14 @@ enum InAppBannerStyle: String, Codable, Sendable {
     case success
     case error
     case progress
+}
+
+/// A durable counterpart to a banner's in-memory closure action. Notification
+/// history survives banner dismissal and app relaunch, so only stable app-level
+/// destinations belong here.
+enum NotificationLogDestination: String, Codable, Sendable {
+    case series
+    case movies
 }
 
 struct InAppBannerItem: Identifiable, @unchecked Sendable {
@@ -623,14 +663,23 @@ struct NotificationLogEntry: Identifiable, Codable, Sendable {
     let style: InAppBannerStyle
     let source: Source
     let timestamp: Date
+    let destination: NotificationLogDestination?
 
-    init(title: String, message: String, style: InAppBannerStyle, source: Source, timestamp: Date) {
+    init(
+        title: String,
+        message: String,
+        style: InAppBannerStyle,
+        source: Source,
+        timestamp: Date,
+        destination: NotificationLogDestination? = nil
+    ) {
         self.id = UUID()
         self.title = title
         self.message = message
         self.style = style
         self.source = source
         self.timestamp = timestamp
+        self.destination = destination
     }
 }
 

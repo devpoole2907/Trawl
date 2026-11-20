@@ -259,6 +259,8 @@ struct ContentView: View {
                 .environment(inAppNotificationCenter)
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
+                .environment(\.navigateToSeriesTab) { selectedTab = .series }
+                .environment(\.navigateToMoviesTab) { selectedTab = .movies }
                 .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
                 // Only on the chrome that has Setup Check to select. Read here, at
                 // the root, rather than inside the sheet: a `NavigationSplitView`'s
@@ -281,6 +283,8 @@ struct ContentView: View {
                 .environment(inAppNotificationCenter)
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
+                .environment(\.navigateToSeriesTab) { selectedTab = .series }
+                .environment(\.navigateToMoviesTab) { selectedTab = .movies }
                 .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
                 // Always available here: macOS has only the sidebar chrome.
                 .environment(\.navigateToSetupCheck) { selectedTab = .setupCheck }
