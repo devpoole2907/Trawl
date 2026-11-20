@@ -99,7 +99,14 @@ final class NamingBuilderJourneyUITests: XCTestCase {
         XCTAssertEqual(server.requests.filter { $0.method == "PUT" && $0.path == Self.standardPath }.count, 1)
 
         confirmSave(from: builder, naming: "Sonarr", in: app)
-        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 15), "An accepted save returns to the list.")
+        // NAMING_BLOCK_BUILDER_IMPLEMENTATION_PLAN.md: an accepted save returns the
+        // builder to read-only and it stays open; Back then reaches the list.
+        XCTAssertTrue(builder.buttons["Edit"].waitForExistence(timeout: 15), "An accepted save returns the builder to read-only.")
+        XCTAssertFalse(builder.buttons["Save"].exists)
+        // Read-only shows the system back button, labelled for the list it returns
+        // to rather than "Back" - the first button in the bar either way.
+        XCTAssertTrue(tapWhenHittable(builder.buttons.element(boundBy: 0)))
+        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 10), "Back from a saved builder returns to the list without asking.")
         let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Standard,", "S02E03 - Pilot")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 10), "The list must show the accepted format.")
 
@@ -134,7 +141,7 @@ final class NamingBuilderJourneyUITests: XCTestCase {
         XCTAssertTrue(waitForPreview(containing: "Example Movie (2026) WEBDL-1080p Proper", in: app), "Preview: \(previewText(in: app))")
 
         confirmSave(from: builder, naming: "Radarr", in: app)
-        XCTAssertTrue(app.navigationBars["Naming"].waitForExistence(timeout: 15))
+        XCTAssertTrue(builder.buttons["Edit"].waitForExistence(timeout: 15), "An accepted save returns the builder to read-only.")
 
         let write = try XCTUnwrap(radarrServer.requests.first { $0.method == "PUT" && $0.path == "/api/v3/config/naming/1" }, "Radarr must receive the write. Radarr: \(radarrServer.requests.map(\.path))")
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(write.body.utf8)) as? [String: Any])
@@ -216,7 +223,15 @@ final class NamingBuilderJourneyUITests: XCTestCase {
             "A tray block dropped on the top of the last block must land before it. Preview: \(previewText(in: app))"
         )
 
-        XCTAssertTrue(tapWhenHittable(app.buttons["Undo"]))
+        // At accessibility sizes the drop leaves the "Arrange your blocks" heading,
+        // where Undo lives, scrolled up under the navigation bar. `isHittable` still
+        // says yes there and the tap lands on the bar, so bring it back down first.
+        let undo = app.buttons["Undo"]
+        let bar = app.navigationBars["Standard Episode Format"]
+        for _ in 0..<6 where undo.exists && undo.frame.minY < bar.frame.maxY + 8 {
+            app.swipeDown(velocity: .slow)
+        }
+        XCTAssertTrue(tapWhenHittable(undo))
         XCTAssertTrue(waitForPreview(containing: "S02E03 - Example Show (2026)", in: app), "One drop is one undo step.")
         XCTAssertFalse(server.hasReceivedRequest(method: "PUT", path: Self.standardPath))
     }

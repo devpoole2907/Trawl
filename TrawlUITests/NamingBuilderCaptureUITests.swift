@@ -65,11 +65,16 @@ final class NamingBuilderCaptureUITests: XCTestCase {
 
         // The options are a confirmation dialog, whose Cancel iOS 26 leaves out when it
         // presents as a popover; it closes from outside there.
-        let cancel = app.buttons["Cancel"]
-        if cancel.exists, cancel.isHittable {
-            cancel.tap()
-        } else {
-            app.otherElements["PopoverDismissRegion"].coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.05)).tap()
+        // Scoped to the dialog: the editing toolbar has its own Cancel (leave edit
+        // mode), and an app-wide `buttons["Cancel"]` query tapped that one instead.
+        let dismissRegion = app.otherElements["PopoverDismissRegion"]
+        let dialogCancel = app.sheets.buttons["Cancel"].firstMatch
+        if dismissRegion.exists {
+            // Left of the popover and below the bars. The very top-left corner is
+            // the status bar on a Dynamic Island phone, which swallows the tap.
+            dismissRegion.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.3)).tap()
+        } else if dialogCancel.exists {
+            dialogCancel.tap()
         }
         XCTAssertTrue(app.buttons["Move Earlier"].waitForNonExistence(timeout: 10), "The options must close back to the builder.")
 

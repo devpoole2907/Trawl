@@ -141,7 +141,10 @@ private struct CentralHeaderNavigationTitle: ViewModifier {
                 }
             }
             .toolbar {
-                if let hasScrolledPast = headerStates[title] {
+                // Built only once the central title has gone. Keeping it in the tree
+                // at zero opacity with `accessibilityHidden` left it reachable to
+                // VoiceOver on iOS 26.4 - an invisible duplicate of the title.
+                if headerStates[title] == true {
                     ToolbarItem(placement: .principal) {
                         VStack(spacing: 2) {
                             Text(title)
@@ -156,8 +159,7 @@ private struct CentralHeaderNavigationTitle: ViewModifier {
                                     .accessibilityIdentifier("central-header-navigation-subtitle")
                             }
                         }
-                        .opacity(hasScrolledPast ? 1 : 0)
-                        .accessibilityHidden(!hasScrolledPast)
+                        .transition(.opacity)
                     }
                 }
             }
