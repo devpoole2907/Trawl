@@ -432,7 +432,9 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         let sheetTitle = app.navigationBars["Add to Sonarr"]
         XCTAssertTrue(sheetTitle.waitForExistence(timeout: 10))
 
-        let blocker = app.descendants(matching: .any)["sonarr-add-blocker"]
+        // SwiftUI propagates the label identifier to both its image and text on
+        // iPad. Restrict the query to the explanatory text so it stays singular.
+        let blocker = app.staticTexts["sonarr-add-blocker"]
         XCTAssertTrue(
             blocker.waitForExistence(in: app, timeout: 15),
             "Once configuration loading finishes, the sheet should state why Add cannot be used instead of leaving blank pickers unexplained."
@@ -496,9 +498,15 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         XCTAssertTrue(cancel.exists)
         XCTAssertFalse(cancel.isEnabled, "Cancel must be disabled while the submitted add request is unresolved.")
 
-        let searchImmediately = app.switches["Search Immediately"]
-        XCTAssertTrue(searchImmediately.exists)
-        XCTAssertFalse(searchImmediately.isEnabled, "Submitted options must not remain editable while the add request is unresolved.")
+        // The medium iPad sheet keeps the lower Search Immediately row outside
+        // the accessibility tree until it is scrolled into view. The quality
+        // profile is also part of the submitted request and remains visible on
+        // every supported sheet size, so use it for the locked-control proof.
+        let qualityProfile = app.buttons
+            .matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Quality Profile"))
+            .firstMatch
+        XCTAssertTrue(qualityProfile.exists)
+        XCTAssertFalse(qualityProfile.isEnabled, "Submitted options must not remain editable while the add request is unresolved.")
         XCTAssertTrue(sheetTitle.exists, "The sheet must remain presented until Sonarr resolves the request.")
 
         attachScreenshot(named: "Sonarr add - in flight", from: app)
@@ -545,6 +553,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
     /// contains `text`. Restricted to buttons (never `.any`/`.other`) so an
     /// existence-and-tap query can't silently land on a non-interactive element -
     /// mirrors `ArrRepointJourneyUITests.firstElement(labelContains:in:)`.
+    @MainActor
     private func firstElement(labelContains text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
@@ -554,6 +563,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
     /// Polls `element.isEnabled` until it goes true or `timeout` elapses. Built
     /// entirely from `waitForExistence(timeout:)` calls (never `sleep()` /
     /// `Thread.sleep`) - mirrors `ArrInstanceSwitchJourneyUITests.waitForEnabled`.
+    @MainActor
     private func waitForEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -566,6 +576,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
     /// Polls `element.exists` until it goes false or `timeout` elapses. XCTest has
     /// no built-in "wait for disappearance" - mirrors
     /// `ArrRepointJourneyUITests.waitForDisappearance`.
+    @MainActor
     private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) {
         let deadline = Date().addingTimeInterval(timeout)
         while element.exists && Date() < deadline {
@@ -573,6 +584,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         }
     }
 
+    @MainActor
     private func attachScreenshot(named name: String, from app: XCUIApplication) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

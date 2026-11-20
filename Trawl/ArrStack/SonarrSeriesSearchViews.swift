@@ -188,12 +188,15 @@ struct SonarrAddToLibrarySheet: View {
                         ProgressView("Loading Sonarr settings…")
                             .accessibilityLabel("Loading Sonarr settings")
                     } else if let addBlockerMessage {
-                        Label(addBlockerMessage, systemImage: "exclamationmark.triangle.fill")
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .accessibilityHidden(true)
+                            Text(addBlockerMessage)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("sonarr-add-blocker")
+                        }
                             .foregroundStyle(.orange)
                             .font(.footnote)
-                            // One element: the icon and the text read as one message.
-                            .accessibilityElement(children: .combine)
-                            .accessibilityIdentifier("sonarr-add-blocker")
 
                         if hasMissingConfiguration {
                             Button("Retry Sonarr Settings", systemImage: "arrow.clockwise") {

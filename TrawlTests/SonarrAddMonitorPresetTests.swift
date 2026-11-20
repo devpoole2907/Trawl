@@ -2,8 +2,8 @@ import Testing
 @testable import Trawl
 
 /// The Add Series sheet's Monitor choices map to Sonarr's `addOptions.monitor`.
-@Suite("Sonarr add monitor presets")
 @MainActor
+@Suite("Sonarr add monitor presets")
 struct SonarrAddMonitorPresetTests {
     @Test("Choose Seasons sends skip, so the per-season switches are kept")
     func chooseSeasonsIsSkip() {
