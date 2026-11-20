@@ -79,7 +79,15 @@ final class SonarrSeasonEpisodeJourneyUITests: XCTestCase {
 
         // MARK: Season screen
 
-        let seasonRow = firstButton(labelContaining: "Season 1", in: app)
+        // The Episodes section's link to the full season screen. It sits below Up
+        // Next and the searches, so on a tall phone it can land under the floating
+        // tab bar - where `isHittable` still says yes and the tap opens a tab
+        // instead. Scrolled into the upper part of the screen first.
+        let seasonRow = app.buttons["series-season-details-1"]
+        XCTAssertTrue(seasonRow.waitForExistence(timeout: 15), "The series detail should list Season 1 for a series whose episodes decoded.")
+        for _ in 0..<6 where seasonRow.frame.maxY > app.frame.height * 0.7 {
+            app.swipeUp(velocity: .slow)
+        }
         XCTAssertTrue(
             tapWhenHittable(seasonRow, in: app, timeout: 15),
             "The series detail should list Season 1 for a series whose episodes decoded."
