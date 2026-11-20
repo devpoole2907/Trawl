@@ -1,0 +1,588 @@
+<title>Series Detail Redesign</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a reading column of findings, with full-bleed rows of phone mockups between them. */
+:root {
+  --bg: #f6f4f8;
+  --surface: #ffffff;
+  --fg: #1d1824;
+  --muted: #6a6275;
+  --line: #e2dce9;
+  --accent: #8a3ffc;
+  --accent-soft: #efe6ff;
+  --good: #1f8a4c;
+  --warn: #b25b00;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-ios: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141118; --surface: #1d1922; --fg: #ece8f1; --muted: #a39cae; --line: #312b39;
+    --accent: #b78bff; --accent-soft: #2c2140; --good: #5fd08f; --warn: #ffb35c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141118; --surface: #1d1922; --fg: #ece8f1; --muted: #a39cae; --line: #312b39;
+  --accent: #b78bff; --accent-soft: #2c2140; --good: #5fd08f; --warn: #ffb35c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+.col { max-width: 760px; margin: 0 auto; }
+.wide { max-width: 1240px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); letter-spacing: -0.02em; }
+h2 { font-size: 26px; letter-spacing: -0.01em; }
+h3 { font-size: 18px; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lede { font-size: 18px; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 18px; margin-top: 64px; }
+header { display: flex; flex-direction: column; gap: 14px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+code { font-size: 13px; background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
+ul.plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.pill.rec { background: var(--accent); color: var(--surface); }
+
+/* path comparison */
+.paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.path { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.path ol { margin: 0; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 3px; }
+.path .count { font-family: var(--font-display); font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.path .count small { font-size: 14px; color: var(--muted); font-weight: 500; font-family: var(--font-body); }
+.path.now .count { color: var(--warn); }
+.path.next .count { color: var(--good); }
+
+/* captures */
+.captures { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; }
+.captures figure { margin: 0; flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.captures img { height: 420px; width: auto; border-radius: 22px; border: 1px solid var(--line); }
+.captures figcaption { font-size: 13px; color: var(--muted); max-width: 194px; }
+
+/* proposals */
+.proposal { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 28px; }
+.proposal .text { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.proposal .title-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.proposal dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+.proposal dt { color: var(--muted); }
+.proposal dd { margin: 0; }
+@media (max-width: 720px) { .proposal { grid-template-columns: 1fr; padding: 18px; justify-items: center; } .proposal .text { justify-self: stretch; } }
+
+.seg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.seg button { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.seg button:focus-visible, .phone button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- phone mockups: the app's own dark glass look, deliberately single-theme ---------- */
+.phone {
+  width: 300px; max-width: 100%; height: 640px; border-radius: 46px; overflow: hidden; position: relative; flex: 0 0 auto;
+  background: radial-gradient(120% 70% at 50% 0%, #7a3a8e 0%, #4a2259 45%, #2a1433 100%);
+  border: 8px solid #0d0b10; color: #fff; font-family: var(--font-ios); font-size: 13px;
+  box-shadow: 0 20px 40px -20px rgba(30, 10, 40, .5);
+}
+.phone .screen { position: absolute; inset: 0; overflow-y: auto; padding: 44px 12px 80px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
+.phone .screen::-webkit-scrollbar { display: none; }
+.phone .status { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; justify-content: space-between; align-items: center; padding: 6px 26px 0; font-weight: 600; font-size: 12px; z-index: 3; color: #fff; }
+.phone .nav { display: flex; justify-content: space-between; align-items: center; }
+.phone .circ { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,.18); display: grid; place-items: center; font-size: 15px; color: #fff; }
+.phone .navtitle { font-weight: 600; font-size: 14px; }
+.g { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 15px; padding: 11px 12px; }
+.g.row { display: flex; align-items: center; gap: 10px; }
+.sub { font-size: 11px; color: rgba(255,255,255,.62); }
+.b { font-weight: 600; }
+.hero-mini { display: flex; gap: 12px; align-items: center; }
+.poster { width: 66px; height: 98px; border-radius: 10px; background: linear-gradient(160deg, #e8b64a, #c4622d); flex: 0 0 auto; display: grid; place-items: center; font-size: 26px; }
+.poster.big { width: 120px; height: 178px; margin: 4px auto 0; font-size: 40px; }
+.hero-title { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 99px; background: rgba(255,255,255,.12); }
+.chip.green { color: #6ff0a0; } .chip.blue { color: #7ec3ff; } .chip.yellow { color: #ffd760; }
+.bar { height: 4px; border-radius: 3px; background: rgba(255,255,255,.22); width: 46px; position: relative; overflow: hidden; flex: 0 0 auto; }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: #67e08f; }
+.bar i.part { background: #d06bff; }
+.chev { color: rgba(255,255,255,.35); font-size: 13px; margin-left: auto; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.55); font-weight: 600; padding: 4px 4px 0; }
+.btn-primary { display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; padding: 10px; font-weight: 600; background: #b25cf0; color: #fff; border: 0; font: inherit; font-weight: 600; width: 100%; cursor: pointer; }
+.btn-ghost { display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 12px; padding: 9px; font-weight: 600; background: rgba(255,255,255,.12); color: #fff; border: 0; font: inherit; font-weight: 600; flex: 1; cursor: pointer; }
+.upnext { background: linear-gradient(150deg, rgba(178,92,240,.38), rgba(255,255,255,.07)); border: 1px solid rgba(214,160,255,.4); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.upnext .top { display: flex; gap: 10px; align-items: flex-start; }
+.thumb { width: 74px; height: 42px; border-radius: 8px; background: linear-gradient(135deg, #3c7bd9, #8bd0ff); flex: 0 0 auto; }
+.state { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 99px; display: inline-block; }
+.state.missing { background: rgba(255,150,60,.25); color: #ffb072; }
+.state.dl { background: rgba(120,180,255,.25); color: #9ccaff; }
+.state.ok { background: rgba(100,230,140,.22); color: #79ef9f; }
+.state.wait { background: rgba(255,255,255,.14); color: rgba(255,255,255,.8); }
+.prog { height: 5px; background: rgba(255,255,255,.18); border-radius: 3px; overflow: hidden; }
+.prog i { display: block; height: 100%; width: 64%; background: #8fc4ff; }
+.ep { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.ep:last-child { border-bottom: 0; }
+.ep .num { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.55); width: 30px; flex: 0 0 auto; }
+.ep .t { flex: 1; min-width: 0; }
+.ep .t div:first-child { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot-ok { color: #6ff0a0; } .dot-miss { color: #ffa25c; } .dot-wait { color: rgba(255,255,255,.45); }
+.seasons-strip { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
+.seasons-strip::-webkit-scrollbar { display: none; }
+.seasons-strip button { flex: 0 0 auto; font: inherit; font-size: 12px; font-weight: 600; color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); border-radius: 99px; padding: 6px 11px; cursor: pointer; position: relative; }
+.seasons-strip button[aria-pressed="true"] { background: #fff; color: #3a1a47; }
+.seasons-strip button .warn { position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: #ff9a4a; }
+.grid4 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.tile { aspect-ratio: 1; border-radius: 12px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); display: grid; place-items: center; position: relative; font-weight: 700; font-size: 13px; max-width: 100%; }
+.tile svg { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); }
+.tile.inc { border-color: rgba(255,160,80,.6); background: rgba(255,140,60,.14); }
+.tabbar { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 52px; border-radius: 26px; background: rgba(240,210,250,.85); display: flex; justify-content: space-around; align-items: center; color: #3a1a47; font-size: 9px; font-weight: 600; z-index: 3; }
+.tabbar span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tabbar span b { font-size: 15px; }
+.tabbar .on { color: #2f5fe0; }
+.menu { background: rgba(250,245,252,.95); color: #1d1824; border-radius: 14px; overflow: hidden; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+.menu div { padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,.08); display: flex; justify-content: space-between; gap: 8px; }
+.menu div:last-child { border-bottom: 0; }
+.menu .hi { color: #7a2fd0; font-weight: 600; }
+.dim { filter: blur(2px) brightness(.55); }
+.sheetlist .g { padding: 8px 10px; }
+.about { font-size: 12px; color: rgba(255,255,255,.8); }
+.svc { display: flex; gap: 6px; flex-wrap: wrap; }
+.svc span { font-size: 11px; padding: 5px 9px; border-radius: 10px; background: rgba(255,255,255,.1); display: flex; gap: 5px; align-items: center; }
+
+/* page map */
+.maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.map { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.map .blocks { display: flex; flex-direction: column; gap: 3px; border-left: 2px dashed var(--line); padding-left: 10px; position: relative; }
+.map .blk { border-radius: 6px; font-size: 12px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; background: var(--accent-soft); color: var(--fg); overflow: hidden; white-space: nowrap; }
+.map .blk.k { background: var(--accent); color: var(--surface); font-weight: 600; }
+.map .blk.meta { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+.map .fold { border-top: 2px solid var(--warn); position: relative; margin: 2px 0; }
+.map .fold span { position: absolute; right: 0; top: -9px; font-size: 11px; background: var(--bg); color: var(--warn); padding: 0 4px; font-weight: 600; }
+
+/* findings */
+.finding { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-top: 1px solid var(--line); }
+.finding:first-of-type { border-top: 0; }
+.sev { width: 12px; height: 12px; border-radius: 50%; margin-top: 6px; }
+.sev.hi { background: var(--warn); }
+.sev.lo { background: var(--muted); }
+.sev.ok { background: var(--good); }
+.finding h3 { font-size: 16px; margin-bottom: 4px; }
+.finding p { color: var(--muted); font-size: 14px; }
+.where { font-size: 12px; color: var(--muted); margin-top: 6px; }
+table.rank { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.rank th, table.rank td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.rank th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+@media (prefers-reduced-motion: no-preference) { .upnext, .ep, .tile { transition: all .2s ease; } }
+</style>
+
+<div class="col">
+  <header>
+    <span class="eyebrow">Trawl · Series detail · 20 Nov 2026</span>
+    <h1>Getting to the newest episode</h1>
+    <p class="lede">You check South Park every couple of weeks for the new episode. Today that takes five taps and two long scrolls, and the season list grows by one card a year. Below: what the screen does now, measured on a 27-season test show, then five design options.</p>
+  </header>
+
+  <section id="built">
+    <span class="eyebrow">Update · built and merged</span>
+    <h2>What got built</h2>
+    <p>Options A, B, D and E are in <code>iphone-duo-polish</code>. The newest episode is now 3 taps from the Series tab, or 2 with a long-press, with no scrolling. Captured with the same 27-season stand-in show:</p>
+  </section>
+</div>
+
+<div class="wide" style="margin-top:20px">
+  <div class="captures">
+    <figure><img src="series-detail-redesign/after-detail-1.jpg" alt="Series detail with the Up Next card under the title: S27E05 missing, Search for S27E05, Pick Release, next episode 3 Dec"><figcaption>Up Next sits under the title, on the first screen.</figcaption></figure>
+    <figure><img src="series-detail-redesign/after-detail-2.jpg" alt="Season chips S27 to S22 with S27 selected, then Season 27's episodes newest first with Not Aired and Missing badges"><figcaption>Season chips, newest season open, episodes newest first. The rows' "TBA" dates in this capture are fixed.</figcaption></figure>
+    <figure><img src="series-detail-redesign/after-list-menu.jpg" alt="Series list row reading Next 3 Dec, with a long-press menu offering Search Latest Episode"><figcaption>Series list: "Next 3 Dec" on the row, and Search Latest Episode on long-press.</figcaption></figure>
+  </div>
+</div>
+
+<div class="col">
+  <section style="margin-top:28px">
+    <ul class="plain">
+      <li><strong>A · Up Next:</strong> missing → Search or Pick Release. Not monitored adds a Monitor button. Downloading shows progress. Ended shows with everything on disk get no card.</li>
+      <li><strong>B · Episodes:</strong> season chips (orange dot for gaps) with the episodes inline, newest first. Missing, Not Aired and Not Monitored are marked. Long-press an episode to search it, pick a release or change monitoring. The season screen is still under "Season Details".</li>
+      <li><strong>D · Order:</strong> Series and Movie detail share one order: actions and downloads → episodes / release dates → about → your services → bookkeeping. The services stayed full cards rather than chips.</li>
+      <li><strong>E · Elsewhere:</strong> long-press in the Series list, a "Next 3 Dec" line on rows, and a "Search for Latest Episode" action in the Shortcuts app. It has no Siri phrase, because Trawl already uses Apple's maximum of ten.</li>
+      <li><strong>Fixed along the way:</strong> season counts no longer include unaired episodes. Searching or monitoring an episode now goes to that episode's own server when you have two. Single-server library rows said "Not downloaded" for everything; they now say "Available".</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Where it stood</h2>
+    <p>I captured Series detail on an iPhone 17 Pro with a stand-in show: 27 seasons, 266 episodes, the newest season half-aired with one episode missing. This page has none of the cards your real servers add (ratings, cast, Seerr, Jellyfin), so with your setup everything below the search buttons sits about a screen lower.</p>
+  </section>
+</div>
+
+<div class="wide" style="margin-top:20px">
+  <div class="captures">
+    <figure><img src="series-detail-redesign/today-00.jpg" alt="Series detail top: large poster, title, badges, Automatic Search and Interactive Search buttons"><figcaption>Screen 1. The poster and two series-wide searches fill it.</figcaption></figure>
+    <figure><img src="series-detail-redesign/today-01.jpg" alt="Overview, stats, subtitles, then Season 27 reading 4 of 6 episodes"><figcaption>Screen 2. Season 27 says "4 of 6", but one of those six hasn't aired.</figcaption></figure>
+    <figure><img src="series-detail-redesign/today-03.jpg" alt="Seasons 18 down to 10, all complete"><figcaption>Screen 4. Nineteen more complete seasons, each a full-width card.</figcaption></figure>
+    <figure><img src="series-detail-redesign/today-05.jpg" alt="Seasons 7 down to 1 and the Files row"><figcaption>Screen 6. Files, then the page ends. The page is about 6 screens tall.</figcaption></figure>
+  </div>
+</div>
+
+<div class="col">
+  <section style="margin-top:28px">
+    <h3>The newest-episode trip, now and with the options below</h3>
+    <div class="paths">
+      <div class="path now">
+        <div class="count">5 taps <small>+ 2 scrolls</small></div>
+        <ol>
+          <li>Series tab → South Park</li>
+          <li>Scroll past 4–8 cards</li>
+          <li>Season 27</li>
+          <li>Scroll past the season's search buttons</li>
+          <li>Episode 5 → Automatic Search</li>
+        </ol>
+      </div>
+      <div class="path next">
+        <div class="count">3 taps <small>option A</small></div>
+        <ol>
+          <li>Series tab → South Park</li>
+          <li>"Search S27 E05" is the first card under the title</li>
+        </ol>
+      </div>
+      <div class="path next">
+        <div class="count">2 taps <small>option E</small></div>
+        <ol>
+          <li>Series tab → long-press South Park</li>
+          <li>Search Latest Episode</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Design options</span>
+    <h2>Five changes, roughly in the order I'd ship them</h2>
+    <p>They stack: A and E fix the newest-episode trip, B or C fixes the length, and D tidies what's left. The mockups use made-up episode data and work: tap the states, the season chips and the tiles.</p>
+  </section>
+</div>
+
+<div class="wide stack" style="margin-top:24px; gap:24px">
+
+  <!-- A -->
+  <article class="proposal" id="a">
+    <div class="phone" aria-label="Mockup: Up Next card">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="screen">
+        <div class="nav"><span class="circ">‹</span><span class="navtitle"></span><span class="circ">⋯</span></div>
+        <div class="hero-mini">
+          <div class="poster">📺</div>
+          <div class="stack" style="gap:6px">
+            <div class="hero-title">South Park</div>
+            <div class="sub">Comedy Central · 1997 · 22m</div>
+            <div class="chips"><span class="chip green">Continuing</span><span class="chip blue">Monitored</span></div>
+          </div>
+        </div>
+        <div class="upnext" id="upnext"></div>
+        <div class="g row"><span style="color:#d77bff">⌕</span><div><div class="b">Automatic Search</div><div class="sub">Search all monitored episodes</div></div><span class="chev">→</span></div>
+        <div class="g row"><span style="color:#d77bff">◉</span><div><div class="b">Interactive Search</div><div class="sub">Pick a release</div></div><span class="chev">↗</span></div>
+        <div class="label">Seasons</div>
+        <div class="g row"><div><div class="b">Season 27</div><div class="sub">4 of 5 aired · 1 to come</div></div><div class="bar"><i class="part" style="width:80%"></i></div><span class="chev" style="margin-left:6px">›</span></div>
+      </div>
+      <div class="tabbar"><span><b>⇩</b>Downloads</span><span class="on"><b>▭</b>Series</span><span><b>▤</b>Movies</span><span><b>⋯</b>More</span></div>
+    </div>
+    <div class="text">
+      <div class="title-row"><h3>A · Up Next card</h3><span class="pill rec">Do this first</span></div>
+      <p>A card right under the title for the newest episode that has aired. It shows the one thing to do about that episode, plus when the next one airs. The poster shrinks to sit beside the title, so the card is on the first screen without scrolling.</p>
+      <div class="seg" role="group" aria-label="Episode state">
+        <button type="button" data-state="missing" aria-pressed="true">Missing</button>
+        <button type="button" data-state="dl" aria-pressed="false">Downloading</button>
+        <button type="button" data-state="ok" aria-pressed="false">On disk</button>
+        <button type="button" data-state="unmon" aria-pressed="false">Not monitored</button>
+        <button type="button" data-state="wait" aria-pressed="false">Between episodes</button>
+      </div>
+      <dl>
+        <dt>Data</dt><dd>Sonarr already sends <code>previousAiring</code> and <code>nextAiring</code> on every series. Trawl decodes both but never shows them.</dd>
+        <dt>Actions</dt><dd>Missing → Search, plus Pick Release. Not monitored → Monitor and Search, because that's the South Park case. On disk → nothing to do, or Play if Jellyfin has it.</dd>
+        <dt>Hidden when</dt><dd>The show has ended and nothing is missing, or it isn't in the library.</dd>
+        <dt>Cost</dt><dd>Small. Reuses <code>SonarrViewModel.searchEpisode</code>, the release sheet and the queue progress that episode rows already show.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- B -->
+  <article class="proposal" id="b">
+    <div class="phone" aria-label="Mockup: season picker with episodes inline">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="screen">
+        <div class="nav"><span class="circ">‹</span><span class="navtitle">South Park</span><span class="circ">⋯</span></div>
+        <div class="label">Episodes</div>
+        <div class="seasons-strip" id="strip"></div>
+        <div class="g" style="padding:4px 10px" id="eplist"></div>
+        <div class="row" style="display:flex; gap:6px">
+          <button class="btn-ghost" type="button">⌕ Search Season</button>
+          <button class="btn-ghost" type="button">◉ Pick Release</button>
+        </div>
+        <div class="label">About</div>
+        <div class="g about">Four boys in a small Colorado town… <span style="color:#d7a6ff">More</span></div>
+      </div>
+      <div class="tabbar"><span><b>⇩</b>Downloads</span><span class="on"><b>▭</b>Series</span><span><b>▤</b>Movies</span><span><b>⋯</b>More</span></div>
+    </div>
+    <div class="text">
+      <div class="title-row"><h3>B · One Episodes section with a season picker</h3><span class="pill">Fixes the length</span></div>
+      <p>The 27 season cards become a strip of season chips, newest first, with that season's episodes listed right under it. It opens on the newest season. A season with something missing gets an orange dot, so you can see gaps without opening every season.</p>
+      <dl>
+        <dt>Length</dt><dd>Stays about the same whether a show has 2 seasons or 27.</dd>
+        <dt>Rows</dt><dd>Each episode shows on disk, missing or "airs Wed" with its own mark. Today a missing episode and an unaired one look the same: no mark at all. Swipe or long-press a row to search it without opening the episode.</dd>
+        <dt>Keeps</dt><dd>The season screen. "Search Season" and the season's subtitle search can open it, or move into this section's menu.</dd>
+        <dt>Cost</dt><dd>Medium. The episode row already exists (<code>SonarrSeasonEpisodeRow</code>). The work is the chip strip and choosing which season it opens on.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- C -->
+  <article class="proposal" id="c">
+    <div class="phone" aria-label="Mockup: compact season grid">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="screen">
+        <div class="nav"><span class="circ">‹</span><span class="navtitle">South Park</span><span class="circ">⋯</span></div>
+        <div class="label" style="display:flex; justify-content:space-between"><span>Seasons</span><span style="text-transform:none; letter-spacing:0">263 of 265 aired</span></div>
+        <div class="grid4" id="grid"></div>
+        <div class="g row" id="gridpick"><div><div class="b">Season 27</div><div class="sub">4 of 5 aired · E05 missing</div></div><span class="chev">›</span></div>
+        <div class="label">Files</div>
+        <div class="g row"><div><div class="b">263 episode files</div><div class="sub">293.9 GB</div></div><span class="chev">›</span></div>
+      </div>
+      <div class="tabbar"><span><b>⇩</b>Downloads</span><span class="on"><b>▭</b>Series</span><span><b>▤</b>Movies</span><span><b>⋯</b>More</span></div>
+    </div>
+    <div class="text">
+      <div class="title-row"><h3>C · Season grid</h3><span class="pill">Smaller alternative to B</span></div>
+      <p>Each season becomes a small tile with a progress ring, five to a row, so 27 seasons take six short rows instead of five screens. Tiles with gaps are tinted orange. Tapping a tile still opens the season screen, so nothing else changes.</p>
+      <dl>
+        <dt>vs B</dt><dd>Less work and less change, but the newest episode still takes a second tap, so pair it with A.</dd>
+        <dt>Short shows</dt><dd>Six seasons or fewer keep today's full-width cards. A grid with two tiles in it looks empty.</dd>
+        <dt>iPad, Duo</dt><dd>Wider screens get more columns automatically.</dd>
+      </dl>
+    </div>
+  </article>
+
+  <!-- E -->
+  <article class="proposal" id="e">
+    <div class="phone" aria-label="Mockup: long-press menu on the Series list">
+      <div class="status"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="screen">
+        <div class="nav dim"><span class="navtitle" style="font-size:20px; font-weight:700">Series</span><span class="circ">⇅</span></div>
+        <div class="stack sheetlist" style="gap:6px">
+          <div class="g row dim"><div class="poster" style="width:30px;height:44px;font-size:12px">🎬</div><div><div class="b">Severance</div><div class="sub">Apple TV+ · 2 seasons</div></div></div>
+          <div class="g row" style="background:rgba(255,255,255,.18)"><div class="poster" style="width:30px;height:44px;font-size:12px">📺</div><div><div class="b">South Park</div><div class="sub">S27 E05 missing · next Wed</div></div></div>
+          <div class="menu">
+            <div class="hi"><span>Search Latest Episode</span><span>S27 E05</span></div>
+            <div><span>Pick Release for S27 E05</span><span>◉</span></div>
+            <div><span>Search All Monitored</span><span>⌕</span></div>
+            <div><span>Edit Series</span><span>✎</span></div>
+          </div>
+          <div class="g row dim"><div class="poster" style="width:30px;height:44px;font-size:12px">🎬</div><div><div class="b">The Bear</div><div class="sub">FX · 4 seasons</div></div></div>
+        </div>
+      </div>
+      <div class="tabbar"><span><b>⇩</b>Downloads</span><span class="on"><b>▭</b>Series</span><span><b>▤</b>Movies</span><span><b>⋯</b>More</span></div>
+    </div>
+    <div class="text">
+      <div class="title-row"><h3>E · Without opening the show</h3><span class="pill rec">Cheap, pairs with A</span></div>
+      <p>The same newest-episode action, reachable from places you already go:</p>
+      <ul class="plain">
+        <li><strong>Long-press a series</strong> in the Series list for Search Latest Episode, labelled with the episode it will search for.</li>
+        <li><strong>The Series list row</strong> can say "S27 E05 missing" instead of a season count, which is what you actually came to check.</li>
+        <li><strong>A Shortcuts action</strong> ("Search for the latest South Park episode"), so a fortnightly automation or Siri does it with no taps.</li>
+      </ul>
+      <dl>
+        <dt>Cost</dt><dd>Small for the menu and row text. The Shortcuts action is a new <code>AppIntent</code> that needs the series as an entity, so it takes a little longer.</dd>
+      </dl>
+    </div>
+  </article>
+</div>
+
+<div class="col">
+  <section id="d">
+    <div class="title-row" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap"><h2>D · Reorder the page</h2><span class="pill">Do with B or C</span></div>
+    <p>Today, details about the show sit between you and the episodes. Below, each block's height is roughly to scale, from the captures plus typical heights for the cards your servers add. The orange line is the bottom of the first screen.</p>
+    <div class="maps">
+      <div class="map">
+        <h3>Now, with your servers</h3>
+        <div class="blocks">
+          <div class="blk meta" style="height:84px">Poster + title</div>
+          <div class="blk" style="height:26px">Automatic / Interactive Search</div>
+          <div class="fold"><span>end of screen 1</span></div>
+          <div class="blk meta" style="height:18px">Ratings</div>
+          <div class="blk meta" style="height:24px">Overview</div>
+          <div class="blk meta" style="height:34px">Cast</div>
+          <div class="blk meta" style="height:14px">Stats</div>
+          <div class="blk meta" style="height:22px">Seerr</div>
+          <div class="blk meta" style="height:18px">Jellyfin</div>
+          <div class="blk meta" style="height:12px">Subtitles</div>
+          <div class="blk k" style="height:12px">Season 27</div>
+          <div class="blk" style="height:330px; align-items:flex-start; padding-top:6px">Seasons 26 → 1 (26 cards)</div>
+          <div class="blk meta" style="height:12px">Files</div>
+          <div class="blk meta" style="height:20px">Alternate titles</div>
+        </div>
+      </div>
+      <div class="map">
+        <h3>Proposed (A + B + D)</h3>
+        <div class="blocks">
+          <div class="blk meta" style="height:22px">Title beside poster</div>
+          <div class="blk k" style="height:26px">Up Next · S27 E05</div>
+          <div class="blk" style="height:26px">Automatic / Interactive Search</div>
+          <div class="blk k" style="height:12px">Season chips</div>
+          <div class="fold"><span>end of screen 1</span></div>
+          <div class="blk" style="height:100px; align-items:flex-start; padding-top:6px">Episodes in that season</div>
+          <div class="blk meta" style="height:14px">Your services: Seerr · Jellyfin · Subtitles</div>
+          <div class="blk meta" style="height:24px">About: overview, ratings</div>
+          <div class="blk meta" style="height:34px">Cast</div>
+          <div class="blk meta" style="height:14px">Stats · Files</div>
+          <div class="blk meta" style="height:12px">Alternate titles</div>
+        </div>
+      </div>
+    </div>
+    <ul class="plain">
+      <li><strong>Episodes come before the details.</strong> Overview, ratings and cast move below, under one About heading, and the overview shows three lines with More.</li>
+      <li><strong>The Seerr, Jellyfin and Subtitles cards become one row of chips</strong> ("Requested by Alex", "In Jellyfin", "Subtitles 98%"). Each expands into today's card when tapped. They're three full cards today, and they usually just say all is well.</li>
+      <li><strong>Movie detail follows the same order.</strong> The two pages have already drifted apart (see below).</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">Audit, continued</span>
+    <h2>The next most-used flows</h2>
+    <p>The first audit covered the top-level screens. These are what you'd hit next on most visits, ranked by how often they're likely used. I checked the first four this time, from the 27-season capture and the code. Calendar, Requests and Notifications are next.</p>
+    <div class="tablewrap">
+      <table class="rank">
+        <thead><tr><th>Flow</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Series detail → Season → Episode</td><td>Checked now: 4 problems</td></tr>
+          <tr><td>Movie detail</td><td>Checked now: compared with Series detail</td></tr>
+          <tr><td>Search → Add to library</td><td>Checked now: 1 problem</td></tr>
+          <tr><td>Interactive search (release picker)</td><td>Checked now: consistent</td></tr>
+          <tr><td>Calendar → episode</td><td>Next</td></tr>
+          <tr><td>Requests (Seerr) → approve / request</td><td>Next</td></tr>
+          <tr><td>Notifications accessory and sheet</td><td>Next</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <div class="finding"><span class="sev hi"></span><div>
+        <h3>Season progress counts episodes that haven't aired</h3>
+        <p>Season 27 reads "4 of 6 episodes" when five have aired and one is missing. The count includes the unaired episode, and the bar turns purple ("incomplete") for every running season. Sonarr's own statistics leave out unaired episodes.</p>
+        <div class="where"><code>SonarrSeriesDetailView.seasonCard</code>: counts <code>seasonEpisodes.count</code></div>
+      </div></div>
+      <div class="finding"><span class="sev hi"></span><div>
+        <h3>Missing and not-yet-aired episodes look the same</h3>
+        <p>Episode rows only add a mark for an episode that's on disk or downloading. A missing episode and next week's episode both show nothing. There's also no long-press or swipe to search, so every search means opening the episode.</p>
+        <div class="where"><code>SonarrSeasonEpisodeRow</code></div>
+      </div></div>
+      <div class="finding"><span class="sev hi"></span><div>
+        <h3>Next and previous air dates are never shown</h3>
+        <p>Both come with every series from Sonarr and are already decoded. They're what Up Next needs, and "next Wed" would also help in the Series list.</p>
+        <div class="where"><code>SonarrModels.swift:344</code></div>
+      </div></div>
+      <div class="finding"><span class="sev lo"></span><div>
+        <h3>Series and Movie detail have drifted apart</h3>
+        <p>The cards come in a different order: Seerr comes before Jellyfin on Series but after it on Movies, and import issues sit near the top on Series but after Subtitles on Movies. Series also hides its stats until the show is in the library, while Movies always shows them. Choosing one order (option D) and sharing it would stop this.</p>
+        <div class="where"><code>cardsSection</code> in <code>SonarrSeriesDetailView</code> and <code>RadarrMovieDetailView</code></div>
+      </div></div>
+      <div class="finding"><span class="sev lo"></span><div>
+        <h3>Four copies of the blurred-artwork background</h3>
+        <p>The season screen builds its own blurred poster background instead of using the one in <code>ArrItemDetailView</code>. Two other files carry copies too. They match today but can drift, like the search buttons did.</p>
+        <div class="where"><code>SonarrSeriesSearchViews</code>, <code>RadarrMovieSearchViews</code>, <code>ArrReleaseActionContent</code>, <code>ArrItemDetailView</code></div>
+      </div></div>
+      <div class="finding"><span class="sev lo"></span><div>
+        <h3>The Add sheets are built differently</h3>
+        <p>Adding a movie uses the shared Quality Profile and Root Folder pickers and offers a Monitor choice. Adding a series uses its own copies of both pickers and has no Monitor choice (all, future only, latest season…) and no series type (anime, daily). For a long-running show, "future episodes only" is usually what you want, and today that means turning off 27 season switches.</p>
+        <div class="where"><code>SonarrAddToLibrarySheet</code> vs <code>RadarrAddToLibrarySheet</code></div>
+      </div></div>
+      <div class="finding"><span class="sev ok"></span><div>
+        <h3>Release picker: consistent</h3>
+        <p>Series, season, episode and movie release searches all use the same screen (<code>ArrReleaseActionContent</code>). Nothing to fix.</p>
+      </div></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  // ---- A: Up Next states
+  var upnext = document.getElementById('upnext');
+  var states = {
+    missing: '<div class="top"><div class="thumb"></div><div class="stack" style="gap:3px"><div class="sub">LATEST · S27 E05 · aired Wed</div><div class="b">Episode Five</div><span class="state missing">Missing</span></div></div>' +
+      '<button class="btn-primary" type="button">⌕ Search for S27 E05</button>' +
+      '<div style="display:flex;gap:6px"><button class="btn-ghost" type="button">◉ Pick Release</button></div>' +
+      '<div class="sub">Next: S27 E06 · Wed 3 Dec</div>',
+    dl: '<div class="top"><div class="thumb"></div><div class="stack" style="gap:3px"><div class="sub">LATEST · S27 E05 · aired Wed</div><div class="b">Episode Five</div><span class="state dl">Downloading · 64%</span></div></div>' +
+      '<div class="prog"><i></i></div><div class="sub">SABnzbd · 4 min left</div>' +
+      '<div class="sub">Next: S27 E06 · Wed 3 Dec</div>',
+    ok: '<div class="top"><div class="thumb"></div><div class="stack" style="gap:3px"><div class="sub">LATEST · S27 E05 · aired Wed</div><div class="b">Episode Five</div><span class="state ok">On disk · WEBDL-1080p</span></div></div>' +
+      '<div style="display:flex;gap:6px"><button class="btn-ghost" type="button">▶ Play in Jellyfin</button></div>' +
+      '<div class="sub">Next: S27 E06 · Wed 3 Dec</div>',
+    unmon: '<div class="top"><div class="thumb"></div><div class="stack" style="gap:3px"><div class="sub">LATEST · S27 E05 · aired Wed</div><div class="b">Episode Five</div><span class="state wait">Not monitored</span></div></div>' +
+      '<button class="btn-primary" type="button">Monitor and Search</button>' +
+      '<div class="sub">Sonarr won\'t grab this on its own until it\'s monitored.</div>',
+    wait: '<div class="top"><div class="thumb" style="background:linear-gradient(135deg,#555,#888)"></div><div class="stack" style="gap:3px"><div class="sub">UP NEXT · S27 E06</div><div class="b">Airs Wed 3 Dec</div><span class="state wait">In 13 days</span></div></div>' +
+      '<div class="sub">Everything aired so far is on disk.</div>'
+  };
+  function setState(s) {
+    upnext.innerHTML = states[s];
+    document.querySelectorAll('#a .seg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.state === s)); });
+  }
+  document.querySelectorAll('#a .seg button').forEach(function (b) { b.addEventListener('click', function () { setState(b.dataset.state); }); });
+  setState('missing');
+
+  // ---- shared season data
+  var seasons = [];
+  for (var s = 27; s >= 1; s--) {
+    var aired = s === 27 ? 5 : (s === 26 ? 6 : 10);
+    var have = s === 27 ? 4 : (s === 19 ? 9 : aired);
+    seasons.push({ n: s, aired: aired, have: have, upcoming: s === 27 ? 1 : 0 });
+  }
+
+  // ---- B: season strip + episodes
+  var strip = document.getElementById('strip');
+  var list = document.getElementById('eplist');
+  function renderEps(n) {
+    var se = seasons.find(function (x) { return x.n === n; });
+    var html = '';
+    var total = se.aired + se.upcoming;
+    for (var e = total; e >= 1; e--) {
+      var missing = (n === 27 && e === 5) || (n === 19 && e === 3);
+      var future = e > se.aired;
+      var mark = future ? '<span class="dot-wait" title="Not aired">◷</span>' : (missing ? '<span class="dot-miss" title="Missing">⌕</span>' : '<span class="dot-ok" title="On disk">✓</span>');
+      var sub = future ? 'Airs Wed 3 Dec' : (missing ? 'Missing · aired Wed' : 'On disk');
+      html += '<div class="ep"><span class="num">E' + String(e).padStart(2, '0') + '</span><div class="t"><div>Episode ' + e + '</div><div class="sub">' + sub + '</div></div>' + mark + '</div>';
+      if (total - e >= 4) break;
+    }
+    list.innerHTML = html;
+    strip.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.dataset.n) === n)); });
+  }
+  seasons.forEach(function (se) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.dataset.n = se.n;
+    b.innerHTML = 'S' + se.n + (se.have < se.aired ? '<span class="warn" aria-label="has missing episodes"></span>' : '');
+    b.addEventListener('click', function () { renderEps(se.n); });
+    strip.appendChild(b);
+  });
+  renderEps(27);
+
+  // ---- C: grid
+  var grid = document.getElementById('grid');
+  var pick = document.getElementById('gridpick');
+  seasons.forEach(function (se) {
+    var pct = se.have / se.aired;
+    var c = 2 * Math.PI * 16;
+    var color = pct >= 1 ? '#67e08f' : '#ff9a4a';
+    var d = document.createElement('button');
+    d.type = 'button';
+    d.className = 'tile' + (pct < 1 ? ' inc' : '');
+    d.style.font = 'inherit'; d.style.color = '#fff'; d.style.cursor = 'pointer';
+    d.setAttribute('aria-label', 'Season ' + se.n + ', ' + se.have + ' of ' + se.aired + ' aired');
+    d.innerHTML = '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="3"/><circle cx="20" cy="20" r="16" fill="none" stroke="' + color + '" stroke-width="3" stroke-linecap="round" stroke-dasharray="' + (c * pct) + ' ' + c + '" transform="rotate(-90 20 20)"/></svg><span style="position:relative">' + se.n + '</span>';
+    d.addEventListener('click', function () {
+      var gap = se.aired - se.have;
+      pick.innerHTML = '<div><div class="b">Season ' + se.n + '</div><div class="sub">' + se.have + ' of ' + se.aired + ' aired' + (gap ? ' · ' + gap + ' missing' : ' · complete') + (se.upcoming ? ' · 1 to come' : '') + '</div></div><span class="chev">›</span>';
+    });
+    grid.appendChild(d);
+  });
+})();
+</script>
