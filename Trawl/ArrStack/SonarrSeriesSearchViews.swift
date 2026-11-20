@@ -536,6 +536,7 @@ struct SonarrSeasonSearchView: View {
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var isDispatchingBazarrSearch = false
     @State private var bazarrInteractiveSearchTarget: BazarrEpisode?
     @State private var refreshedBazarrEpisodes: [BazarrEpisode]?
@@ -877,7 +878,7 @@ struct SonarrSeasonSearchView: View {
                     Image(systemName: "tv").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
                 }
             }
-            .frame(width: hSizeClass == .regular ? 220 : 160, height: hSizeClass == .regular ? 330 : 240)
+            .frame(width: SonarrHeroPoster.size(h: hSizeClass, v: vSizeClass).width, height: SonarrHeroPoster.size(h: hSizeClass, v: vSizeClass).height)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
 
@@ -1289,6 +1290,7 @@ struct SonarrEpisodeSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
 
     private static let waterfallDateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -1472,7 +1474,11 @@ struct SonarrEpisodeSearchView: View {
                 episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
                     VStack(alignment: .leading, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Aired \(formattedDate(currentEpisode.airDate))")
+                            // "Airs" for one still to come; the date falls back to the
+                            // UTC instant's day when Sonarr sends no calendar day.
+                            Text(SonarrEpisodeProgress.hasAired(currentEpisode, now: .now)
+                                 ? "Aired \(formattedDate(currentEpisode.airDate ?? currentEpisode.airDateUtc.map { String($0.prefix(10)) }))"
+                                 : "Airs \(formattedDate(currentEpisode.airDate ?? currentEpisode.airDateUtc.map { String($0.prefix(10)) }))")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
@@ -1771,7 +1777,7 @@ struct SonarrEpisodeSearchView: View {
                     Image(systemName: "tv").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
                 }
             }
-            .frame(width: hSizeClass == .regular ? 220 : 160, height: hSizeClass == .regular ? 330 : 240)
+            .frame(width: SonarrHeroPoster.size(h: hSizeClass, v: vSizeClass).width, height: SonarrHeroPoster.size(h: hSizeClass, v: vSizeClass).height)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
 
@@ -2049,5 +2055,15 @@ enum SonarrEpisodeHistoryDateParser {
         }
 
         return fallbackFormatter.date(from: value)
+    }
+}
+
+/// Poster size for the season and episode screens' heroes. Short screens - a phone
+/// on its side, a folded iPhone Duo - get a small one, or the poster alone fills the
+/// first screen and the search buttons start below the fold.
+enum SonarrHeroPoster {
+    static func size(h: UserInterfaceSizeClass?, v: UserInterfaceSizeClass?) -> CGSize {
+        if v == .compact { return CGSize(width: 96, height: 144) }
+        return h == .regular ? CGSize(width: 220, height: 330) : CGSize(width: 160, height: 240)
     }
 }
