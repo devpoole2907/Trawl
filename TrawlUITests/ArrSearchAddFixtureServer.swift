@@ -63,6 +63,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
 
     private let listener: NWListener
     private let queue: DispatchQueue
+    private let heldAddResponseBarrier = DispatchSemaphore(value: 0)
 
     private let qualityProfilesJSON: String
     private let rootFoldersJSON: String
@@ -75,6 +76,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     private var recordedRequests: [RecordedRequest] = []
     private var currentLibraryJSON: String
     private var addOutcome: AddOutcome
+    private var shouldHoldSuccessfulAddResponse: Bool
+    private var heldSuccessfulAddConnections: [NWConnection] = []
 
     /// - Parameters:
     ///   - librarySeriesJSON: raw JSON array body initially returned for `GET
@@ -96,7 +99,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         rootFoldersJSON: String = #"[{"id":1,"path":"/tv"}]"#,
         releaseResponseJSON: String = "[]",
         commandResponseJSON: String = #"{"id":901,"name":"SeriesSearch","status":"queued"}"#,
-        addOutcome: AddOutcome = .success
+        addOutcome: AddOutcome = .success,
+        holdSuccessfulAddResponse: Bool = false
     ) async throws {
         self.queue = DispatchQueue(label: "ArrSearchAddFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -108,6 +112,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         self.releaseResponseJSON = releaseResponseJSON
         self.commandResponseJSON = commandResponseJSON
         self.addOutcome = addOutcome
+        self.shouldHoldSuccessfulAddResponse = holdSuccessfulAddResponse
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -161,7 +166,43 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Releases every successful add response deliberately held after its request
+    /// reached the fixture. This is an explicit cross-process barrier for UI tests:
+    /// the app is provably inside its saving state until the test releases it, so
+    /// assertions about disabled controls never depend on a slow machine or an
+    /// arbitrary delay.
+    func releaseHeldSuccessfulAddResponses() {
+        queue.async { [weak self] in
+            guard let self else { return }
+
+            self.lock.lock()
+            let connections = self.heldSuccessfulAddConnections
+            self.heldSuccessfulAddConnections.removeAll()
+            self.shouldHoldSuccessfulAddResponse = false
+            self.lock.unlock()
+
+            for connection in connections {
+                self.completeSuccessfulAdd(on: connection)
+            }
+        }
+    }
+
+    var heldSuccessfulAddResponseCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return heldSuccessfulAddConnections.count
+    }
+
+    func waitForHeldSuccessfulAddResponse(timeout: TimeInterval) -> Bool {
+        heldAddResponseBarrier.wait(timeout: .now() + timeout) == .success
+    }
+
     func stop() {
+        lock.lock()
+        let heldConnections = heldSuccessfulAddConnections
+        heldSuccessfulAddConnections.removeAll()
+        lock.unlock()
+        heldConnections.forEach { $0.cancel() }
         listener.cancel()
     }
 
@@ -208,9 +249,40 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         recordedRequests.append(request)
         lock.unlock()
 
+        if request.method == "POST", request.path == "/api/v3/series" {
+            lock.lock()
+            let isSuccessfulOutcome: Bool
+            if case .success = addOutcome {
+                isSuccessfulOutcome = true
+            } else {
+                isSuccessfulOutcome = false
+            }
+            let shouldHold = shouldHoldSuccessfulAddResponse && isSuccessfulOutcome
+            if shouldHold {
+                heldSuccessfulAddConnections.append(connection)
+                heldAddResponseBarrier.signal()
+            }
+            lock.unlock()
+
+            if shouldHold { return }
+        }
+
         let (status, body) = responseBody(for: request)
         connection.send(
             content: Self.httpResponse(statusCode: status, body: body),
+            contentContext: .finalMessage,
+            isComplete: true,
+            completion: .contentProcessed { _ in connection.cancel() }
+        )
+    }
+
+    private func completeSuccessfulAdd(on connection: NWConnection) {
+        lock.lock()
+        currentLibraryJSON = Self.mergedArray(currentLibraryJSON, appending: addedSeriesJSON)
+        lock.unlock()
+
+        connection.send(
+            content: Self.httpResponse(statusCode: 201, body: addedSeriesJSON),
             contentContext: .finalMessage,
             isComplete: true,
             completion: .contentProcessed { _ in connection.cancel() }
