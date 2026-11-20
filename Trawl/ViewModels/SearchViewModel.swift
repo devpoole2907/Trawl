@@ -274,6 +274,12 @@ final class SearchViewModel {
         sonarrTitleIndex = series.map { (lower: $0.title.lowercased(), series: $0) }
         radarrTitleIndex = movies.map { (lower: $0.title.lowercased(), movie: $0) }
         createLookupViewModels(arrServiceManager: arrServiceManager)
+        // Matches are computed when the text changes. If text was typed before this
+        // load finished, that query ran against the old (possibly empty) index, and
+        // nothing would re-run it until the text changed again.
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            startLibrarySearch()
+        }
     }
 
     func loadTrending(arrServiceManager: ArrServiceManager, seerrServiceManager: SeerrServiceManager) async {

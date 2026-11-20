@@ -642,6 +642,11 @@ struct SearchView: View {
         }
         .contextMenu {
             Button {
+                Task { await searchLatestEpisode(series) }
+            } label: {
+                Label("Search Latest Episode", systemImage: "sparkle.magnifyingglass")
+            }
+            Button {
                 Task { await toggleLibrarySeriesMonitored(series) }
             } label: {
                 Label(
@@ -832,6 +837,11 @@ struct SearchView: View {
             if existsInLibrary, let libraryMatch {
                 let isMonitored = libraryMatch.monitored ?? true
                 Button {
+                    Task { await searchLatestEpisode(libraryMatch) }
+                } label: {
+                    Label("Search Latest Episode", systemImage: "sparkle.magnifyingglass")
+                }
+                Button {
                     Task { await toggleLibrarySeriesMonitored(libraryMatch) }
                 } label: {
                     Label(
@@ -975,6 +985,22 @@ struct SearchView: View {
 
     private func loadTrending() async {
         await viewModel.loadTrending(arrServiceManager: arrServiceManager, seerrServiceManager: seerrServiceManager)
+    }
+
+    /// The Series list's long-press action, offered on library hits here too: search
+    /// is where people land when they type a show's name to check on it.
+    private func searchLatestEpisode(_ series: SonarrSeries) async {
+        let client = series.instanceID.flatMap { arrServiceManager.sonarrClient(for: $0) } ?? arrServiceManager.sonarrClient
+        guard let client else {
+            SonarrSeriesQuickActions.announce(.failed("Sonarr isn't connected."), title: series.title)
+            return
+        }
+        do {
+            let action = try await SonarrEpisodeProgress.searchLatestEpisode(seriesId: series.id, client: client)
+            SonarrSeriesQuickActions.announce(.init(action), title: series.title)
+        } catch {
+            SonarrSeriesQuickActions.announce(.failed(error.localizedDescription), title: series.title)
+        }
     }
 
     private func toggleLibrarySeriesMonitored(_ series: SonarrSeries) async {

@@ -201,3 +201,35 @@ nonisolated enum SonarrEpisodeProgress {
         return formatter.date(from: string)
     }
 }
+
+extension SonarrEpisodeProgress {
+    /// Load the series' episodes and the queue, decide, and send the search - for
+    /// callers holding a bare client rather than a `SonarrViewModel`: the Shortcuts
+    /// action and the Search tab. `.search` in the result means the search was sent.
+    static func searchLatestEpisode(
+        seriesId: Int,
+        client: SonarrAPIClient,
+        now: Date = .now
+    ) async throws -> LatestEpisodeAction {
+        let episodes = try await client.getEpisodes(seriesId: seriesId)
+        let queue = try await client.getQueue(pageSize: 500)
+        let queued = Set((queue.records ?? []).filter { $0.seriesId == nil || $0.seriesId == seriesId }.compactMap(\.episodeId))
+        let action = latestEpisodeAction(episodes: episodes, queuedEpisodeIDs: queued, now: now)
+        if case .search(let episode) = action {
+            _ = try await client.searchEpisodes(episodeIds: [episode.id])
+        }
+        return action
+    }
+}
+
+extension SonarrViewModel.LatestEpisodeSearchOutcome {
+    /// The banner-ready form of a decision taken by `searchLatestEpisode(seriesId:client:)`.
+    init(_ action: SonarrEpisodeProgress.LatestEpisodeAction) {
+        switch action {
+        case .search(let episode): self = .searched(episode.id, identifier: episode.episodeIdentifier)
+        case .alreadyOnDisk(let episode): self = .alreadyOnDisk(identifier: episode.episodeIdentifier)
+        case .alreadyQueued(let episode): self = .alreadyQueued(identifier: episode.episodeIdentifier)
+        case .nothingAired: self = .nothingAired
+        }
+    }
+}

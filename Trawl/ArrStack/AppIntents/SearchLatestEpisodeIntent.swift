@@ -45,18 +45,15 @@ struct SearchLatestEpisodeIntent: AppIntent {
         }
         let match = try await resolveMatch(in: library)
 
-        let episodes: [SonarrEpisode]
-        let queued: Set<Int>
+        let action: SonarrEpisodeProgress.LatestEpisodeAction
         do {
-            episodes = try await client.getEpisodes(seriesId: match.id)
-            let queue = try await client.getQueue(pageSize: 500)
-            queued = Set((queue.records ?? []).compactMap(\.episodeId))
+            action = try await SonarrEpisodeProgress.searchLatestEpisode(seriesId: match.id, client: client)
         } catch {
             throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
         }
 
         let message: String
-        switch SonarrEpisodeProgress.latestEpisodeAction(episodes: episodes, queuedEpisodeIDs: queued, now: .now) {
+        switch action {
         case .nothingAired:
             message = "No episode of \(match.title) has aired yet."
         case .alreadyOnDisk(let episode):
@@ -64,11 +61,6 @@ struct SearchLatestEpisodeIntent: AppIntent {
         case .alreadyQueued(let episode):
             message = "\(match.title) \(episode.episodeIdentifier) is already downloading."
         case .search(let episode):
-            do {
-                _ = try await client.searchEpisodes(episodeIds: [episode.id])
-            } catch {
-                throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
-            }
             message = "Searching for \(match.title) \(episode.episodeIdentifier)."
         }
         return .result(dialog: IntentDialog(stringLiteral: message))

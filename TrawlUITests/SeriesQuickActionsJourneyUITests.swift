@@ -207,4 +207,36 @@ final class SeriesQuickActionsJourneyUITests: XCTestCase {
         )
         XCTAssertFalse(app.descendants(matching: .any)["series-up-next"].exists, "It should not have opened the series")
     }
+
+    // MARK: - Search tab
+
+    /// Typing a show's name into Search is the other way people check on it. A
+    /// library hit offers the same action as the Series list's long-press.
+    @MainActor
+    func testSearchTabLongPressSearchesTheLatestEpisode() async throws {
+        let (app, server) = try await launch()
+        XCTAssertTrue(openDestination(.search, in: app))
+        let field = contentSearchField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        // Search opens on Discover, the online lookup; owned shows are under Library.
+        // The scope bar shows only while the field is focused and still empty.
+        let libraryScope = app.buttons["Library"].firstMatch
+        XCTAssertTrue(libraryScope.waitForExistence(timeout: 10))
+        libraryScope.tap()
+        // No Return: that runs the online Sonarr lookup. Library hits list as you type.
+        field.typeText("Long Runner")
+
+        let hit = app.staticTexts[Self.title].firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 15))
+        hit.press(forDuration: 1.0)
+        let action = app.buttons["Search Latest Episode"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        action.tap()
+
+        XCTAssertTrue(
+            waitFor { self.receivedEpisodeSearch(server, episodeIDs: [Self.latestEpisodeID]) },
+            "Search's long-press should search S03E05"
+        )
+    }
 }
