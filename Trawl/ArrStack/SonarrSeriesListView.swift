@@ -55,6 +55,15 @@ struct SonarrSeriesListView: View {
                             subtitleCoverage: serviceManager.subtitleCoverage(for: entry.primary),
                             instances: serviceManager.badgeRefs(for: entry)
                         )
+                        // The fortnightly "is the new one out yet" visit, without
+                        // opening the show at all.
+                        .contextMenu {
+                            SonarrSeriesQuickActions(
+                                entry: entry,
+                                refs: serviceManager.badgeRefs(for: entry),
+                                viewModel: vm
+                            )
+                        }
                     },
                     detailSelection: detailSelection,
                     detailDestination: { key in
@@ -266,13 +275,107 @@ struct SonarrSeriesRow: View {
         if let network = series.network, !network.isEmpty {
             items.append(.init(title: network, color: .secondary))
         }
-        if let status = series.status, !status.isEmpty {
+        if let next = SonarrSeriesQuickActions.nextAiring(of: series) {
+            // Says when to come back, which "Continuing" never did.
+            items.append(.init(
+                title: String(localized: "Next \(SonarrSeriesQuickActions.shortDay(next))"),
+                color: .green
+            ))
+        } else if let status = series.status, !status.isEmpty {
             items.append(.init(
                 title: status.capitalized,
                 color: status == "continuing" ? .green : .secondary
             ))
         }
         return items
+    }
+}
+
+/// The Series list's long-press menu.
+///
+/// "Search Latest Episode" is the one action people come back for every week or
+/// two; it used to sit five taps and two scrolls deep. The menu names the server
+/// when there are two, because HD and 4K want different releases.
+struct SonarrSeriesQuickActions: View {
+    let entry: ArrLibraryEntry<SonarrSeries>
+    let refs: [ArrInstanceRef]
+    @Bindable var viewModel: SonarrViewModel
+
+    var body: some View {
+        if entry.copies.count > 1, refs.count == entry.copies.count {
+            Menu {
+                ForEach(Array(zip(refs, entry.copies)), id: \.0.id) { ref, copy in
+                    Button(ref.shortLabel) { searchLatest(copy) }
+                }
+            } label: {
+                Label("Search Latest Episode", systemImage: "sparkle.magnifyingglass")
+            }
+        } else {
+            Button {
+                searchLatest(entry.primary)
+            } label: {
+                Label("Search Latest Episode", systemImage: "sparkle.magnifyingglass")
+            }
+        }
+    }
+
+    private func searchLatest(_ series: SonarrSeries) {
+        let title = series.title
+        Task {
+            let outcome = await viewModel.searchLatestEpisode(seriesId: series.id, instanceID: series.instanceID)
+            Self.announce(outcome, title: title)
+        }
+    }
+
+    /// One banner per outcome, worded for someone who has not opened the show.
+    static func announce(_ outcome: SonarrViewModel.LatestEpisodeSearchOutcome, title: String) {
+        switch outcome {
+        case .searched(_, let identifier):
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(title) \(identifier) was sent to Sonarr."
+            )
+        case .alreadyOnDisk(let identifier):
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Already Downloaded",
+                message: "\(title) \(identifier) is already on disk."
+            )
+        case .alreadyQueued(let identifier):
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Already Downloading",
+                message: "\(title) \(identifier) is already in the queue."
+            )
+        case .nothingAired:
+            InAppNotificationCenter.shared.showError(
+                title: "Nothing to Search",
+                message: "No episode of \(title) has aired yet."
+            )
+        case .failed(let message):
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
+        }
+    }
+
+    /// The soonest upcoming air time across the series' seasons. Sonarr reports it
+    /// per season; the series object Trawl decodes does not carry its own.
+    static func nextAiring(of series: SonarrSeries, now: Date = .now) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return (series.seasons ?? [])
+            .compactMap { $0.statistics?.nextAiring }
+            .compactMap { fractional.date(from: $0) ?? formatter.date(from: $0) }
+            .filter { $0 > now }
+            .min()
+    }
+
+    /// "Today", "Tomorrow", a weekday within the week, otherwise "3 Dec".
+    static func shortDay(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        if calendar.isDateInToday(date) { return String(localized: "today") }
+        if calendar.isDateInTomorrow(date) { return String(localized: "tomorrow") }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 99
+        if days < 7 { return date.formatted(.dateTime.weekday(.abbreviated)) }
+        return date.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 

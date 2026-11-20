@@ -750,6 +750,11 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Cards section
 
+    /// The same order as Series detail (`SonarrSeriesDetailView.cardsSection`):
+    /// actions and anything happening right now first, then when it can be had,
+    /// then reference material, then the other services, then bookkeeping. The two
+    /// pages had drifted - Seerr and Jellyfin swapped places, import issues sat at
+    /// opposite ends - so the order is written down in both.
     @ViewBuilder
     private func cardsSection(_ movie: RadarrMovie) -> some View {
         if !isInLibrary {
@@ -782,12 +787,39 @@ struct RadarrMovieDetailView: View {
             }
         }
 
-        if let ratings = movie.ratings {
-            ratingsCard(ratings)
+        if !importIssueQueueItems.isEmpty {
+            ArrDetailImportIssuesCard(
+                items: importIssueQueueItems,
+                initiallyExpanded: scrollToImportIssues
+            ) { item in
+                ArrDetailQueueIssueRow(
+                    item: item.value,
+                    instanceID: item.instance.id,
+                    rootFolderPath: movie.rootFolderPath,
+                    service: .radarr,
+                    libraryItemID: resolvedLibraryId,
+                    editNoun: "Movie",
+                    isRemoving: queueActionInFlightIDs.contains(item.id),
+                    isInLibrary: isInLibrary,
+                    onEdit: { showEditSheet = true },
+                    onSetResolution: { importIssueResolution = $0 },
+                    onSetPendingAction: { pendingQueueAction = $0 }
+                )
+            }
+            .id("importIssues")
         }
+
+        // When it can be had: the movie's answer to Series detail's Episodes.
+        releaseDatesCard(movie)
+
+        // MARK: About the movie
 
         if let overview = movie.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
+        }
+
+        if let ratings = movie.ratings {
+            ratingsCard(ratings)
         }
 
         if let castMembers, !castMembers.isEmpty {
@@ -797,7 +829,10 @@ struct RadarrMovieDetailView: View {
             )
         }
 
-        statsCard(movie)
+        trailerCard(movie)
+        collectionCard(movie)
+
+        // MARK: Across your services
 
         JellyfinMediaAvailabilityCard(
             media: .movie(
@@ -821,32 +856,10 @@ struct RadarrMovieDetailView: View {
             ))
         }
 
-        if !importIssueQueueItems.isEmpty {
-            ArrDetailImportIssuesCard(
-                items: importIssueQueueItems,
-                initiallyExpanded: scrollToImportIssues
-            ) { item in
-                ArrDetailQueueIssueRow(
-                    item: item.value,
-                    instanceID: item.instance.id,
-                    rootFolderPath: movie.rootFolderPath,
-                    service: .radarr,
-                    libraryItemID: resolvedLibraryId,
-                    editNoun: "Movie",
-                    isRemoving: queueActionInFlightIDs.contains(item.id),
-                    isInLibrary: isInLibrary,
-                    onEdit: { showEditSheet = true },
-                    onSetResolution: { importIssueResolution = $0 },
-                    onSetPendingAction: { pendingQueueAction = $0 }
-                )
-            }
-            .id("importIssues")
-        }
+        // MARK: Library bookkeeping
 
-        releaseDatesCard(movie)
+        statsCard(movie)
         infoCard(movie)
-        collectionCard(movie)
-        trailerCard(movie)
 
         // Library-only: file card
         if isInLibrary {

@@ -388,15 +388,18 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         // second search for it is exactly the duplicate grab this guards against.
         await loadQueue()
         let episodes = self.episodes(forSeries: seriesId, on: instanceID)
-        guard let latest = SonarrEpisodeProgress.latestAired(in: episodes, now: now) else {
+        let queued = Set(queueRecords.compactMap { record -> Int? in
+            guard instanceID == nil || record.instance.id == instanceID else { return nil }
+            return record.value.episodeId
+        })
+        switch SonarrEpisodeProgress.latestEpisodeAction(episodes: episodes, queuedEpisodeIDs: queued, now: now) {
+        case .nothingAired:
             return .nothingAired
-        }
-        switch SonarrEpisodeProgress.state(of: latest, queue: queueRecords, now: now) {
-        case .onDisk:
+        case .alreadyOnDisk(let latest):
             return .alreadyOnDisk(identifier: latest.episodeIdentifier)
-        case .downloading, .importIssue:
+        case .alreadyQueued(let latest):
             return .alreadyQueued(identifier: latest.episodeIdentifier)
-        case .missing, .unmonitored, .notAired:
+        case .search(let latest):
             await searchEpisode(latest)
             if let error, !error.isEmpty { return .failed(error) }
             return .searched(latest.id, identifier: latest.episodeIdentifier)

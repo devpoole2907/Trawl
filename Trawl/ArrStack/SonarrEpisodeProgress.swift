@@ -107,6 +107,43 @@ nonisolated enum SonarrEpisodeProgress {
         (lhs.seasonNumber, lhs.episodeNumber) < (rhs.seasonNumber, rhs.episodeNumber)
     }
 
+    // MARK: "Search the latest episode"
+
+    enum LatestEpisodeAction: Equatable, Sendable {
+        case search(SonarrEpisode)
+        case alreadyOnDisk(SonarrEpisode)
+        case alreadyQueued(SonarrEpisode)
+        case nothingAired
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            switch (lhs, rhs) {
+            case (.search(let a), .search(let b)),
+                 (.alreadyOnDisk(let a), .alreadyOnDisk(let b)),
+                 (.alreadyQueued(let a), .alreadyQueued(let b)):
+                a.id == b.id && a.instanceID == b.instanceID
+            case (.nothingAired, .nothingAired):
+                true
+            default:
+                false
+            }
+        }
+    }
+
+    /// The one decision behind Up Next, the Series list's long-press and the
+    /// Shortcuts action: which episode is newest, and whether searching for it
+    /// would do anything. A download already under way is left alone - a second
+    /// search is how the same episode ends up grabbed twice.
+    static func latestEpisodeAction(
+        episodes: [SonarrEpisode],
+        queuedEpisodeIDs: Set<Int>,
+        now: Date
+    ) -> LatestEpisodeAction {
+        guard let latest = latestAired(in: episodes, now: now) else { return .nothingAired }
+        if queuedEpisodeIDs.contains(latest.id) { return .alreadyQueued(latest) }
+        if latest.hasFile == true { return .alreadyOnDisk(latest) }
+        return .search(latest)
+    }
+
     // MARK: Seasons
 
     struct SeasonCounts: Equatable, Sendable {
