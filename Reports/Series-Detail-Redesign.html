@@ -206,6 +206,22 @@ table.rank th { font-size: 12px; text-transform: uppercase; letter-spacing: .06e
       <li><strong>B · Episodes:</strong> season chips (orange dot for gaps) with the episodes inline, newest first. Missing, Not Aired and Not Monitored are marked. Long-press an episode to search it, pick a release or change monitoring. The season screen is still under "Season Details".</li>
       <li><strong>D · Order:</strong> Series and Movie detail share one order: actions and downloads → episodes / release dates → about → your services → bookkeeping. The services stayed full cards rather than chips.</li>
       <li><strong>E · Elsewhere:</strong> long-press in the Series list, a "Next 3 Dec" line on rows, and a "Search for Latest Episode" action in the Shortcuts app. It has no Siri phrase, because Trawl already uses Apple's maximum of ten.</li>
+      <li><strong>Second pass:</strong>
+        <ul class="plain">
+          <li>Search Latest Episode is also on library hits in the Search tab.</li>
+          <li>On short screens (phone landscape, folded Duo), the poster sits beside the title on Series, Movie, Season and Episode screens, so the actions start on the first screen.</li>
+          <li>The Episode screen says "Airs" for an episode still to come.</li>
+          <li>Checked on iPad in both orientations.</li>
+        </ul>
+      </li>
+      <li><strong>Codex's flows, merged:</strong>
+        <ul class="plain">
+          <li>Calendar opens the episode itself.</li>
+          <li>Seerr Approve and Decline wait for the server and show an error if it fails.</li>
+          <li>Notifications open the screen they're about.</li>
+        </ul>
+        Its Add Series sheet work is still in progress.
+      </li>
       <li><strong>Fixed along the way:</strong> season counts no longer include unaired episodes. Searching or monitoring an episode now goes to that episode's own server when you have two. Single-server library rows said "Not downloaded" for everything; they now say "Available".</li>
     </ul>
   </section>
