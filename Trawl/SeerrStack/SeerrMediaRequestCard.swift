@@ -36,6 +36,7 @@ struct SeerrMediaRequestCard: View {
     @State private var errorMessage: String?
     @State private var isExpanded = false
     @State private var didApplyInitialExpansion = false
+    @State private var deleteTarget: SeerrMediaRequest?
 
     var body: some View {
         if serviceManager.isConnecting || serviceManager.isConnected || serviceManager.connectionError != nil {
@@ -46,6 +47,25 @@ struct SeerrMediaRequestCard: View {
                     requests = []
                     errorMessage = nil
                     await loadRequests()
+                }
+                .confirmationDialog(
+                    "Delete Request?",
+                    isPresented: Binding(
+                        get: { deleteTarget != nil },
+                        set: { if !$0 { deleteTarget = nil } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete", role: .destructive) {
+                        guard let deleteTarget else { return }
+                        self.deleteTarget = nil
+                        Task { await delete(deleteTarget) }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        deleteTarget = nil
+                    }
+                } message: {
+                    Text("This removes the request from Seerr.")
                 }
         }
     }
@@ -181,7 +201,7 @@ struct SeerrMediaRequestCard: View {
             Spacer(minLength: 0)
 
             Button(role: .destructive) {
-                Task { await delete(request) }
+                deleteTarget = request
             } label: {
                 Label("Delete", systemImage: "trash")
             }

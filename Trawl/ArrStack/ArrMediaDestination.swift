@@ -26,6 +26,10 @@ enum ArrMediaDestination: Hashable {
     ///
     /// `scrollToImportIssues` is a presentation hint only — see `.movie` for details.
     case series(id: Int, instanceID: UUID? = nil, scrollToImportIssues: Bool = false)
+    /// One concrete Sonarr episode, used by calendar and other episode-first entry
+    /// points. Identity is the episode's server plus its Sonarr id; the snapshots are
+    /// carried only so the detail can render immediately while its view model refreshes.
+    case episode(SonarrEpisode, series: SonarrSeries?)
     /// A Sonarr discover/lookup result that may or may not already be in the library.
     case seriesLookup(SonarrSeries)
 
@@ -52,6 +56,8 @@ enum ArrMediaDestination: Hashable {
         // not part of the destination's identity.
         case .movie(let id, let instanceID, _): .movie(id, instanceID)
         case .series(let id, let instanceID, _): .series(id, instanceID)
+        case .episode(let episode, let series):
+            .episode(episode.id, episode.instanceID ?? series?.instanceID)
         case .movieLookup(let movie): .movieLookup(movie.lookupIdentity)
         case .seriesLookup(let series): .seriesLookup(series.lookupIdentity)
         }
@@ -62,6 +68,7 @@ enum ArrMediaDestination: Hashable {
     private enum Identity: Hashable {
         case movie(Int, UUID?)
         case series(Int, UUID?)
+        case episode(Int, UUID?)
         case movieLookup(String)
         case seriesLookup(String)
     }
@@ -93,7 +100,7 @@ private struct ArrMediaNavigationDestinationsModifier: ViewModifier {
     @ViewBuilder
     private func destinationView(for destination: ArrMediaDestination) -> some View {
         switch destination {
-        case .movie, .series:
+        case .movie, .series, .episode:
             ArrMediaDetailPane(destination: destination, onLibraryChanged: onLibraryChanged)
 
         case .movieLookup, .seriesLookup:
@@ -150,6 +157,12 @@ struct ArrMediaDetailPane: View {
         case .series(let id, let instanceID, let scroll):
             SonarrSeriesDetailView(seriesId: id, instanceID: instanceID,
                                    scrollToImportIssues: scroll, viewModel: makeSonarrViewModel())
+        case .episode(let episode, let series):
+            SonarrEpisodeSearchView(
+                viewModel: makeSonarrViewModel(),
+                series: series,
+                episode: episode
+            )
         case .movieLookup(let movie):
             RadarrMovieDetailView(movie: movie, viewModel: makeRadarrViewModel(), onAdded: onLibraryChanged)
         case .seriesLookup(let series):

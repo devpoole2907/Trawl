@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Trawl
 
@@ -12,6 +13,28 @@ import Testing
 @Suite("In-app notification activation", .serialized)
 @MainActor
 struct InAppNotificationActivationTests {
+    @Test("A durable destination is retained in notification history")
+    func durableDestinationIsLogged() {
+        let center = InAppNotificationCenter()
+
+        center.showSuccess(
+            title: "Import Complete",
+            message: "One episode imported.",
+            destination: .series
+        )
+
+        #expect(center.recentNotifications.first?.destination == .series)
+    }
+
+    @Test("History written before destinations existed still decodes")
+    func legacyHistoryStillDecodes() throws {
+        let json = #"{"id":"00000000-0000-0000-0000-000000000001","title":"Library Removed","message":"Kids","style":"success","source":"In-App","timestamp":0}"#
+
+        let entry = try JSONDecoder().decode(NotificationLogEntry.self, from: Data(json.utf8))
+
+        #expect(entry.destination == nil)
+    }
+
     @Test("Tapping a banner with an action performs it and clears the banner")
     func actionBannerNavigates() async {
         let center = InAppNotificationCenter()

@@ -684,7 +684,8 @@ final class LibraryImportScanViewModel {
                 notificationCenter.showSuccess(
                     title: "Import Complete",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
-                    action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
+                    action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) },
+                    destination: service == .sonarr ? .series : .movies
                 )
                 return true
             } else {
@@ -1619,7 +1620,8 @@ final class LibraryImportScanViewModel {
                 InAppNotificationCenter.shared.showSuccess(
                     title: "Imported",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
-                    action: navigationAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
+                    action: navigationAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) },
+                    destination: service == .sonarr ? .series : .movies
                 )
                 return true
             } else {

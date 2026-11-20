@@ -88,9 +88,10 @@ struct SeerrDashboardView: View {
     ) -> some View {
         SeerrRequestDetailView(
             request: item.request,
-            onApprove: { Task { await viewModel.approve(item) } },
-            onDecline: { Task { await viewModel.decline(item) } },
-            onDelete: { Task { await viewModel.delete(item) } }
+            dismissAfterSuccessfulAction: !showsDetailPane,
+            onApprove: { await viewModel.approve(item) },
+            onDecline: { await viewModel.decline(item) },
+            onDelete: { await viewModel.delete(item) }
         )
     }
 
@@ -112,7 +113,7 @@ struct SeerrDashboardView: View {
 
             if let errorMessage = viewModel.errorMessage {
                 ServiceErrorView(
-                    title: "Requests Unavailable",
+                    title: viewModel.errorTitle,
                     message: errorMessage,
                     identity: .seerr,
                     hasContent: !viewModel.requests.isEmpty,
@@ -139,14 +140,14 @@ struct SeerrDashboardView: View {
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
                                     Button {
-                                        Task { await viewModel.approve(item) }
+                                        Task { _ = await viewModel.approve(item) }
                                     } label: {
                                         Label("Approve", systemImage: "checkmark.circle")
                                     }
                                     .tint(.green)
 
                                     Button {
-                                        Task { await viewModel.decline(item) }
+                                        Task { _ = await viewModel.decline(item) }
                                     } label: {
                                         Label("Decline", systemImage: "xmark.circle")
                                     }
@@ -163,13 +164,13 @@ struct SeerrDashboardView: View {
                             .contextMenu {
                                 if item.request.requestStatus == .pending {
                                     Button {
-                                        Task { await viewModel.approve(item) }
+                                        Task { _ = await viewModel.approve(item) }
                                     } label: {
                                         Label("Approve", systemImage: "checkmark.circle")
                                     }
 
                                     Button {
-                                        Task { await viewModel.decline(item) }
+                                        Task { _ = await viewModel.decline(item) }
                                     } label: {
                                         Label("Decline", systemImage: "xmark.circle")
                                     }
@@ -241,7 +242,7 @@ struct SeerrDashboardView: View {
             Button("Delete", role: .destructive) {
                 guard let deleteTarget else { return }
                 self.deleteTarget = nil
-                Task { await viewModel.delete(deleteTarget) }
+                Task { _ = await viewModel.delete(deleteTarget) }
             }
             Button("Cancel", role: .cancel) {
                 deleteTarget = nil
@@ -330,6 +331,7 @@ final class SeerrRequestManagementViewModel {
     private(set) var isLoadingMore = false
     private(set) var isLoadingSearch = false
     private(set) var errorMessage: String?
+    private(set) var errorTitle = "Requests Unavailable"
     var selectedFilter: SeerrRequestFilter = .pending {
         didSet {
             guard selectedFilter != oldValue else { return }
@@ -401,6 +403,7 @@ final class SeerrRequestManagementViewModel {
             await enrichSearchIfNeeded()
         } catch {
             guard capturedVersion == searchVersion else { return }
+            errorTitle = "Requests Unavailable"
             errorMessage = error.localizedDescription
         }
     }
@@ -411,6 +414,7 @@ final class SeerrRequestManagementViewModel {
         let filterValue = selectedFilter.apiValue
         isLoading = true
         errorMessage = nil
+        errorTitle = "Requests Unavailable"
         currentSkip = 0
 
         do {
@@ -433,6 +437,7 @@ final class SeerrRequestManagementViewModel {
             await enrichIfNeeded()
         } catch {
             guard capturedVersion == requestVersion else { return }
+            errorTitle = "Requests Unavailable"
             errorMessage = error.localizedDescription
         }
 
@@ -471,6 +476,7 @@ final class SeerrRequestManagementViewModel {
                 isLoadingMore = false
                 return
             }
+            errorTitle = "Requests Unavailable"
             errorMessage = error.localizedDescription
         }
 
@@ -544,35 +550,43 @@ final class SeerrRequestManagementViewModel {
         return items
     }
 
-    func approve(_ item: SeerrRequestDisplayItem) async {
+    func approve(_ item: SeerrRequestDisplayItem) async -> String? {
         await update(item) {
             try await apiClient.approveRequest(id: item.request.id)
         }
     }
 
-    func decline(_ item: SeerrRequestDisplayItem) async {
+    func decline(_ item: SeerrRequestDisplayItem) async -> String? {
         await update(item) {
             try await apiClient.declineRequest(id: item.request.id)
         }
     }
 
-    func delete(_ item: SeerrRequestDisplayItem) async {
+    func delete(_ item: SeerrRequestDisplayItem) async -> String? {
         do {
             try await apiClient.deleteRequest(id: item.request.id)
+            errorMessage = nil
             withAnimation(.default) {
                 requests.removeAll { $0.id == item.id }
                 searchRequests.removeAll { $0.id == item.id }
                 totalResults = max(0, totalResults - 1)
             }
+            return nil
         } catch {
+            errorTitle = "Request Action Failed"
             errorMessage = error.localizedDescription
+            return error.localizedDescription
         }
     }
 
-    private func update(_ item: SeerrRequestDisplayItem, action: () async throws -> SeerrMediaRequest) async {
+    private func update(
+        _ item: SeerrRequestDisplayItem,
+        action: () async throws -> SeerrMediaRequest
+    ) async -> String? {
         let filterAtStart = selectedFilter
         do {
             let updated = try await action()
+            errorMessage = nil
             // The user may have switched filters during the network call. Only
             // mutate the visible list if we're still on the same filter.
             if filterAtStart == selectedFilter {
@@ -587,8 +601,11 @@ final class SeerrRequestManagementViewModel {
             }
             replaceSearchRequest(SeerrRequestDisplayItem(from: updated))
             requestCount = try? await apiClient.getRequestCount()
+            return nil
         } catch {
+            errorTitle = "Request Action Failed"
             errorMessage = error.localizedDescription
+            return error.localizedDescription
         }
     }
 

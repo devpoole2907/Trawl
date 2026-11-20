@@ -106,6 +106,90 @@ final class ServiceUnavailableJourneyUITests: XCTestCase {
     }
 
     @MainActor
+    func testRequestDecisionsTakeOneTapAndWaitForSuccess() async throws {
+        let server = try await SeerrUIFixtureServer(includesRequests: true)
+        seerr = server
+        let app = application()
+        app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = server.baseURL
+        app.launch()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.requests, in: app))
+
+        let movie = app.cells.containing(.staticText, identifier: "Fixture Requested Movie").firstMatch
+        XCTAssertTrue(movie.waitForExistence(timeout: 15))
+        movie.tap()
+        let approve = app.buttons["Approve"]
+        XCTAssertTrue(approve.waitForExistence(timeout: 15))
+        approve.tap()
+
+        let approved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            server.requests.filter { $0.method == "POST" && $0.path == "/api/v1/request/801/approve" }.count == 1
+        }, object: nil)
+        await fulfillment(of: [approved], timeout: 10)
+        XCTAssertEqual(
+            server.requests.filter { $0.method == "POST" && $0.path == "/api/v1/request/801/approve" }.count,
+            1,
+            "One Approve tap must send exactly one decision."
+        )
+
+        let series = app.cells.containing(.staticText, identifier: "Fixture Requested Series").firstMatch
+        XCTAssertTrue(series.waitForExistence(timeout: 10), "A successful compact decision should pop; a split decision should preserve the list.")
+        series.tap()
+        let decline = app.buttons["Decline"]
+        XCTAssertTrue(decline.waitForExistence(timeout: 15))
+        decline.tap()
+
+        let declined = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            server.requests.filter { $0.method == "POST" && $0.path == "/api/v1/request/802/decline" }.count == 1
+        }, object: nil)
+        await fulfillment(of: [declined], timeout: 10)
+        XCTAssertEqual(
+            server.requests.filter { $0.method == "POST" && $0.path == "/api/v1/request/802/decline" }.count,
+            1,
+            "One Decline tap must send exactly one decision."
+        )
+        XCTAssertTrue(app.staticTexts["No Requests"].waitForExistence(timeout: 10))
+        capture(app, "06-request-decisions-complete")
+    }
+
+    @MainActor
+    func testFailedRequestDecisionKeepsDetailAndShowsError() async throws {
+        let server = try await SeerrUIFixtureServer(includesRequests: true, failsRequestDecisions: true)
+        seerr = server
+        let app = application()
+        app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = server.baseURL
+        app.launch()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.requests, in: app))
+
+        let movie = app.cells.containing(.staticText, identifier: "Fixture Requested Movie").firstMatch
+        XCTAssertTrue(movie.waitForExistence(timeout: 15))
+        movie.tap()
+        let approve = app.buttons["Approve"]
+        XCTAssertTrue(approve.waitForExistence(timeout: 15))
+        approve.tap()
+
+        let actionError = app.descendants(matching: .any)["request-action-error"]
+        XCTAssertTrue(
+            actionError.waitForExistence(timeout: 10),
+            "A failed decision must remain in detail and explain the failure instead of dismissing it."
+        )
+        XCTAssertTrue(app.buttons["Approve"].exists)
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(app.staticTexts["Request Action Failed"].exists)
+            XCTAssertFalse(
+                app.staticTexts["Requests Unavailable"].exists,
+                "A failed decision must not relabel an already-loaded queue as unavailable."
+            )
+        }
+        XCTAssertEqual(
+            server.requests.filter { $0.method == "POST" && $0.path == "/api/v1/request/801/approve" }.count,
+            1
+        )
+        capture(app, "07-request-decision-failed")
+    }
+
+    @MainActor
     private func application() -> XCUIApplication {
         if TrawlChrome.isSidebar { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()

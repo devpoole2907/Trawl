@@ -14,9 +14,10 @@ import SwiftUI
 /// enough to judge on.
 struct SeerrRequestDetailView: View {
     let request: SeerrMediaRequest
-    var onApprove: (() -> Void)?
-    var onDecline: (() -> Void)?
-    var onDelete: (() -> Void)?
+    var dismissAfterSuccessfulAction = true
+    var onApprove: (() async -> String?)?
+    var onDecline: (() async -> String?)?
+    var onDelete: (() async -> String?)?
 
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -34,6 +35,8 @@ struct SeerrRequestDetailView: View {
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
     @State private var isDeleteConfirmationPresented = false
+    @State private var isActionInFlight = false
+    @State private var actionErrorMessage: String?
 
     private var media: SeerrRequestMedia? { request.media }
     private var isPending: Bool { request.requestStatus == .pending }
@@ -142,6 +145,16 @@ struct SeerrRequestDetailView: View {
             decisionCard
         }
 
+        if let actionErrorMessage {
+            Label(actionErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+                .accessibilityIdentifier("request-action-error")
+        }
+
         if let overview = detail?.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
         }
@@ -194,8 +207,7 @@ struct SeerrRequestDetailView: View {
                 titleVisibility: .visible
             ) {
                 Button("Delete", role: .destructive) {
-                    onDelete()
-                    dismiss()
+                    perform(onDelete)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
@@ -212,8 +224,7 @@ struct SeerrRequestDetailView: View {
                     systemImage: "checkmark.circle.fill",
                     tint: .green
                 ) {
-                    onApprove()
-                    dismiss()
+                    perform(onApprove)
                 }
             }
             if let onDecline {
@@ -222,12 +233,34 @@ struct SeerrRequestDetailView: View {
                     systemImage: "xmark.circle.fill",
                     tint: .orange
                 ) {
-                    onDecline()
-                    dismiss()
+                    perform(onDecline)
                 }
             }
         }
         .frame(maxWidth: .infinity)
+        .disabled(isActionInFlight)
+        .overlay {
+            if isActionInFlight {
+                ProgressView()
+                    .accessibilityLabel("Updating request")
+            }
+        }
+    }
+
+    private func perform(_ action: @escaping () async -> String?) {
+        guard !isActionInFlight else { return }
+        isActionInFlight = true
+        actionErrorMessage = nil
+
+        Task {
+            let errorMessage = await action()
+            isActionInFlight = false
+            if let errorMessage {
+                actionErrorMessage = errorMessage
+            } else if dismissAfterSuccessfulAction {
+                dismiss()
+            }
+        }
     }
 
     private func decisionButton(
@@ -246,6 +279,7 @@ struct SeerrRequestDetailView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        .disabled(isActionInFlight)
     }
 
     private var requestCard: some View {

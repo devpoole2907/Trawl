@@ -37,6 +37,7 @@
 //  Calendar + Settings) rather than one long walk, so a failure names the screen that
 //  broke instead of an opaque "step 17" failure in one giant method.
 
+import Foundation
 import XCTest
 
 final class NavigationSmokeWalkUITests: XCTestCase {
@@ -360,6 +361,47 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             app.buttons["Today"].waitForExistence(timeout: 10),
             "Screen: Calendar should render its connected (not 'No Services Configured'/'Services Unreachable') content, including the 'Today' control."
         )
+        let calendarEpisodeRows = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Calendar Fixture Episode")
+        )
+        let calendarEpisode = calendarEpisodeRows.firstMatch
+        XCTAssertTrue(
+            calendarEpisode.waitForExistence(in: app, timeout: 15),
+            "Screen: Calendar should render the fixture episode as a tappable row."
+        )
+        XCTAssertEqual(calendarEpisodeRows.count, 1, "One Sonarr airing should appear once across the prefetched calendar months.")
+        calendarEpisode.tap()
+        XCTAssertTrue(
+            app.navigationBars["S01E01"].waitForExistence(timeout: 15),
+            "Calendar episode rows should open the episode action screen directly instead of stopping at the series."
+        )
+        let episodeAttachment = XCTAttachment(screenshot: app.screenshot())
+        episodeAttachment.name = "Calendar - Direct Episode Actions"
+        episodeAttachment.lifetime = .keepAlways
+        add(episodeAttachment)
+        let automaticSearch = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Automatic Search")
+        ).firstMatch
+        XCTAssertTrue(automaticSearch.waitForExistence(in: app, timeout: 10))
+        automaticSearch.tap()
+        let searchQueued = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Search Queued")
+        ).firstMatch
+        XCTAssertTrue(
+            searchQueued.waitForExistence(timeout: 15),
+            "The direct Calendar → episode route should leave Automatic Search immediately available."
+        )
+        let command = try XCTUnwrap(
+            sonarrServer?.requests.last { $0.method == "POST" && $0.path == "/api/v3/command" }
+        )
+        let commandBody = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: command.body) as? [String: Any]
+        )
+        XCTAssertEqual(commandBody["name"] as? String, "EpisodeSearch")
+        XCTAssertEqual(commandBody["episodeIds"] as? [Int], [101])
+
+        popBack(app, fromTitle: "S01E01")
+        XCTAssertTrue(app.showsScreen(named: "Calendar", timeout: 10))
         app.buttons["Close"].tap()
         XCTAssertTrue(
             app.staticTexts["Fixture Series Alpha"].waitForExistence(in: app, timeout: 10),
@@ -405,6 +447,31 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         popBack(app, fromTitle: "Radarr")
     }
 
+    @MainActor
+    func testEmptyCalendarReportsNoReleasesInsteadOfRenderingBlankMonths() async throws {
+        let sonarr = try await SonarrFixtureServer(
+            seriesJSON: #"[{"id":1,"title":"Empty Calendar Series"}]"#,
+            calendarJSON: "[]"
+        )
+        sonarrServer = sonarr
+        let app = launchApp(sonarr: sonarr, sabnzbd: nil)
+        waitForRootChrome(app)
+
+        XCTAssertTrue(openDestination(.series, in: app))
+        XCTAssertTrue(app.staticTexts["Empty Calendar Series"].waitForExistence(in: app, timeout: 15))
+        app.buttons["Calendar"].tap()
+        XCTAssertTrue(app.showsScreen(named: "Calendar", timeout: 15))
+        XCTAssertTrue(
+            app.staticTexts["No Upcoming Releases"].waitForExistence(timeout: 15),
+            "A successful empty calendar response should show a real empty state, not three months of blank day rows."
+        )
+        XCTAssertFalse(app.staticTexts["Failed to Load"].exists)
+        let emptyAttachment = XCTAttachment(screenshot: app.screenshot())
+        emptyAttachment.name = "Calendar - Empty State"
+        emptyAttachment.lifetime = .keepAlways
+        add(emptyAttachment)
+    }
+
     // MARK: - Launch helpers
 
     private func launchApp(
@@ -434,8 +501,17 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// Sonarr + SABnzbd to reach the tab UI - the exact fixture content doesn't matter
     /// to these methods, only that both services are configured and reachable.
     private func launchWithSonarrAndSABnzbd() async throws -> XCUIApplication {
-        let seriesJSON = #"[{"id":1,"title":"Fixture Series Alpha"}]"#
-        let sonarr = try await SonarrFixtureServer(seriesJSON: seriesJSON)
+        let seriesJSON = #"[{"id":1,"title":"Fixture Series Alpha","monitored":true}]"#
+        let episodeJSON = #"[{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"Calendar Fixture Episode","hasFile":false,"monitored":true}]"#
+        let calendarDate = Date.now.ISO8601Format()
+        let calendarJSON = """
+        [{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"Calendar Fixture Episode","hasFile":false,"monitored":true,"airDateUtc":"\(calendarDate)"}]
+        """
+        let sonarr = try await SonarrFixtureServer(
+            seriesJSON: seriesJSON,
+            episodesJSON: episodeJSON,
+            calendarJSON: calendarJSON
+        )
         sonarrServer = sonarr
         let sab = try await SABnzbdFixtureServer(queueJobName: "Fixture NZB Alpha")
         sabnzbdServer = sab

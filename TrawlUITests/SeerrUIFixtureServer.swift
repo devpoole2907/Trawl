@@ -55,11 +55,14 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
     private var issueIsResolved = false
+    private var requestStatuses = [801: 1, 802: 1]
 
     private let includesRequests: Bool
+    private let failsRequestDecisions: Bool
 
-    init(includesRequests: Bool = false) async throws {
+    init(includesRequests: Bool = false, failsRequestDecisions: Bool = false) async throws {
         self.includesRequests = includesRequests
+        self.failsRequestDecisions = failsRequestDecisions
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -167,7 +170,13 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v1/auth/me"):
             return (200, Self.authenticatedUserJSON)
         case ("GET", "/api/v1/request") where includesRequests:
-            return (200, #"{"pageInfo":{"pages":1,"pageSize":20,"results":2,"page":1},"results":[{"id":801,"status":1,"media":{"id":901,"tmdbId":101,"mediaType":"movie","title":"Fixture Requested Movie"}},{"id":802,"status":1,"media":{"id":902,"tmdbId":102,"mediaType":"tv","name":"Fixture Requested Series"}}]}"#)
+            return (200, requestListJSON())
+        case ("GET", "/api/v1/request/count") where includesRequests:
+            return (200, requestCountJSON())
+        case ("POST", "/api/v1/request/801/approve") where includesRequests:
+            return requestDecisionResponse(id: 801, status: 2)
+        case ("POST", "/api/v1/request/802/decline") where includesRequests:
+            return requestDecisionResponse(id: 802, status: 3)
         case ("GET", "/api/v1/movie/101") where includesRequests:
             return (200, #"{"id":101,"title":"Fixture Requested Movie","overview":"Movie details loaded from the fixture."}"#)
         case ("GET", "/api/v1/tv/102") where includesRequests:
@@ -190,6 +199,44 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         default:
             return (404, #"{"message":"Fixture route not found"}"#)
         }
+    }
+
+    private func requestDecisionResponse(id: Int, status: Int) -> (status: Int, body: String) {
+        guard !failsRequestDecisions else {
+            return (500, #"{"message":"Fixture decision failed"}"#)
+        }
+        lock.lock()
+        requestStatuses[id] = status
+        lock.unlock()
+        return (200, requestJSON(id: id, status: status))
+    }
+
+    private func requestListJSON() -> String {
+        lock.lock()
+        let statuses = requestStatuses
+        lock.unlock()
+        let requests = statuses.keys.sorted().compactMap { id -> String? in
+            guard let status = statuses[id], status == 1 else { return nil }
+            return requestJSON(id: id, status: status)
+        }
+        return #"{"pageInfo":{"pages":1,"pageSize":20,"results":\#(requests.count),"page":1},"results":[\#(requests.joined(separator: ","))]}"#
+    }
+
+    private func requestCountJSON() -> String {
+        lock.lock()
+        let statuses = Array(requestStatuses.values)
+        lock.unlock()
+        let pending = statuses.count { $0 == 1 }
+        let approved = statuses.count { $0 == 2 }
+        let declined = statuses.count { $0 == 3 }
+        return #"{"total":\#(statuses.count),"movie":1,"tv":1,"pending":\#(pending),"approved":\#(approved),"declined":\#(declined),"processing":0,"available":0,"failed":0,"completed":0}"#
+    }
+
+    private func requestJSON(id: Int, status: Int) -> String {
+        if id == 801 {
+            return #"{"id":801,"status":\#(status),"media":{"id":901,"tmdbId":101,"mediaType":"movie","title":"Fixture Requested Movie"}}"#
+        }
+        return #"{"id":802,"status":\#(status),"media":{"id":902,"tmdbId":102,"mediaType":"tv","name":"Fixture Requested Series"}}"#
     }
 
     private func issueListJSON() -> String {
