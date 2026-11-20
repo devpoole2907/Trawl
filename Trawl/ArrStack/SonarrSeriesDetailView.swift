@@ -44,6 +44,20 @@ struct SonarrSeriesDetailView: View {
     /// (instead of presenting against the live, poll-recomputed `series`) keeps the
     /// interactive-search subtree from re-rendering every poll tick.
     @State private var interactiveSearchSeries: SonarrSeries?
+    /// Release picker for one episode or one season, opened from Up Next or the
+    /// Episodes section. Separate from `interactiveSearchSeries`, which is the
+    /// whole-series picker and is keyed on the series alone.
+    @State private var interactiveSearchTarget: InteractiveSearchTarget?
+    @State private var isSearchingLatest = false
+    @State private var isUpdatingLatestMonitor = false
+    @State private var searchingSeasonNumber: Int?
+
+    private struct InteractiveSearchTarget: Identifiable {
+        let id = UUID()
+        let series: SonarrSeries
+        let episode: SonarrEpisode?
+        let seasonNumber: Int?
+    }
     @State private var bazarrEpisodes: [BazarrEpisode] = []
     @State private var bazarrClientForEpisodes: BazarrAPIClient?
     @State private var castMembers: [TMDbCastMember]?
@@ -457,6 +471,19 @@ struct SonarrSeriesDetailView: View {
         ) { series in
             SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
         }
+        .sheet(
+            item: $interactiveSearchTarget,
+            onDismiss: {
+                Task { await refreshSeriesDetailState() }
+            }
+        ) { target in
+            SonarrInteractiveSearchSheet(
+                viewModel: viewModel,
+                series: target.series,
+                episode: target.episode,
+                seasonNumber: target.seasonNumber
+            )
+        }
         .sheet(item: $importIssueResolution) { resolution in
             ArrQueueImportIssueResolutionSheet(
                 resolution: resolution,
@@ -699,6 +726,11 @@ struct SonarrSeriesDetailView: View {
         return entry.instancesMissingThis(from: refs)
     }
 
+    /// Ordered by how often each part is used, not by how a media page usually
+    /// reads. Checking for the newest episode and getting it is the common visit,
+    /// so Up Next, the searches and the episodes come first; overview, ratings, cast
+    /// and the other services' cards are reference material and follow. Movie detail
+    /// uses the same order (see `RadarrMovieDetailView.cardsSection`).
     @ViewBuilder
     private func cardsSection(_ series: SonarrSeries) -> some View {
         if !isInLibrary {
@@ -715,11 +747,16 @@ struct SonarrSeriesDetailView: View {
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
 
+        if isInLibrary, showsUpNext {
+            upNextCard(series)
+        }
+
         if isInLibrary {
             seriesSearchCard(series)
             addToOtherServerCard
         }
 
+        // What is happening right now beats anything about the show itself.
         if !activeQueueItems.isEmpty {
             ArrDetailQueueCard(items: activeQueueItems) { item in
                 ArrDetailQueueItemRow(
@@ -729,25 +766,6 @@ struct SonarrSeriesDetailView: View {
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
             }
-        }
-
-        if let ratings = series.ratings {
-            ratingsCard(ratings)
-        }
-
-        if let overview = series.overview, !overview.isEmpty {
-            ArrDetailOverviewCard(text: overview)
-        }
-
-        if let castMembers, !castMembers.isEmpty {
-            CastShelfView(
-                items: castMembers.prefix(20).map(CastShelfItem.init),
-                onSelect: { selectedCastMember = $0.destination }
-            )
-        }
-
-        if isInLibrary {
-            statsCard(series)
         }
 
         if !importIssueQueueItems.isEmpty {
@@ -772,9 +790,33 @@ struct SonarrSeriesDetailView: View {
             .id("importIssues")
         }
 
-        if let tvdbId = series.tvdbId {
-            SeerrMediaRequestCard(media: .series(tvdbId: tvdbId, title: series.title))
+        if isInLibrary {
+            let numbers = seasonNumbers
+            if numbers.isEmpty && viewModel.isLoadingEpisodes {
+                loadingCard
+            } else if !numbers.isEmpty {
+                episodesSection(series, seasonNumbers: numbers)
+            }
         }
+
+        // MARK: About the show
+
+        if let overview = series.overview, !overview.isEmpty {
+            ArrDetailOverviewCard(text: overview)
+        }
+
+        if let ratings = series.ratings {
+            ratingsCard(ratings)
+        }
+
+        if let castMembers, !castMembers.isEmpty {
+            CastShelfView(
+                items: castMembers.prefix(20).map(CastShelfItem.init),
+                onSelect: { selectedCastMember = $0.destination }
+            )
+        }
+
+        // MARK: Across your services
 
         JellyfinMediaAvailabilityCard(
             media: .series(
@@ -787,6 +829,10 @@ struct SonarrSeriesDetailView: View {
             )
         )
 
+        if let tvdbId = series.tvdbId {
+            SeerrMediaRequestCard(media: .series(tvdbId: tvdbId, title: series.title))
+        }
+
         if isInLibrary {
             BazarrSubtitleStatusCard(media: .series(
                 seriesId: series.id,
@@ -796,22 +842,16 @@ struct SonarrSeriesDetailView: View {
             ))
         }
 
-        // Library-only: episodes and files
-        if isInLibrary {
-            let numbers = seasonNumbers
-            if numbers.isEmpty && viewModel.isLoadingEpisodes {
-                loadingCard
-            } else {
-                ForEach(numbers, id: \.self) { seasonNum in
-                    seasonCard(seasonNum: seasonNum)
-                }
-            }
+        // MARK: Library bookkeeping
 
-            if !episodeFiles.isEmpty {
-                episodeFilesCard
-            }
+        if isInLibrary {
+            statsCard(series)
         }
-        
+
+        if isInLibrary, !episodeFiles.isEmpty {
+            episodeFilesCard
+        }
+
         if let alternateTitles = series.alternateTitles, !alternateTitles.isEmpty {
             ArrDetailAlternateTitlesCard(titles: alternateTitles.map { title in
                 (
@@ -820,6 +860,130 @@ struct SonarrSeriesDetailView: View {
                 )
             })
         }
+    }
+
+    // MARK: - Up Next
+
+    private var latestEpisode: SonarrEpisode? {
+        SonarrEpisodeProgress.latestAired(in: episodes, now: .now)
+    }
+
+    private var nextEpisode: SonarrEpisode? {
+        SonarrEpisodeProgress.nextToAir(in: episodes, now: .now)
+    }
+
+    private var latestEpisodeState: SonarrEpisodeState? {
+        latestEpisode.map { SonarrEpisodeProgress.state(of: $0, queue: queueItems, now: .now) }
+    }
+
+    /// Hidden when there is nothing to act on or look forward to: an ended show
+    /// with its last episode on disk, or a series with no episodes loaded.
+    private var showsUpNext: Bool {
+        guard latestEpisode != nil || nextEpisode != nil else { return false }
+        if nextEpisode == nil, latestEpisodeState == .onDisk,
+           series?.status?.lowercased() == "ended" {
+            return false
+        }
+        return true
+    }
+
+    private func upNextCard(_ series: SonarrSeries) -> some View {
+        let latest = latestEpisode
+        let quality = latest.flatMap { episode in
+            episodeFiles.first { $0.id == episode.episodeFileId }?.quality?.quality?.name
+        }
+        return SonarrUpNextCard(
+            latest: latest,
+            next: nextEpisode,
+            latestState: latestEpisodeState,
+            qualityName: quality,
+            isSearching: isSearchingLatest,
+            isUpdatingMonitor: isUpdatingLatestMonitor,
+            onSearch: { episode in
+                guard !isSearchingLatest else { return }
+                isSearchingLatest = true
+                Task {
+                    await searchEpisodeWithFeedback(episode)
+                    isSearchingLatest = false
+                    await viewModel.loadQueue()
+                }
+            },
+            onPickRelease: { episode in
+                guard let copy = actionCopy else { return }
+                interactiveSearchTarget = InteractiveSearchTarget(series: copy, episode: episode, seasonNumber: nil)
+            },
+            onMonitor: { episode in
+                guard !isUpdatingLatestMonitor else { return }
+                isUpdatingLatestMonitor = true
+                Task {
+                    await viewModel.toggleEpisodeMonitored(episode)
+                    isUpdatingLatestMonitor = false
+                }
+            },
+            episodeDestination: { episode in
+                SonarrEpisodeSearchView(
+                    viewModel: viewModel,
+                    series: actionCopy ?? series,
+                    episode: episode,
+                    bazarrEpisode: bazarrEpisodes.first { $0.sonarrEpisodeId == episode.id },
+                    bazarrClient: bazarrClientForEpisodes,
+                    onBazarrEpisodeUpdated: { updated in
+                        guard let updated else { return }
+                        replaceBazarrEpisode(updated)
+                    }
+                )
+            }
+        )
+    }
+
+    // MARK: - Episodes
+
+    private func episodesSection(_ series: SonarrSeries, seasonNumbers: [Int]) -> some View {
+        SonarrSeriesEpisodesSection(
+            viewModel: viewModel,
+            series: actionCopy ?? series,
+            seasonNumbers: seasonNumbers,
+            episodes: episodes,
+            bazarrEpisodes: bazarrEpisodes,
+            bazarrClient: bazarrClientForEpisodes,
+            onBazarrEpisodeUpdated: { updated in
+                guard let updated else { return }
+                replaceBazarrEpisode(updated)
+            },
+            isSearchingSeason: searchingSeasonNumber != nil,
+            onSearchSeason: { seasonNumber, count in
+                guard let id = resolvedSeriesId, searchingSeasonNumber == nil else { return }
+                searchingSeasonNumber = seasonNumber
+                Task {
+                    await searchSeasonWithFeedback(seriesId: id, seasonNumber: seasonNumber, episodeCount: count)
+                    searchingSeasonNumber = nil
+                }
+            },
+            onPickSeasonRelease: { seasonNumber in
+                guard let copy = actionCopy else { return }
+                interactiveSearchTarget = InteractiveSearchTarget(series: copy, episode: nil, seasonNumber: seasonNumber)
+            },
+            seasonDestination: { seasonNum in
+                let seasonEpisodes = episodes.filter { $0.seasonNumber == seasonNum }
+                SonarrSeasonSearchView(
+                    viewModel: viewModel,
+                    series: actionCopy ?? series,
+                    seasonNumber: seasonNum,
+                    episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber },
+                    bazarrEpisodes: bazarrEpisodes.filter { $0.season == seasonNum },
+                    bazarrClient: bazarrClientForEpisodes,
+                    onBazarrEpisodesUpdated: { updatedEpisodes in
+                        replaceBazarrEpisodes(updatedEpisodes, forSeason: seasonNum)
+                    }
+                )
+            }
+        )
+    }
+
+    private func replaceBazarrEpisode(_ episode: BazarrEpisode) {
+        bazarrEpisodes.removeAll { $0.sonarrEpisodeId == episode.sonarrEpisodeId }
+        bazarrEpisodes.append(episode)
+        bazarrEpisodes.sort { ($0.season, $0.episode) < ($1.season, $1.episode) }
     }
 
     // MARK: - Stats card
@@ -1090,84 +1254,6 @@ struct SonarrSeriesDetailView: View {
         .frame(maxWidth: .infinity)
         .padding(18)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    // MARK: - Season card
-
-    private func seasonCard(seasonNum: Int) -> some View {
-        let seasonEpisodes = episodes.filter { $0.seasonNumber == seasonNum }
-        
-        let filesCount: Int
-        let totalCount: Int
-        
-        if !seasonEpisodes.isEmpty {
-            filesCount = seasonEpisodes.filter { $0.hasFile == true }.count
-            totalCount = seasonEpisodes.count
-        } else if let stat = series?.seasons?.first(where: { $0.seasonNumber == seasonNum })?.statistics {
-            filesCount = stat.episodeFileCount ?? 0
-            totalCount = stat.episodeCount ?? 0
-        } else {
-            filesCount = 0
-            totalCount = 0
-        }
-
-        let bEps = bazarrEpisodes.filter { $0.season == seasonNum }
-        let subtitleComplete = !bEps.isEmpty && bEps.allSatisfy { $0.missingSubtitles.isEmpty }
-
-        return NavigationLink {
-            SonarrSeasonSearchView(
-                viewModel: viewModel,
-                series: series ?? discoverSeries,
-                seasonNumber: seasonNum,
-                episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber },
-                bazarrEpisodes: bEps,
-                bazarrClient: bazarrClientForEpisodes,
-                onBazarrEpisodesUpdated: { updatedEpisodes in
-                    replaceBazarrEpisodes(updatedEpisodes, forSeason: seasonNum)
-                }
-            )
-        } label: {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
-                        .font(.subheadline.weight(.semibold))
-                    Text("\(filesCount) of \(totalCount) episodes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
-                    if totalCount > 0 {
-                        Capsule()
-                            .fill(filesCount == totalCount ? Color.green : Color.purple)
-                            .frame(
-                                width: 48 * CGFloat(filesCount) / CGFloat(totalCount),
-                                height: 4
-                            )
-                    }
-                }
-
-                if !bEps.isEmpty {
-                    Image(systemName: "captions.bubble.fill")
-                        .font(.caption2)
-                        .foregroundStyle(subtitleComplete ? .teal : .secondary)
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
-        }
-        .buttonStyle(.plain)
-        .disabled((series ?? discoverSeries) == nil)
     }
 
     private func replaceBazarrEpisodes(_ updatedEpisodes: [BazarrEpisode], forSeason seasonNumber: Int) {

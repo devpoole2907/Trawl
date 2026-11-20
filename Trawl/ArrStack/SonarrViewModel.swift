@@ -278,7 +278,9 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     func toggleEpisodeMonitored(_ episode: SonarrEpisode) async {
-        guard let client else { return }
+        // The episode's own server: both Sonarrs number episodes from one sequence,
+        // so the active client would flip a different show's episode on the other.
+        guard let client = client(for: episode.instanceID) else { return }
         let newMonitored = !(episode.monitored ?? true)
         do {
             _ = try await client.setEpisodeMonitored(episodeIds: [episode.id], monitored: newMonitored)
@@ -338,7 +340,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     func searchEpisode(_ episode: SonarrEpisode) async {
-        guard let client else { return }
+        guard let client = client(for: episode.instanceID) else {
+            self.error = ArrServiceError.clientNotAvailable.errorDescription
+            return
+        }
         error = nil
         do {
             _ = try await client.searchEpisodes(episodeIds: [episode.id])
@@ -347,6 +352,54 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for episode.")
         } catch {
             capture(error, notificationTitle: "Search Failed")
+        }
+    }
+
+    /// What "search the latest episode" did, for the caller to say out loud.
+    enum LatestEpisodeSearchOutcome: Equatable, Sendable {
+        /// A search was sent for this episode.
+        case searched(SonarrEpisode.ID, identifier: String)
+        /// The newest episode is already on disk; nothing was sent.
+        case alreadyOnDisk(identifier: String)
+        /// The newest episode is already downloading or waiting to import.
+        case alreadyQueued(identifier: String)
+        /// Nothing has aired yet.
+        case nothingAired
+        case failed(String)
+    }
+
+    /// Finds the newest aired episode of one server's copy of a series and searches
+    /// for it - the action behind Up Next, the Series list's long-press menu and
+    /// the Shortcuts action, so all three agree on which episode "latest" is.
+    ///
+    /// Loads episodes first: the list and Shortcuts have none in hand. Monitoring is
+    /// left alone - a search the user asked for runs whether or not the episode is
+    /// monitored, and quietly changing what Sonarr grabs in future would be a
+    /// surprise.
+    func searchLatestEpisode(
+        seriesId: Int,
+        instanceID: UUID?,
+        now: Date = .now
+    ) async -> LatestEpisodeSearchOutcome {
+        error = nil
+        await loadEpisodes(for: seriesId, instanceID: instanceID)
+        if let error, !error.isEmpty { return .failed(error) }
+        // Without the queue a download already under way reads as missing, and a
+        // second search for it is exactly the duplicate grab this guards against.
+        await loadQueue()
+        let episodes = self.episodes(forSeries: seriesId, on: instanceID)
+        guard let latest = SonarrEpisodeProgress.latestAired(in: episodes, now: now) else {
+            return .nothingAired
+        }
+        switch SonarrEpisodeProgress.state(of: latest, queue: queueRecords, now: now) {
+        case .onDisk:
+            return .alreadyOnDisk(identifier: latest.episodeIdentifier)
+        case .downloading, .importIssue:
+            return .alreadyQueued(identifier: latest.episodeIdentifier)
+        case .missing, .unmonitored, .notAired:
+            await searchEpisode(latest)
+            if let error, !error.isEmpty { return .failed(error) }
+            return .searched(latest.id, identifier: latest.episodeIdentifier)
         }
     }
 

@@ -1075,9 +1075,18 @@ struct SonarrSeasonEpisodeRow: View {
     let formattedDate: (String?) -> String
     let onBazarrEpisodeUpdated: (BazarrEpisode?) -> Void
 
+    /// Matched on the episode *and* its server, through the same helper Up Next
+    /// and the season counts use, so the three can never disagree about one episode.
     private var queueItem: ArrQueueItem? {
-        viewModel.queue.first { $0.episodeId == episode.id }
+        SonarrEpisodeProgress.queueItem(for: episode, in: viewModel.queueRecords)?.value
     }
+
+    private var episodeState: SonarrEpisodeState {
+        SonarrEpisodeProgress.state(of: episode, queue: viewModel.queueRecords, now: .now)
+    }
+
+    @State private var showInteractiveSearch = false
+    @State private var isSearching = false
 
     private var bazarrEpisode: BazarrEpisode? {
         bazarrEpisodes.first { $0.sonarrEpisodeId == episode.id }
@@ -1163,6 +1172,18 @@ struct SonarrSeasonEpisodeRow: View {
                                 )
                             }
                         }
+                    } else if isSearching {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        // Missing and not-yet-aired used to look identical here:
+                        // nothing at all. They are opposite situations - one wants a
+                        // search, the other wants patience.
+                        switch episodeState {
+                        case .missing, .unmonitored, .notAired:
+                            SonarrEpisodeStateBadge(state: episodeState)
+                        default:
+                            EmptyView()
+                        }
                     }
 
                     Image(systemName: "chevron.right")
@@ -1174,10 +1195,58 @@ struct SonarrSeasonEpisodeRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu { episodeMenu }
+            .accessibilityIdentifier("season-episode-row-\(episode.episodeIdentifier)")
 
             if !isLast {
                 Divider().padding(.leading, 14)
             }
+        }
+        .sheet(isPresented: $showInteractiveSearch) {
+            if let series {
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
+            }
+        }
+    }
+
+    /// Long-press actions, so searching one episode no longer means opening it.
+    @ViewBuilder
+    private var episodeMenu: some View {
+        // Offered on downloaded episodes too: that is how an upgrade is asked for.
+        Button {
+            Task { await search() }
+        } label: {
+            Label("Search for \(episode.episodeIdentifier)", systemImage: "magnifyingglass")
+        }
+        .disabled(isSearching)
+        Button {
+            showInteractiveSearch = true
+        } label: {
+            Label("Pick Release", systemImage: "person.fill")
+        }
+        .disabled(series == nil)
+        Button {
+            Task { await viewModel.toggleEpisodeMonitored(episode) }
+        } label: {
+            if episode.monitored == false {
+                Label("Monitor", systemImage: "bookmark")
+            } else {
+                Label("Stop Monitoring", systemImage: "bookmark.slash")
+            }
+        }
+    }
+
+    private func search() async {
+        isSearching = true
+        defer { isSearching = false }
+        await viewModel.searchEpisode(episode)
+        if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+        } else {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(episode.episodeIdentifier) was sent to Sonarr."
+            )
         }
     }
 
