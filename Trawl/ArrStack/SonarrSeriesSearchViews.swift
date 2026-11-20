@@ -191,6 +191,8 @@ struct SonarrAddToLibrarySheet: View {
                         Label(addBlockerMessage, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                             .font(.footnote)
+                            // One element: the icon and the text read as one message.
+                            .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("sonarr-add-blocker")
 
                         if hasMissingConfiguration {
@@ -204,6 +206,10 @@ struct SonarrAddToLibrarySheet: View {
                     if targets.count == 1, let target = targets.first {
                         serverSettings(for: target)
                     }
+
+                    // Above the two pickers: on the half-height sheet it is the
+                    // setting people change most, and it stays on screen.
+                    Toggle("Search Immediately", isOn: $searchForMissing)
 
                     Picker("Monitor", selection: $monitorPreset) {
                         ForEach(SonarrAddMonitorPreset.allCases) { preset in
@@ -219,7 +225,6 @@ struct SonarrAddToLibrarySheet: View {
                     }
                     .accessibilityIdentifier("sonarr-add-series-type")
 
-                    Toggle("Search Immediately", isOn: $searchForMissing)
                 } header: {
                     Text("Library Settings")
                 } footer: {

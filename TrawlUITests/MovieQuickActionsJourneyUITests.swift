@@ -51,8 +51,8 @@ final class MovieQuickActionsJourneyUITests: XCTestCase {
                     && (json["movieIds"] as? [Int]) == [RadarrFixtureServer.movieId]
             }
         }
-        let sent = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 15)
-        XCTAssertEqual(sent, .completed, "The long-press should send MoviesSearch for exactly this movie")
+        // Fails the test if MoviesSearch for exactly this movie never arrives.
+        await fulfillment(of: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 15)
         XCTAssertFalse(app.staticTexts[RadarrFixtureServer.movieStudio].exists, "It should not have opened the movie")
     }
 }
