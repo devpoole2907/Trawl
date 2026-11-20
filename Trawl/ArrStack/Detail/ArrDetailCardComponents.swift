@@ -4,15 +4,17 @@ import SwiftUI
 
 struct ArrDetailBadgeSection: View {
     let badges: [ArrDetailBadge]
+    /// Leading beside a poster on short screens; centred under it otherwise.
+    var isCentred = true
 
     var body: some View {
         if !badges.isEmpty {
-            ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+            ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8, isCentred: isCentred) {
                 ForEach(badges) { badge in
                     pill(badge)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: isCentred ? .center : .leading)
         }
     }
 
@@ -49,14 +51,15 @@ struct ArrDetailOverviewCard: View {
 
 struct ArrDetailGenreChips: View {
     let genres: [String]
+    var isCentred = true
 
     var body: some View {
-        ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+        ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8, isCentred: isCentred) {
             ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { _, genre in
                 pill(genre)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: isCentred ? .center : .leading)
     }
 
     private func pill(_ genre: String) -> some View {
@@ -74,6 +77,7 @@ struct ArrDetailGenreChips: View {
 private struct ArrDetailPillFlowLayout: Layout {
     var horizontalSpacing: CGFloat = 8
     var verticalSpacing: CGFloat = 8
+    var isCentred = true
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -104,7 +108,7 @@ private struct ArrDetailPillFlowLayout: Layout {
         var y = bounds.minY
 
         for row in rows {
-            var x = bounds.minX + max((bounds.width - row.width) / 2, 0)
+            var x = bounds.minX + (isCentred ? max((bounds.width - row.width) / 2, 0) : 0)
 
             for item in row.items {
                 subviews[item.index].place(
