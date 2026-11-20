@@ -69,7 +69,16 @@ extension ArrLibraryEntry {
     /// `refs` and `copies` are matched by instance rather than by position: a
     /// filtered or partially-loaded library can hand back fewer refs than copies,
     /// and zipping them would then label a copy with the wrong server.
+    ///
+    /// No refs at all means one server: rows pass `badgeRefs`, which is empty when
+    /// there is nothing to tell apart. That used to return no tiers, so on a
+    /// single-server setup every downloaded title read "Not downloaded". With one
+    /// server the tier is never named (`showsTiers` is false), so `.hd` here only
+    /// stands for "this library has it".
     func availableTiers(from refs: [ArrInstanceRef], hasFile: (Item) -> Bool) -> [ArrQualityTier] {
+        if refs.isEmpty {
+            return copies.contains(where: hasFile) ? [.hd] : []
+        }
         let tiersByInstance = Dictionary(refs.map { ($0.id, $0.tier) }, uniquingKeysWith: { first, _ in first })
         return copies.compactMap { copy in
             guard hasFile(copy), let instanceID = copy.instanceID else { return nil }

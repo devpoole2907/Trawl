@@ -108,6 +108,22 @@ struct ArrDualInstanceTests {
         #expect(entry.availableTiers(from: [hd]) { $0.hasFile == true } == [])
     }
 
+    @Test("A single-server library row says Available when the title has a file")
+    func singleServerAvailability() throws {
+        // One server means no badge refs at all. This used to return no tiers, so
+        // every downloaded title on a one-server setup read "Not downloaded".
+        let entry = try #require([
+            try Self.movie(id: 1, title: "Dune", tmdbId: 438_631, hasFile: true)
+        ].mergedByTitle().first)
+        let tiers = entry.availableTiers(from: []) { $0.hasFile == true }
+        #expect(ArrAvailabilityPill.label(availableTiers: tiers, showsTiers: false, unavailableStatus: "Missing") == "Available")
+
+        let missing = try #require([
+            try Self.movie(id: 2, title: "Arrival", tmdbId: 329_865, hasFile: false)
+        ].mergedByTitle().first)
+        #expect(missing.availableTiers(from: []) { $0.hasFile == true } == [])
+    }
+
     // MARK: - Identity
 
     @Test("A movie's identity is its server plus its ID, not its ID alone")

@@ -1123,7 +1123,9 @@ struct SonarrSeasonEpisodeRow: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
-                            Text(formattedDate(episode.airDate))
+                            // `airDate` is the local calendar day; some servers and
+                            // older records send only the UTC instant, which read "TBA".
+                            Text(formattedDate(episode.airDate ?? episode.airDateUtc.map { String($0.prefix(10)) }))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary.opacity(0.8))
                         }
