@@ -226,6 +226,23 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
             bodyJSON["tvdbId"] as? Int, 555,
             "The add request body should identify the series by the TVDb ID the user searched for and added ('tvdbId': 555) - regression: the wrong lookup result, or a stale/garbled body, was sent to Sonarr."
         )
+        XCTAssertEqual(
+            bodyJSON["monitored"] as? Bool, true,
+            "Adding a series from this sheet should keep series-level monitoring enabled."
+        )
+        let addOptions = try XCTUnwrap(bodyJSON["addOptions"] as? [String: Any])
+        XCTAssertEqual(
+            addOptions["monitor"] as? String, "all",
+            "The sheet's default Monitor preset is All Episodes, Sonarr's own default. It must never be 'none', which unmonitors the whole series; 'Choose Seasons' sends 'skip' (see SonarrAddMonitorPresetTests)."
+        )
+        XCTAssertEqual(bodyJSON["seriesType"] as? String, "standard")
+        let submittedSeasons = try XCTUnwrap(bodyJSON["seasons"] as? [[String: Any]])
+        XCTAssertEqual(submittedSeasons.count, 1)
+        XCTAssertEqual(submittedSeasons.first?["seasonNumber"] as? Int, 1)
+        XCTAssertEqual(
+            submittedSeasons.first?["monitored"] as? Bool, true,
+            "The selected season monitoring value should reach Sonarr instead of being treated as presentation-only state."
+        )
     }
 
     // MARK: - 2. Duplicate
@@ -384,6 +401,114 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         )
     }
 
+    // MARK: - 4. Missing configuration
+
+    /// A disabled Add button must explain itself. Sonarr legitimately allows a
+    /// fresh installation to have no usable profile or root folder yet; blank
+    /// pickers with no message made that state look like a broken Trawl sheet.
+    @MainActor
+    func testMissingSonarrConfigurationExplainsWhyAddIsDisabled() async throws {
+        let lookupResponseJSON = #"[{"id":0,"title":"Fixture Unconfigured Series","tvdbId":888,"titleSlug":"fixture-unconfigured-series","seasons":[{"seasonNumber":1,"monitored":true}]}]"#
+        let server = try await ArrSearchAddFixtureServer(
+            librarySeriesJSON: "[]",
+            lookupResponseJSON: lookupResponseJSON,
+            addedSeriesJSON: #"{"id":888,"title":"Fixture Unconfigured Series","tvdbId":888,"titleSlug":"fixture-unconfigured-series"}"#,
+            qualityProfilesJSON: "[]",
+            rootFoldersJSON: "[]"
+        )
+        self.server = server
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        try searchForNewSeries(titled: "Fixture Unconfigured Series", in: app)
+        let addToSonarr = firstElement(labelContains: "Add to Sonarr", in: app)
+        XCTAssertTrue(addToSonarr.waitForExistence(in: app, timeout: 15))
+        addToSonarr.tap()
+
+        let sheetTitle = app.navigationBars["Add to Sonarr"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 10))
+
+        let blocker = app.descendants(matching: .any)["sonarr-add-blocker"]
+        XCTAssertTrue(
+            blocker.waitForExistence(in: app, timeout: 15),
+            "Once configuration loading finishes, the sheet should state why Add cannot be used instead of leaving blank pickers unexplained."
+        )
+        XCTAssertTrue(
+            blocker.label.localizedCaseInsensitiveContains("no quality profiles or root folders"),
+            "The blocking explanation should name both missing Sonarr settings; actual label: \(blocker.label)"
+        )
+
+        let confirmButton = app.buttons["Add"]
+        XCTAssertTrue(confirmButton.exists, "The sheet should retain its Add action so the unavailable state remains understandable.")
+        XCTAssertFalse(confirmButton.isEnabled, "Add must stay disabled while Sonarr has no quality profile or root folder.")
+
+        let retry = app.buttons["sonarr-add-retry-configuration"]
+        XCTAssertTrue(retry.exists && retry.isEnabled, "The unavailable state should offer an explicit settings refresh after Sonarr is configured.")
+        XCTAssertEqual(server.requestCount(method: "POST", path: "/api/v3/series"), 0)
+
+        attachScreenshot(named: "Sonarr add - missing configuration", from: app)
+    }
+
+    // MARK: - 5. In-flight commitment
+
+    /// Holds the real POST response at the fixture boundary so the saving state is
+    /// deterministic. While that commitment is in flight, neither Cancel nor any
+    /// value that contributed to the submitted request may remain editable.
+    @MainActor
+    func testAddInFlightLocksCancellationAndSubmittedSettings() async throws {
+        let lookupResponseJSON = #"[{"id":0,"title":"Fixture Held Series","tvdbId":999,"titleSlug":"fixture-held-series","seasons":[{"seasonNumber":1,"monitored":true}]}]"#
+        let server = try await ArrSearchAddFixtureServer(
+            librarySeriesJSON: "[]",
+            lookupResponseJSON: lookupResponseJSON,
+            addedSeriesJSON: #"{"id":999,"title":"Fixture Held Series","tvdbId":999,"titleSlug":"fixture-held-series","monitored":true,"statistics":{"seasonCount":1,"episodeFileCount":0,"episodeCount":10}}"#,
+            holdSuccessfulAddResponse: true
+        )
+        self.server = server
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        try searchForNewSeries(titled: "Fixture Held Series", in: app)
+        let addToSonarr = firstElement(labelContains: "Add to Sonarr", in: app)
+        XCTAssertTrue(addToSonarr.waitForExistence(in: app, timeout: 15))
+        addToSonarr.tap()
+
+        let sheetTitle = app.navigationBars["Add to Sonarr"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 10))
+        let confirmButton = app.buttons["Add"]
+        XCTAssertTrue(waitForEnabled(confirmButton, timeout: 15))
+        confirmButton.tap()
+
+        XCTAssertTrue(
+            server.waitForHeldSuccessfulAddResponse(timeout: 15),
+            "The fixture should receive and hold the real add request before in-flight UI assertions run."
+        )
+        XCTAssertEqual(server.heldSuccessfulAddResponseCount, 1)
+
+        let cancel = app.navigationBars["Add to Sonarr"].buttons["Cancel"]
+        XCTAssertTrue(cancel.exists)
+        XCTAssertFalse(cancel.isEnabled, "Cancel must be disabled while the submitted add request is unresolved.")
+
+        let searchImmediately = app.switches["Search Immediately"]
+        XCTAssertTrue(searchImmediately.exists)
+        XCTAssertFalse(searchImmediately.isEnabled, "Submitted options must not remain editable while the add request is unresolved.")
+        XCTAssertTrue(sheetTitle.exists, "The sheet must remain presented until Sonarr resolves the request.")
+
+        attachScreenshot(named: "Sonarr add - in flight", from: app)
+
+        server.releaseHeldSuccessfulAddResponses()
+        waitForDisappearance(of: sheetTitle, timeout: 20)
+        XCTAssertFalse(sheetTitle.exists, "The sheet should dismiss once the held successful response is released.")
+        XCTAssertEqual(server.requestCount(method: "POST", path: "/api/v3/series"), 1)
+    }
+
     // MARK: - Helpers
 
     /// Drives the real Search UI from the tab bar through to a lookup result
@@ -446,5 +571,12 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         while element.exists && Date() < deadline {
             _ = element.waitForExistence(timeout: 0.25)
         }
+    }
+
+    private func attachScreenshot(named name: String, from app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

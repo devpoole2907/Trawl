@@ -121,7 +121,13 @@ struct SonarrAddToLibrarySheet: View {
     /// issued them, so an add to both needs a real answer for each.
     @State private var searchForMissing = true
     @State private var isAdding = false
+    @State private var isRefreshingConfiguration = true
     @State private var seasonMonitored: [Int: Bool] = [:]
+    /// Which episodes Sonarr should watch. "Future episodes" is the one a
+    /// long-running show usually wants - before, it meant turning off one switch per
+    /// season. Only "Choose seasons" shows those switches.
+    @State private var monitorPreset: SonarrAddMonitorPreset = .all
+    @State private var seriesType: SonarrAddSeriesType = .standard
 
     private var seasons: [SonarrSeason] {
         (series.seasons ?? []).sorted { $0.seasonNumber < $1.seasonNumber }
@@ -165,7 +171,7 @@ struct SonarrAddToLibrarySheet: View {
                     .padding(.vertical, 4)
                 }
 
-                Section("Library Settings") {
+                Section {
                     ArrAddDestinationPicker(
                         candidates: candidates,
                         selection: Binding(
@@ -178,11 +184,48 @@ struct SonarrAddToLibrarySheet: View {
                         seedDefaultsForEveryCandidate()
                     }
 
+                    if isRefreshingConfiguration {
+                        ProgressView("Loading Sonarr settings…")
+                            .accessibilityLabel("Loading Sonarr settings")
+                    } else if let addBlockerMessage {
+                        Label(addBlockerMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.footnote)
+                            .accessibilityIdentifier("sonarr-add-blocker")
+
+                        if hasMissingConfiguration {
+                            Button("Retry Sonarr Settings", systemImage: "arrow.clockwise") {
+                                Task { await refreshConfigurationAndDefaults() }
+                            }
+                            .accessibilityIdentifier("sonarr-add-retry-configuration")
+                        }
+                    }
+
                     if targets.count == 1, let target = targets.first {
                         serverSettings(for: target)
                     }
 
+                    Picker("Monitor", selection: $monitorPreset) {
+                        ForEach(SonarrAddMonitorPreset.allCases) { preset in
+                            Text(preset.title).tag(preset)
+                        }
+                    }
+                    .accessibilityIdentifier("sonarr-add-monitor")
+
+                    Picker("Series Type", selection: $seriesType) {
+                        ForEach(SonarrAddSeriesType.allCases) { type in
+                            Text(type.title).tag(type)
+                        }
+                    }
+                    .accessibilityIdentifier("sonarr-add-series-type")
+
                     Toggle("Search Immediately", isOn: $searchForMissing)
+                } header: {
+                    Text("Library Settings")
+                } footer: {
+                    if let explanation = monitorPreset.explanation {
+                        Text(explanation)
+                    }
                 }
 
                 if targets.count > 1 {
@@ -193,7 +236,7 @@ struct SonarrAddToLibrarySheet: View {
                     }
                 }
 
-                if !seasons.isEmpty {
+                if monitorPreset == .chooseSeasons, !seasons.isEmpty {
                     Section("Seasons") {
                         ForEach(seasons, id: \.seasonNumber) { season in
                             Toggle(
@@ -204,7 +247,7 @@ struct SonarrAddToLibrarySheet: View {
                     }
                 }
 
-                if let error = addState.failureMessage ?? viewModel.error, !error.isEmpty {
+                if let error = addState.failureMessage, !error.isEmpty {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -216,6 +259,7 @@ struct SonarrAddToLibrarySheet: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             #endif
+            .disabled(isAdding || isRefreshingConfiguration)
             .task {
                 await refreshConfigurationAndDefaults()
             }
@@ -232,37 +276,102 @@ struct SonarrAddToLibrarySheet: View {
 
     @ViewBuilder
     private func serverSettings(for target: ArrInstanceRef) -> some View {
-        Picker("Quality Profile", selection: Binding(
-            get: { addState.profileByInstance[target.id] },
-            set: { addState.profileByInstance[target.id] = $0 }
-        )) {
-            ForEach(viewModel.qualityProfiles(on: target.id), id: \.id) { profile in
-                Text(profile.name).tag(Optional(profile.id))
+        let profiles = viewModel.qualityProfiles(on: target.id)
+        let folders = viewModel.rootFolders(on: target.id)
+
+        if profiles.isEmpty {
+            LabeledContent("Quality Profile") {
+                Text("None available")
+                    .foregroundStyle(.orange)
+            }
+        } else {
+            Picker("Quality Profile", selection: Binding(
+                get: { addState.profileByInstance[target.id] },
+                set: { addState.profileByInstance[target.id] = $0 }
+            )) {
+                ForEach(profiles, id: \.id) { profile in
+                    Text(profile.name).tag(Optional(profile.id))
+                }
             }
         }
 
-        Picker("Root Folder", selection: Binding(
-            get: { addState.rootFolderByInstance[target.id] },
-            set: { addState.rootFolderByInstance[target.id] = $0 }
-        )) {
-            ForEach(viewModel.rootFolders(on: target.id), id: \.path) { folder in
-                HStack {
-                    Text(folder.path)
-                    Spacer()
-                    if let free = folder.freeSpace, free > 0 {
-                        Text("\(ByteFormatter.format(bytes: free)) free")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        if folders.isEmpty {
+            LabeledContent("Root Folder") {
+                Text("None available")
+                    .foregroundStyle(.orange)
+            }
+        } else {
+            Picker("Root Folder", selection: Binding(
+                get: { addState.rootFolderByInstance[target.id] },
+                set: { addState.rootFolderByInstance[target.id] = $0 }
+            )) {
+                ForEach(folders, id: \.path) { folder in
+                    HStack {
+                        Text(folder.path)
+                        Spacer()
+                        if let free = folder.freeSpace, free > 0 {
+                            Text("\(ByteFormatter.format(bytes: free)) free")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    .tag(Optional(folder.path))
                 }
-                .tag(Optional(folder.path))
             }
         }
     }
 
     private func refreshConfigurationAndDefaults() async {
+        isRefreshingConfiguration = true
+        defer { isRefreshingConfiguration = false }
         await viewModel.refreshConfiguration()
         seedDefaultsForEveryCandidate()
+    }
+
+    private var hasMissingConfiguration: Bool {
+        !targets.isEmpty && targets.contains { target in
+            viewModel.qualityProfiles(on: target.id).isEmpty
+                || viewModel.rootFolders(on: target.id).isEmpty
+        }
+    }
+
+    private var addBlockerMessage: String? {
+        if serviceManager.connectedSonarr.isEmpty {
+            return "No connected Sonarr server is available."
+        }
+        if candidates.isEmpty {
+            return "This series is already in every connected Sonarr library."
+        }
+        if series.tvdbId == nil || series.titleSlug == nil {
+            return "Sonarr did not return enough information to add this series. Try searching again."
+        }
+        guard hasMissingConfiguration else { return nil }
+
+        var sawRefreshFailure = false
+        let descriptions = targets.compactMap { target -> String? in
+            if let error = serviceManager.connectionErrors[target.id.uuidString] {
+                sawRefreshFailure = true
+                return "\(serviceManager.scopeLabel(for: target)): \(error)"
+            }
+
+            let hasProfiles = !viewModel.qualityProfiles(on: target.id).isEmpty
+            let hasFolders = !viewModel.rootFolders(on: target.id).isEmpty
+            guard !hasProfiles || !hasFolders else { return nil }
+
+            let missing: String
+            switch (hasProfiles, hasFolders) {
+            case (false, false): missing = "quality profiles or root folders"
+            case (false, true): missing = "quality profiles"
+            case (true, false): missing = "root folders"
+            case (true, true): return nil
+            }
+            return "\(serviceManager.scopeLabel(for: target)) has no \(missing)"
+        }
+
+        let recovery = sawRefreshFailure
+            ? "Retry the Sonarr settings refresh."
+            : "Configure the missing settings in Sonarr, then retry."
+        return descriptions.joined(separator: "; ") + ". \(recovery)"
     }
 
     /// Seeds every candidate at once - see the Radarr twin. A remembered value is
@@ -283,7 +392,11 @@ struct SonarrAddToLibrarySheet: View {
     }
 
     private var canAdd: Bool {
-        guard !isAdding, series.tvdbId != nil, series.titleSlug != nil, !targets.isEmpty else { return false }
+        guard !isAdding,
+              !isRefreshingConfiguration,
+              series.tvdbId != nil,
+              series.titleSlug != nil,
+              !targets.isEmpty else { return false }
         // Every destination, not just the visible one: an add to both missing the
         // second server's root folder would half-succeed.
         return addState.isConfigured(targets)
@@ -295,6 +408,7 @@ struct SonarrAddToLibrarySheet: View {
               let titleSlug = series.titleSlug else { return }
 
         isAdding = true
+        addState.failureMessage = nil
         defer { isAdding = false }
 
         let success = await addState.execute(
@@ -310,7 +424,11 @@ struct SonarrAddToLibrarySheet: View {
                 seasons: resolvedSeasons,
                 qualityProfileId: profileID,
                 rootFolderPath: folderPath,
-                monitorOption: "none",
+                seriesType: seriesType.rawValue,
+                // A preset tells Sonarr which episodes to monitor and overrides the
+                // per-season values. "Choose seasons" sends `skip`, which keeps them:
+                // `none` would unmonitor the whole series.
+                monitorOption: monitorPreset.apiValue,
                 searchForMissing: searchForMissing,
                 instanceID: target.id,
                 announcesResult: false
@@ -1978,5 +2096,70 @@ enum SonarrEpisodeHistoryDateParser {
         }
 
         return fallbackFormatter.date(from: value)
+    }
+}
+
+/// Sonarr's add-time monitoring choices (`addOptions.monitor`), in the order people
+/// reach for them.
+enum SonarrAddMonitorPreset: String, CaseIterable, Identifiable {
+    case all
+    case future
+    case missing
+    case existing
+    case firstSeason
+    case lastSeason
+    case pilot
+    case chooseSeasons
+    case none
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: String(localized: "All Episodes")
+        case .future: String(localized: "Future Episodes")
+        case .missing: String(localized: "Missing Episodes")
+        case .existing: String(localized: "Existing Episodes")
+        case .firstSeason: String(localized: "First Season")
+        case .lastSeason: String(localized: "Latest Season")
+        case .pilot: String(localized: "Pilot Only")
+        case .chooseSeasons: String(localized: "Choose Seasons")
+        case .none: String(localized: "None")
+        }
+    }
+
+    /// The value Sonarr's API expects. "Choose seasons" is `skip`: keep the
+    /// per-season values sent with the request.
+    var apiValue: String {
+        switch self {
+        case .chooseSeasons: "skip"
+        default: rawValue
+        }
+    }
+
+    var explanation: String? {
+        switch self {
+        case .future: String(localized: "Only episodes that haven't aired yet. Good for a long-running show you're keeping up with.")
+        case .missing: String(localized: "Episodes that have aired but aren't on disk yet.")
+        case .existing: String(localized: "Only episodes already on disk, so nothing new is grabbed.")
+        case .none: String(localized: "Adds the series without watching for anything.")
+        default: nil
+        }
+    }
+}
+
+enum SonarrAddSeriesType: String, CaseIterable, Identifiable {
+    case standard
+    case daily
+    case anime
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard: String(localized: "Standard")
+        case .daily: String(localized: "Daily")
+        case .anime: String(localized: "Anime")
+        }
     }
 }
