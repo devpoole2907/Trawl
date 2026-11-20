@@ -494,6 +494,38 @@ struct ArrCalendarView: View {
         }
     }
 
+    private var totalLoadedEventCount: Int {
+        visibleDays.reduce(into: 0) { count, day in
+            count += viewModel.eventsByDay[day]?.count ?? 0
+        }
+    }
+
+    private var emptyCalendarCopy: (title: LocalizedStringKey, description: LocalizedStringKey) {
+        if showMonitoredOnly, totalLoadedEventCount > 0 {
+            return (
+                "No Monitored Releases",
+                "No monitored releases match the selected calendar scope."
+            )
+        }
+        switch scope {
+        case .all:
+            return (
+                "No Upcoming Releases",
+                "No calendar releases were found in the loaded date range."
+            )
+        case .series:
+            return (
+                "No Episode Releases",
+                "No episode releases were found in the loaded date range."
+            )
+        case .movies:
+            return (
+                "No Movie Releases",
+                "No movie releases were found in the loaded date range."
+            )
+        }
+    }
+
     private var calendarReloadKey: String {
         // Active Sonarr/Radarr instance IDs are part of the key so switching between
         // connected instances re-fires this task and reloads the calendar.
@@ -663,10 +695,10 @@ struct ArrCalendarView: View {
                 ArrLoadingErrorEmptyView(
                     isLoading: viewModel.isLoadingInitial || viewModel.isRefreshing,
                     error: viewModel.initialLoadErrorMessage,
-                    isEmpty: viewModel.loadedMonths.isEmpty && !(viewModel.isLoadingInitial || viewModel.isRefreshing),
-                    emptyTitle: "No Upcoming Releases",
+                    isEmpty: totalVisibleEventCount == 0,
+                    emptyTitle: emptyCalendarCopy.title,
                     emptyIcon: "calendar.badge.exclamationmark",
-                    emptyDescription: "No calendar data has been loaded for the selected date range.",
+                    emptyDescription: emptyCalendarCopy.description,
                     onRetry: { await serviceManager.calendarViewModel.refresh() }
                 ) {
                     calendarContent
@@ -801,16 +833,12 @@ struct ArrCalendarView: View {
     private func calendarEventLink(for event: CalendarEvent) -> some View {
         let instance = badgeInstance(for: event)
         switch event {
-        case .episode(let episode, _, _):
-            if let seriesID = episode.seriesId {
-                calendarEventRow(
-                    event: event,
-                    instance: instance,
-                    destination: .series(id: seriesID, instanceID: episode.instanceID)
-                )
-            } else {
-                EventRow(event: event, instance: instance)
-            }
+        case .episode(let episode, let series, _):
+            calendarEventRow(
+                event: event,
+                instance: instance,
+                destination: .episode(episode, series: series)
+            )
         case .movie(let movie, _, _):
             calendarEventRow(event: event, instance: instance, destination: .movie(id: movie.id, instanceID: movie.instanceID))
         }

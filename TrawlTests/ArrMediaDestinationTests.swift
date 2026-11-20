@@ -39,6 +39,27 @@ struct ArrMediaDestinationTests {
         #expect(ArrMediaDestination.series(id: 1) != .series(id: 2))
     }
 
+    @Test("Episode destinations use episode and server identity")
+    func episodeIdentityUsesEpisodeAndServer() throws {
+        let hd = UUID()
+        let uhd = UUID()
+        let episode = try JSONDecoder().decode(
+            SonarrEpisode.self,
+            from: Data(#"{"id":101,"seriesId":7,"seasonNumber":1,"episodeNumber":1}"#.utf8)
+        )
+        let otherEpisode = try JSONDecoder().decode(
+            SonarrEpisode.self,
+            from: Data(#"{"id":102,"seriesId":7,"seasonNumber":1,"episodeNumber":2}"#.utf8)
+        )
+        let hdSeries = SonarrSeries.makeLookupResult(id: 7, title: "HD").stamped(with: hd)
+        let uhdSeries = SonarrSeries.makeLookupResult(id: 7, title: "4K").stamped(with: uhd)
+
+        #expect(ArrMediaDestination.episode(episode, series: hdSeries) == .episode(episode, series: hdSeries))
+        #expect(ArrMediaDestination.episode(episode, series: hdSeries) != .episode(episode, series: uhdSeries))
+        #expect(ArrMediaDestination.episode(episode, series: hdSeries) != .episode(otherEpisode, series: hdSeries))
+        #expect(ArrMediaDestination.episode(episode, series: hdSeries) != .series(id: 7, instanceID: hd))
+    }
+
     // MARK: - Library-mode cases carry their server
 
     /// The regression this pins: Radarr and Radarr 4K both issue small integer
@@ -220,29 +241,33 @@ struct ArrMediaDestinationTests {
     // MARK: - Cross-case identity
 
     @Test("Different cases with the same underlying id are never equal")
-    func differentCasesNeverEqual() {
+    func differentCasesNeverEqual() throws {
         let movie = RadarrMovie.makeLookupResult(id: 1, title: "Whatever")
         let series = SonarrSeries.makeLookupResult(id: 1, title: "Whatever")
+        let episode = try SonarrEpisode.testEpisode(id: 1)
 
         #expect(ArrMediaDestination.movie(id: 1) != .series(id: 1))
         #expect(ArrMediaDestination.movie(id: 1) != .movieLookup(movie))
         #expect(ArrMediaDestination.series(id: 1) != .seriesLookup(series))
+        #expect(ArrMediaDestination.episode(episode, series: nil) != .series(id: 1))
         #expect(ArrMediaDestination.movieLookup(movie) != .seriesLookup(series))
     }
 
     @Test("Distinct movies and series with distinct ids all coexist in a Set")
-    func distinctValuesCoexistInASet() {
+    func distinctValuesCoexistInASet() throws {
+        let episode = try SonarrEpisode.testEpisode(id: 1)
         let destinations: Set<ArrMediaDestination> = [
             .movie(id: 1),
             .movie(id: 2),
             .series(id: 1),
             .series(id: 2),
+            .episode(episode, series: nil),
             .movieLookup(RadarrMovie.makeLookupResult(id: 10, title: "A")),
             .movieLookup(RadarrMovie.makeLookupResult(id: 11, title: "B")),
             .seriesLookup(SonarrSeries.makeLookupResult(id: 10, title: "C")),
             .seriesLookup(SonarrSeries.makeLookupResult(id: 11, title: "D"))
         ]
-        #expect(destinations.count == 8)
+        #expect(destinations.count == 9)
     }
 }
 
@@ -333,6 +358,17 @@ private extension SonarrSeries {
             cleanTitle: nil,
             rootFolderPath: nil,
             alternateTitles: nil
+        )
+    }
+}
+
+private extension SonarrEpisode {
+    static func testEpisode(id: Int) throws -> SonarrEpisode {
+        try JSONDecoder().decode(
+            SonarrEpisode.self,
+            from: Data("""
+            {"id":\(id),"seriesId":7,"seasonNumber":1,"episodeNumber":\(id)}
+            """.utf8)
         )
     }
 }

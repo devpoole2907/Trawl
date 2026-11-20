@@ -704,7 +704,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             seriesJSON: #"[{"id":1,"title":"Calendar First Series"},{"id":2,"title":"Calendar Second Series"}]"#,
             calendarJSON: """
             [{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"First Airing","airDateUtc":"\(date)"},
-             {"id":102,"seriesId":2,"seasonNumber":1,"episodeNumber":1,"title":"Second Airing","airDateUtc":"\(date)"}]
+             {"id":102,"seriesId":2,"seasonNumber":1,"episodeNumber":2,"title":"Second Airing","airDateUtc":"\(date)"}]
             """,
             wantedJSON: #"{"page":1,"pageSize":20,"totalRecords":2,"records":[{"id":101,"seriesId":1,"seasonNumber":1,"episodeNumber":1,"title":"First Airing","hasFile":false,"monitored":true,"series":{"id":1,"title":"Calendar First Series"}},{"id":102,"seriesId":2,"seasonNumber":1,"episodeNumber":1,"title":"Second Airing","hasFile":false,"monitored":true,"series":{"id":2,"title":"Calendar Second Series"}}]}"#
         )
@@ -716,25 +716,38 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = Self.unreachableTMDbURL
         app.launch()
         XCTAssertTrue(ensureRootChromeIsReady(in: app))
-        for (destination, screen, placeholderText) in [
-            (TrawlDestination.calendar, "Calendar", "Select a calendar item to view it"),
-            (TrawlDestination.missing, "Missing", "Select a missing item to view it")
+        for (destination, screen, placeholderText, detailTitles) in [
+            (TrawlDestination.calendar, "Calendar", "Select a calendar item to view it", ["S01E01", "S01E02"]),
+            (TrawlDestination.missing, "Missing", "Select a missing item to view it", ["Calendar First Series", "Calendar Second Series"])
         ] {
             XCTAssertTrue(openDestination(destination, in: app))
             let placeholder = app.staticTexts[placeholderText]
             XCTAssertTrue(placeholder.waitForExistence(timeout: 15))
-            for title in ["Calendar First Series", "Calendar Second Series"] {
+            for (index, title) in ["Calendar First Series", "Calendar Second Series"].enumerated() {
                 let row = app.staticTexts[title].firstMatch
                 XCTAssertTrue(row.waitForExistence(timeout: 15))
+                if destination == .calendar {
+                    XCTAssertEqual(
+                        app.staticTexts.matching(NSPredicate(format: "label == %@", title)).count,
+                        1,
+                        "A calendar fixture airing should appear only in the month requested from Sonarr."
+                    )
+                }
                 XCTAssertTrue(row.isHittable)
                 row.tap()
-                let detailBar = app.navigationBars[title]
+                let detailBar = app.navigationBars[detailTitles[index]]
                 XCTAssertTrue(detailBar.waitForExistence(timeout: 15))
                 XCTAssertFalse(placeholder.exists)
                 let listBar = app.navigationBars[screen]
                 XCTAssertTrue(listBar.exists)
                 XCTAssertLessThan(listBar.frame.midX, detailBar.frame.minX)
                 XCTAssertFalse(server.hasReceivedRequest(method: "POST", path: "/api/v3/command"), "Selecting a missing row must not start an automatic search.")
+                if destination == .calendar {
+                    XCTAssertTrue(
+                        app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Automatic Search")).firstMatch.exists,
+                        "A selected calendar episode should expose its search actions directly in the detail pane."
+                    )
+                }
             }
             capture(app, "\(screen)-second-selection")
         }

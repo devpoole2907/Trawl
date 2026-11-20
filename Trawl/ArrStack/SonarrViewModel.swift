@@ -278,7 +278,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     func toggleEpisodeMonitored(_ episode: SonarrEpisode) async {
-        guard let client else { return }
+        guard let client = client(for: episode.instanceID) else { return }
         let newMonitored = !(episode.monitored ?? true)
         do {
             _ = try await client.setEpisodeMonitored(episodeIds: [episode.id], monitored: newMonitored)
@@ -338,7 +338,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     func searchEpisode(_ episode: SonarrEpisode) async {
-        guard let client else { return }
+        guard let client = client(for: episode.instanceID) else { return }
         error = nil
         do {
             _ = try await client.searchEpisodes(episodeIds: [episode.id])

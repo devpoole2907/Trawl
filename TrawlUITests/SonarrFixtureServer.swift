@@ -23,6 +23,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     struct RecordedRequest: Sendable, Equatable {
         let method: String
         let path: String
+        let queryItems: [String: String]
         /// The `X-Api-Key` header this request carried, so a journey can assert *which*
         /// key reached the socket rather than only that some request arrived.
         let apiKey: String?
@@ -281,7 +282,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v3/history"), ("GET", "/api/v3/blocklist"):
             return #"{"page":1,"pageSize":20,"totalRecords":0,"records":[]}"#
         case ("GET", "/api/v3/calendar"):
-            return calendarJSON
+            return calendarResponse(for: request)
         case ("GET", "/api/v3/episode"):
             return episodesResponseBody
         case ("GET", "/api/v3/episodefile"):
@@ -289,6 +290,45 @@ final class SonarrFixtureServer: @unchecked Sendable {
         default:
             return "[]"
         }
+    }
+
+    /// Sonarr applies the requested month bounds before returning calendar rows.
+    /// Mirroring that contract keeps multi-month calendar journeys from receiving
+    /// the same fixture episode once for every prefetch request.
+    private func calendarResponse(for request: RecordedRequest) -> String {
+        guard let startValue = request.queryItems["start"],
+              let endValue = request.queryItems["end"],
+              let start = Self.calendarDate(from: startValue),
+              let end = Self.calendarDate(from: endValue),
+              let data = calendarJSON.data(using: .utf8),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return calendarJSON
+        }
+
+        let filtered = rows.filter { row in
+            let value = row["airDateUtc"] as? String ?? row["airDate"] as? String
+            guard let date = Self.calendarDate(from: value) else { return false }
+            return date >= start && date <= end
+        }
+        guard let filteredData = try? JSONSerialization.data(withJSONObject: filtered),
+              let body = String(data: filteredData, encoding: .utf8) else {
+            return calendarJSON
+        }
+        return body
+    }
+
+    private static func calendarDate(from value: String?) -> Date? {
+        guard let value else { return nil }
+        let internetDate = ISO8601DateFormatter()
+        if let date = internetDate.date(from: value) { return date }
+        internetDate.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = internetDate.date(from: value) { return date }
+
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.calendar = Calendar(identifier: .gregorian)
+        day.dateFormat = "yyyy-MM-dd"
+        return day.date(from: value)
     }
 
     private static func parseRequest(from data: Data) -> RecordedRequest? {
@@ -307,8 +347,21 @@ final class SonarrFixtureServer: @unchecked Sendable {
         let parts = firstLine.split(separator: " ", omittingEmptySubsequences: true)
         let method = parts.first.map(String.init) ?? ""
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
-        let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
-        return RecordedRequest(method: method, path: path, apiKey: apiKeyHeader(in: text), body: Data(data[bodyStart..<(bodyStart + contentLength)]))
+        let components = URLComponents(string: "http://localhost\(rawPath)")
+        let path = components?.path ?? String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
+        let queryItems = Dictionary(
+            (components?.queryItems ?? []).compactMap { item in
+                item.value.map { (item.name, $0) }
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+        return RecordedRequest(
+            method: method,
+            path: path,
+            queryItems: queryItems,
+            apiKey: apiKeyHeader(in: text),
+            body: Data(data[bodyStart..<(bodyStart + contentLength)])
+        )
     }
 
     /// Header names are case-insensitive per RFC 9110, and the value is everything
