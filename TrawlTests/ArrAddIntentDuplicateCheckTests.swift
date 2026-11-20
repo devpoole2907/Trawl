@@ -258,6 +258,80 @@ struct ArrAddIntentDuplicateCheckTests {
         }
     }
 
+    // MARK: - Search for Latest Episode
+
+    private static let latestEpisodeRoutes: [String: (status: Int, body: String)] = [
+        "GET /api/v3/series": (200, #"[{"id":7,"title":"Long Runner","tvdbId":75897,"year":1997}]"#),
+        "GET /api/v3/queue": (200, #"{"page":1,"pageSize":500,"totalRecords":0,"records":[]}"#),
+        "POST /api/v3/command": (201, #"{"id":1,"name":"EpisodeSearch"}"#)
+    ]
+
+    @Test("Search for Latest Episode searches the newest aired episode when it is missing")
+    func latestEpisodeSearchesMissing() async throws {
+        var routes = Self.latestEpisodeRoutes
+        routes["GET /api/v3/episode"] = (200, #"""
+        [{"id":71,"seriesId":7,"seasonNumber":27,"episodeNumber":4,"airDateUtc":"2020-01-01T02:00:00Z","hasFile":true,"monitored":true},
+         {"id":72,"seriesId":7,"seasonNumber":27,"episodeNumber":5,"airDateUtc":"2020-01-08T02:00:00Z","hasFile":false,"monitored":true},
+         {"id":73,"seriesId":7,"seasonNumber":27,"episodeNumber":6,"airDateUtc":"2099-01-15T02:00:00Z","hasFile":false,"monitored":true}]
+        """#)
+        let server = try await DuplicateCheckArrTestServer(label: "sonarr-latest-missing", routes: routes)
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Test Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { profile in
+            var intent = SearchLatestEpisodeIntent()
+            intent.title = "long runner"
+            intent.service = ArrServiceEntity(id: profile.id.uuidString, name: profile.displayName, serviceType: "sonarr")
+
+            _ = try await intent.perform()
+
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/episode")))
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/queue")))
+            #expect(server.requests.contains(.init(method: "POST", path: "/api/v3/command")))
+        }
+    }
+
+    @Test("Search for Latest Episode sends nothing when the newest episode is already on disk")
+    func latestEpisodeLeavesDownloadedAlone() async throws {
+        var routes = Self.latestEpisodeRoutes
+        routes["GET /api/v3/episode"] = (200, #"""
+        [{"id":71,"seriesId":7,"seasonNumber":27,"episodeNumber":5,"airDateUtc":"2020-01-08T02:00:00Z","hasFile":true,"monitored":true}]
+        """#)
+        let server = try await DuplicateCheckArrTestServer(label: "sonarr-latest-ondisk", routes: routes)
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Test Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { profile in
+            var intent = SearchLatestEpisodeIntent()
+            intent.title = "Long Runner"
+            intent.service = ArrServiceEntity(id: profile.id.uuidString, name: profile.displayName, serviceType: "sonarr")
+
+            _ = try await intent.perform()
+
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/episode")))
+            #expect(!server.requests.contains { $0.method == "POST" })
+        }
+    }
+
+    @Test("Search for Latest Episode sends nothing when the newest episode is already downloading")
+    func latestEpisodeLeavesQueuedAlone() async throws {
+        var routes = Self.latestEpisodeRoutes
+        routes["GET /api/v3/episode"] = (200, #"""
+        [{"id":72,"seriesId":7,"seasonNumber":27,"episodeNumber":5,"airDateUtc":"2020-01-08T02:00:00Z","hasFile":false,"monitored":true}]
+        """#)
+        routes["GET /api/v3/queue"] = (200, #"{"page":1,"pageSize":500,"totalRecords":1,"records":[{"id":5,"title":"r","status":"downloading","episodeId":72,"seriesId":7}]}"#)
+        let server = try await DuplicateCheckArrTestServer(label: "sonarr-latest-queued", routes: routes)
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Test Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { profile in
+            var intent = SearchLatestEpisodeIntent()
+            intent.title = "Long Runner"
+            intent.service = ArrServiceEntity(id: profile.id.uuidString, name: profile.displayName, serviceType: "sonarr")
+
+            _ = try await intent.perform()
+
+            #expect(!server.requests.contains { $0.method == "POST" })
+        }
+    }
+
     // MARK: - Helpers
 
     /// Persists a real `ArrServiceProfile` to the same App Group SwiftData store
