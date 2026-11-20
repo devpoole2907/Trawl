@@ -117,6 +117,15 @@ struct RadarrMovieListView: View {
                         subtitleCoverage: serviceManager.subtitleCoverage(for: entry.primary),
                         instances: serviceManager.badgeRefs(for: entry)
                     )
+                    // The Series list's long-press, for movies: search without
+                    // opening the film.
+                    .contextMenu {
+                        RadarrMovieQuickActions(
+                            entry: entry,
+                            refs: serviceManager.badgeRefs(for: entry),
+                            viewModel: vm
+                        )
+                    }
                 },
                 // Forwarded, which it was not. `RadarrMovieListView` declared the
                 // binding and took it in its initialiser but never handed it on, so
@@ -392,5 +401,60 @@ struct RadarrMovieRow: View {
             items.append("\(runtime)m")
         }
         return items
+    }
+}
+
+/// The Movies list's long-press menu - the twin of `SonarrSeriesQuickActions`. A
+/// search is per server: HD and 4K want different releases, so with two the menu
+/// asks which.
+struct RadarrMovieQuickActions: View {
+    let entry: ArrLibraryEntry<RadarrMovie>
+    let refs: [ArrInstanceRef]
+    @Bindable var viewModel: RadarrViewModel
+
+    var body: some View {
+        if entry.copies.count > 1, refs.count == entry.copies.count {
+            Menu {
+                ForEach(Array(zip(refs, entry.copies)), id: \.0.id) { ref, copy in
+                    Button(ref.shortLabel) { search(copy) }
+                }
+            } label: {
+                Label(title, systemImage: "magnifyingglass")
+            }
+        } else {
+            Button {
+                search(entry.primary)
+            } label: {
+                Label(title, systemImage: "magnifyingglass")
+            }
+        }
+    }
+
+    /// "Search for Movie" while it is missing; once it is on disk the same search
+    /// is how an upgrade is asked for, and the label says so.
+    private var title: String {
+        entry.copies.contains { $0.hasFile == true }
+            ? String(localized: "Search for Upgrade")
+            : String(localized: "Search for Movie")
+    }
+
+    private func search(_ movie: RadarrMovie) {
+        let name = movie.title
+        Task {
+            let started = await viewModel.searchMovie(movieId: movie.id, instanceID: movie.instanceID)
+            if started {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Search Queued",
+                    message: "\(name) was sent to Radarr."
+                )
+            } else if viewModel.error == ArrServiceError.clientNotAvailable.errorDescription {
+                // A request failure already shows its own banner from the view
+                // model; a missing client does not, so it is said here.
+                InAppNotificationCenter.shared.showError(
+                    title: "Search Failed",
+                    message: "Radarr isn't connected."
+                )
+            }
+        }
     }
 }
