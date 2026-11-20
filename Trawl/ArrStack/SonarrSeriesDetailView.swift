@@ -69,6 +69,20 @@ struct SonarrSeriesDetailView: View {
     /// third screen on top of the second one, with the list the user is picking from
     /// still beside it.
     @Environment(\.selectLibraryTitle) private var selectLibraryTitle
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
+
+    /// A short screen - a phone on its side, a folded iPhone Duo. Up Next moves up
+    /// beside the title there: under it, the tab bar and the Notifications bar sat
+    /// over its Search button until the page was scrolled.
+    private var upNextBesideHero: Bool {
+        #if os(iOS)
+        verticalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
     @Environment(\.openMediaInSearch) private var openMediaInSearch
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
@@ -301,7 +315,17 @@ struct SonarrSeriesDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .center, spacing: 20) {
-                        heroSection(series)
+                        if upNextBesideHero, isInLibrary, showsUpNext {
+                            HStack(alignment: .top, spacing: 16) {
+                                heroSection(series)
+                                    .frame(maxWidth: .infinity)
+                                upNextCard(series)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 8)
+                            }
+                        } else {
+                            heroSection(series)
+                        }
                         cardsSection(series)
                     }
                     .padding(.horizontal, 16)
@@ -747,7 +771,7 @@ struct SonarrSeriesDetailView: View {
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
 
-        if isInLibrary, showsUpNext {
+        if isInLibrary, showsUpNext, !upNextBesideHero {
             upNextCard(series)
         }
 

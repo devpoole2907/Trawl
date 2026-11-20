@@ -22,6 +22,7 @@ final class SeriesQuickActionsJourneyUITests: XCTestCase {
     }
 
     override func tearDown() {
+        XCUIDevice.shared.orientation = .portrait
         sonarr?.stop()
         sonarr = nil
         super.tearDown()
@@ -128,6 +129,30 @@ final class SeriesQuickActionsJourneyUITests: XCTestCase {
             waitFor { self.receivedEpisodeSearch(server, episodeIDs: [Self.latestEpisodeID]) },
             "Up Next should search S03E05 and nothing else"
         )
+    }
+
+    /// A phone on its side: the tab bar and the Notifications bar take the bottom
+    /// third of the screen until the page scrolls. Up Next moves beside the title
+    /// there, so its Search button starts above them rather than under them.
+    @MainActor
+    func testUpNextSearchClearsTheBarsInLandscape() async throws {
+        let (app, server) = try await launch()
+        let row = app.staticTexts[Self.title].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["series-up-next"].waitForExistence(timeout: 20))
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let search = app.buttons["series-up-next-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        let notifications = app.buttons["Notifications"].firstMatch
+        XCTAssertTrue(waitFor { notifications.exists && notifications.frame.minY > search.frame.minY })
+        XCTAssertLessThan(
+            search.frame.maxY, notifications.frame.minY,
+            "In landscape Up Next's Search should start above the bottom bars, not under them"
+        )
+        search.tap()
+        XCTAssertTrue(waitFor { self.receivedEpisodeSearch(server, episodeIDs: [Self.latestEpisodeID]) })
     }
 
     // MARK: - Episodes section
