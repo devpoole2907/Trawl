@@ -103,7 +103,9 @@ private struct LibraryScopeTitleMenu: ViewModifier {
             #endif
             .trawlTitleMenuShrinksOnScroll($isCompact)
             .toolbar {
-                ToolbarItem(placement: .principal) {
+                // Leading, like More's title - not centred. The menu carries its own
+                // subtitle there, and drops the glass capsule a centred item gets.
+                ToolbarItem(placement: platformTopBarLeadingPlacement) {
                     TrawlTitleMenu(
                         options: LibraryScope.allCases.map {
                             TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)
@@ -120,6 +122,7 @@ private struct LibraryScopeTitleMenu: ViewModifier {
                     )
                     .libraryScopeTip(isShown: true)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
     }
 }

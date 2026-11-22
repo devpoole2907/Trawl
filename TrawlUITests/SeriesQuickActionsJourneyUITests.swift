@@ -246,9 +246,16 @@ final class SeriesQuickActionsJourneyUITests: XCTestCase {
         field.tap()
         // Search opens on Discover, the online lookup; owned shows are under Library.
         // The scope bar shows only while the field is focused and still empty.
-        let libraryScope = app.buttons["Library"].firstMatch
-        XCTAssertTrue(libraryScope.waitForExistence(timeout: 10))
-        libraryScope.tap()
+        // Not the tab bar's own Library tab, which shares the label: the scope
+        // control sits up by the field, so take the highest "Library" on screen.
+        let libraryButtons = app.buttons.matching(NSPredicate(format: "label ==[c] %@", "Library"))
+        XCTAssertTrue(
+            waitFor { libraryButtons.allElementsBoundByIndex.contains { !app.tabBars.buttons["Library"].exists || $0.frame.minY < app.tabBars.firstMatch.frame.minY } },
+            "Search's Library scope should show while the field is focused."
+        )
+        let libraryScope = libraryButtons.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY }
+        XCTAssertNotNil(libraryScope)
+        libraryScope?.tap()
         // No Return: that runs the online Sonarr lookup. Library hits list as you type.
         field.typeText("Long Runner")
 

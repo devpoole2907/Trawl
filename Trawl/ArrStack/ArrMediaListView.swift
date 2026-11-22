@@ -467,7 +467,13 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         #if os(macOS)
         detailSelection != nil
         #else
-        detailSelection != nil || !TrawlTitleMenu<Int, EmptyView>.prefersPrincipalSlot(barWidth: titleBarWidth)
+        // Always leading on the Library tab. `.principal` only stayed at the edge
+        // while the trailing buttons left it no room to centre; with Calendar gone
+        // from this bar there is room, and the title drifted to the middle, unlike
+        // More's. Two trailing buttons leave the leading slot plenty of width.
+        detailSelection != nil
+            || libraryScope != nil
+            || !TrawlTitleMenu<Int, EmptyView>.prefersPrincipalSlot(barWidth: titleBarWidth)
         #endif
     }
 
@@ -671,7 +677,14 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         // One server has nothing to choose between. The menu is still drawn on the
         // Library tab for the scope switch, and an option list of one hides its own
         // picker, so the title keeps reading "Series" without a lone checkmark.
-        [TrawlTitleMenuOption(value: .all, title: nounPlural, systemImage: emptyIcon)]
+        // Beside the Library scope picker, "Series" is already the scope's name, so
+        // the every-server option says what it is instead.
+        [TrawlTitleMenuOption(
+            value: .all,
+            title: nounPlural,
+            systemImage: libraryScope == nil ? emptyIcon : "square.stack.3d.up",
+            menuTitle: libraryScope == nil ? nil : "All Servers"
+        )]
             + (availableInstanceRefs.count > 1 ? availableInstanceRefs : []).map {
                 // The server's own name, as the user typed it in setup - this menu
                 // is about which box to look at, and "Default"/"4K" names a tier

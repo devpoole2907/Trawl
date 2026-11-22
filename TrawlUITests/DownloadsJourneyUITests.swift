@@ -349,7 +349,11 @@ final class DownloadsJourneyUITests: XCTestCase {
                 done.exists,
                 "On a phone Files should be a push, not a sheet - a sheet here buries the navigation stack the user came up."
             )
-            let back = backButton(in: app.navigationBars.firstMatch)
+            // The Files bar by name: on a phone Downloads is a tab of the
+            // notification sheet, so the Library tab's bar is still in the tree
+            // underneath, and "first bar" can be that one.
+            let filesBar = app.navigationBars["Files"]
+            let back = backButton(in: filesBar.exists ? filesBar : app.navigationBars.firstMatch)
             XCTAssertTrue(tapWhenPossible(back), "Files should be poppable back to the torrent detail.")
         }
 

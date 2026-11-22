@@ -360,6 +360,11 @@ final class JellyfinSeerrSetupEditUIFixtureServer: @unchecked Sendable {
             )
         case ("GET", "/api/v1/request"):
             return .json(#"{"pageInfo":{"pages":0,"pageSize":20,"results":0,"page":1},"results":[]}"#)
+        case ("GET", "/api/v1/settings/sonarr"), ("GET", "/api/v1/settings/radarr"):
+            // The configuration audit's linked-server check. More's root runs that
+            // audit for its Setup Check row, so any journey through More reads
+            // these. No linked servers is a real answer, and one with no findings.
+            return .json("[]")
         default:
             return .unexpectedRoute
         }

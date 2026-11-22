@@ -503,8 +503,11 @@ extension XCTestCase {
             return openCompactMoreRoot(in: app, timeout: timeout)
         default:
             guard openCompactMoreRoot(in: app, timeout: timeout) else { return false }
-            let row = app.buttons[destination.navigationIdentifier]
+            // Setup Check is More's own status row rather than a plain link.
+            let row = app.buttons[destination == .setupCheck ? "more-setup-check" : destination.navigationIdentifier]
             if !row.waitForExistence(timeout: 2), let section = destination.compactMoreSectionTitle {
+                // A missing row is either folded away or just below the fold - the
+                // list builds only the rows near the screen. The header says which.
                 revealCompactMoreSection(section, in: app)
             }
             guard scrollCompactMoreRowIntoView(row, in: app) else { return false }
@@ -542,6 +545,17 @@ extension XCTestCase {
         return chosen.waitForExistence(timeout: timeout)
     }
 
+    /// The Downloads screen's title menu. On the phone Downloads is a tab of the
+    /// notification sheet, and the Library tab's own "…, change view" menu is still
+    /// in the tree underneath it, so a bare `firstMatch` can pick the wrong one.
+    @MainActor
+    func downloadsTitleMenu(in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "label CONTAINS[c] %@ AND NOT (label BEGINSWITH[c] %@ OR label BEGINSWITH[c] %@ OR label BEGINSWITH[c] %@)",
+            "change view", "Library,", "Series,", "Movies,"
+        )).firstMatch
+    }
+
     /// Opens Downloads, which on the phone is a tab of the notification sheet.
     @MainActor
     func openDownloadsSheet(in app: XCUIApplication, timeout: TimeInterval = 15) -> Bool {
@@ -567,40 +581,79 @@ extension XCTestCase {
         return app.navigationBars["More"].waitForExistence(timeout: timeout)
     }
 
-    /// Unfolds a More section. Called only once a row the section should hold is
-    /// missing, so it never folds a section that was already open. The setup
-    /// sections - Integrations and Management - start folded.
+    /// Unfolds a More section if it is folded. The header carries its state as
+    /// its accessibility value, so an open section - whose row may simply be below
+    /// the fold - is never tapped shut. The setup sections - Integrations and
+    /// Management - start folded.
     @MainActor
     private func revealCompactMoreSection(_ title: String, in app: XCUIApplication) {
-        let header = app.buttons.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch
+        let header = app.descendants(matching: .any).matching(identifier: "more-section.\(title)").firstMatch
         if !header.waitForExistence(timeout: 1), let list = compactMoreRootCollection(in: app) {
-            for _ in 0..<8 where !header.exists {
-                list.swipeUp()
-            }
+            for _ in 0..<8 where !header.exists { list.swipeUp() }
+            for _ in 0..<10 where !header.exists { list.swipeDown() }
         }
         guard header.exists else { return }
+        guard (header.value as? String) == "Collapsed" else { return }
         if let list = compactMoreRootCollection(in: app) {
-            for _ in 0..<6 where !header.isHittable { list.swipeUp() }
+            for _ in 0..<6 where !isClearOfBottomChrome(header, in: app) {
+                nudge(list, toward: header, in: app)
+            }
         }
         if header.isHittable { header.tap() }
     }
 
     @MainActor
     private func scrollCompactMoreRowIntoView(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
+        // More keeps its scroll position between visits, so the row can be above
+        // the screen as easily as below it: look down first, then back up.
         if !row.waitForExistence(timeout: 3), let list = compactMoreRootCollection(in: app) {
-            for _ in 0..<10 {
+            var found = false
+            for _ in 0..<10 where !found {
                 list.swipeUp()
-                if row.waitForExistence(timeout: 1) { break }
+                found = row.waitForExistence(timeout: 1)
+            }
+            for _ in 0..<12 where !found {
+                list.swipeDown()
+                found = row.waitForExistence(timeout: 1)
             }
         }
         guard row.waitForExistence(timeout: 3) else { return false }
         if let list = compactMoreRootCollection(in: app) {
-            for _ in 0..<8 where !row.isHittable {
-                list.swipeUp()
+            // Scroll toward the row: it can be tucked under the bar above as easily
+            // as under the accessory below.
+            for _ in 0..<8 where !isClearOfBottomChrome(row, in: app) {
+                nudge(list, toward: row, in: app)
                 _ = row.waitForExistence(timeout: 0.5)
             }
         }
-        return row.isHittable
+        return isClearOfBottomChrome(row, in: app)
+    }
+
+    /// A short, slow drag that brings `element` toward the middle of the screen. A
+    /// full swipe flings the list a screen or more, which can carry a row from
+    /// under the bar straight past the middle to under the accessory, and back.
+    @MainActor
+    private func nudge(_ list: XCUIElement, toward element: XCUIElement, in app: XCUIApplication) {
+        let distance = max(-260, min(260, app.frame.midY - element.frame.midY))
+        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: 0, dy: distance == 0 ? 80 : distance))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
+    }
+
+    /// Hittable, below More's bar, and above the bar accessory and tab bar. A row under the
+    /// notification accessory still reports hittable, but the tap lands on the
+    /// accessory and opens the notification sheet instead.
+    @MainActor
+    private func isClearOfBottomChrome(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard row.isHittable else { return false }
+        var chromeTop = app.frame.maxY
+        let accessory = app.buttons["notification-accessory"]
+        if accessory.exists { chromeTop = min(chromeTop, accessory.frame.minY - 12) }
+        let tabBar = app.tabBars.firstMatch
+        if tabBar.exists { chromeTop = min(chromeTop, tabBar.frame.minY) }
+        let navigationBar = app.navigationBars["More"]
+        let chromeBottom = navigationBar.exists ? navigationBar.frame.maxY : app.frame.minY
+        return row.frame.midY < chromeTop && row.frame.midY > chromeBottom
     }
 
     /// Taps a row of whatever list is on screen, by its title.

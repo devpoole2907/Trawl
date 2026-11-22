@@ -5,13 +5,17 @@ struct TrawlTitleMenuOption<Value: Hashable>: Identifiable {
     let value: Value
     let title: String
     let systemImage: String
+    /// What the option reads as inside the menu, when that differs from the title
+    /// it sets - e.g. "All Servers" beside a scope picker that already says "Series".
+    let menuTitle: String
 
     var id: Value { value }
 
-    init(value: Value, title: String, systemImage: String) {
+    init(value: Value, title: String, systemImage: String, menuTitle: String? = nil) {
         self.value = value
         self.title = title
         self.systemImage = systemImage
+        self.menuTitle = menuTitle ?? title
     }
 }
 
@@ -64,7 +68,7 @@ struct TrawlTitleMenu<Value: Hashable, Leading: View>: View {
                 set: { newValue in withAnimation(animation) { selection = newValue } }
             )) {
                 ForEach(options) { option in
-                    Label(option.title, systemImage: option.systemImage)
+                    Label(option.menuTitle, systemImage: option.systemImage)
                         .tag(option.value)
                 }
             }

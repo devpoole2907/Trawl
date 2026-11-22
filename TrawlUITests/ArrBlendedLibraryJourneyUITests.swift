@@ -208,8 +208,13 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "Series"))
             .allElementsBoundByIndex
 
+        // On the phone's Library tab the scope picker owns "Series", and the
+        // every-server option reads "All Servers" instead.
+        let allServers = app.buttons["All Servers"].firstMatch
         let unionOption: XCUIElement?
-        if app.tabBars.firstMatch.exists {
+        if allServers.waitForExistence(timeout: 2) {
+            unionOption = allServers
+        } else if app.tabBars.firstMatch.exists {
             // The menu is presented above the tab bar, so the match that is not the
             // tab is the one higher up the screen.
             let tabBarTop = app.tabBars.firstMatch.frame.minY

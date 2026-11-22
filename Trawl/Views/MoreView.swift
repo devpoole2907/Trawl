@@ -621,6 +621,8 @@ struct MoreView: View {
                             }
                         } header: {
                             Text(section.title)
+                                .accessibilityIdentifier("more-section.\(section.rawValue)")
+                                .accessibilityValue(moreSectionExpansion(section).wrappedValue ? "Expanded" : "Collapsed")
                         }
                     }
                 }
@@ -753,9 +755,7 @@ struct MoreView: View {
                 .environment(arrServiceManager)
                 .moreDestinationTitleStyle()
         case .calendar:
-            // Search-reachable only - no permanent More row. The primary,
-            // correctly media-scoped entry points are the Series and Movies
-            // toolbars (ArrMediaListView); this unscoped copy stays for search.
+            // The phone's Calendar tab roots a stack here; search reaches it too.
             ArrCalendarView()
                 .environment(arrServiceManager)
                 .injectSyncService(appServices)

@@ -662,7 +662,7 @@ struct ArrCalendarView: View {
                 .navigationSubtitle(navigationSubtitleText)
         } else {
             TrawlListDetailPanes(title: "Calendar", subtitle: navigationSubtitleText) {
-                calendarScreen
+                pushingCalendarScreen
             } detail: {
                 selectedMediaDetail
             }
@@ -680,6 +680,25 @@ struct ArrCalendarView: View {
                 .id(selectedMedia)
         } else {
             listDetailPlaceholder("Select a calendar item to view it", systemImage: "calendar")
+        }
+    }
+
+    /// Outside the split view, a row pushes its release by selection rather than by
+    /// `NavigationLink(value:)`. The phone's Calendar tab - and More, when search
+    /// reaches Calendar - root a stack whose path is typed `[MoreDestination]`, and a
+    /// typed path silently drops a value of any other type, so a value link to an
+    /// `ArrMediaDestination` did nothing at all there.
+    @ViewBuilder
+    private var pushingCalendarScreen: some View {
+        if sidebarColumn == nil {
+            calendarScreen
+                .environment(\.hasDetailPane, true)
+                .navigationDestination(item: selectionStore.binding) { destination in
+                    ArrMediaDetailPane(destination: destination)
+                        .environment(\.hasDetailPane, false)
+                }
+        } else {
+            calendarScreen
         }
     }
 

@@ -127,9 +127,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         // itself, chosen from the title menu, and Client Management no longer offers
         // a Queue row at all.
 
-        let titleMenu = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "change view"))
-            .firstMatch
+        let titleMenu = downloadsTitleMenu(in: app)
         XCTAssertTrue(
             titleMenu.waitForExistence(in: app, timeout: 10),
             "With a SABnzbd client configured, Downloads should offer its title menu."

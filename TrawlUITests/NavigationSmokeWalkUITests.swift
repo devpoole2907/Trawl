@@ -230,9 +230,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         // SABnzbdServiceManager, and used to trap on whichever route failed to hand
         // it one of them. Reaching it from the tab root exercises a different set of
         // hand-overs than the old push did, so this is worth keeping.
-        let titleMenu = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "change view")
-        ).firstMatch
+        let titleMenu = downloadsTitleMenu(in: app)
         XCTAssertTrue(
             titleMenu.waitForExistence(in: app, timeout: 10),
             "Screen: with a SABnzbd client configured, Downloads should offer its title menu."
