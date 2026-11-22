@@ -258,6 +258,71 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
     }
 
     @MainActor
+    func testViewedSearchResultAppearsInRecentlyViewedAfterRelaunch() async throws {
+        let title = "Fixture Recently Viewed \(UUID().uuidString.prefix(8))"
+        let lookupJSON = #"""
+        [{
+          "id": 0,
+          "title": "\#(title)",
+          "sortTitle": "fixture recently viewed",
+          "tmdbId": 910001,
+          "year": 2026,
+          "runtime": 91,
+          "monitored": false,
+          "status": "released"
+        }]
+        """#
+
+        let server = try await RadarrFixtureServer(lookupResponseJSON: lookupJSON)
+        self.server = server
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.search, in: app), "The Search destination should be reachable.")
+
+        let searchField = contentSearchField(in: app)
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10))
+        searchField.tap()
+        searchField.typeText("\(title)\n")
+
+        let result = app.staticTexts[title]
+        XCTAssertTrue(
+            result.waitForExistence(in: app, timeout: 15),
+            "The fixture-backed lookup result should render before it can be viewed. Requests: \(server.requests)"
+        )
+        result.tap()
+        XCTAssertTrue(
+            app.navigationBars[title].waitForExistence(timeout: 15),
+            "Recently Viewed must be recorded from an actually presented detail, not merely a result-row tap."
+        )
+
+        // Relaunching proves the shelf is backed by persisted history rather than
+        // the navigation stack or the current lookup response. The unique title
+        // means a stale entry from an earlier test run cannot satisfy the assertion.
+        app.terminate()
+        app.launch()
+
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.search, in: app), "Search should remain reachable after relaunch.")
+
+        let shelf = app.descendants(matching: .any)["search-recently-viewed"]
+        XCTAssertTrue(
+            shelf.waitForExistence(timeout: 15),
+            "A viewed Search result should create the Recently Viewed shelf."
+        )
+        XCTAssertTrue(
+            app.staticTexts[title].waitForExistence(in: app, timeout: 10),
+            "The shelf should restore the exact viewed movie after relaunch."
+        )
+        attachScreenshot(named: "Search - recently viewed", from: app)
+    }
+
+    @MainActor
     private func firstButton(labelContains text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
@@ -280,6 +345,14 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
         while element.exists && Date() < deadline {
             _ = element.waitForExistence(timeout: 0.25)
         }
+    }
+
+    @MainActor
+    private func attachScreenshot(named name: String, from app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func queryValues(_ rawQuery: String?) -> [String: String] {

@@ -48,6 +48,7 @@ struct SearchView: View {
 
     // Recents
     @AppStorage("search.recents") private var recentsStorage: String = "[]"
+    @AppStorage("search.recentlyViewed") private var recentlyViewedStorage: String = "[]"
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
@@ -144,6 +145,7 @@ struct SearchView: View {
             #endif
             .arrMediaNavigationDestinations(
                 onLibraryChanged: { await refreshLibrary() },
+                onVisit: recordRecentlyViewed,
                 zoomNamespace: trendingTransition
             )
             // A search that finds nothing looks like a search problem. An Arr with no
@@ -176,6 +178,9 @@ struct SearchView: View {
                 destination: dest,
                 onLibraryChanged: { await refreshLibrary() }
             )
+            .onAppear {
+                recordRecentlyViewed(dest)
+            }
         }
         .searchable(
             text: $viewModel.searchText,
@@ -247,6 +252,9 @@ struct SearchView: View {
                 destination: dest,
                 onLibraryChanged: { await refreshLibrary() }
             )
+            .onAppear {
+                recordRecentlyViewed(dest)
+            }
         }
         .onChange(of: viewModel.scope) { _, newScope in
             if newScope == .arr {
@@ -430,22 +438,27 @@ struct SearchView: View {
 
     @ViewBuilder
     private var popularThisWeekContent: some View {
-        let hasContent = !viewModel.trendingMovies.isEmpty || !viewModel.trendingTV.isEmpty
+        let recentlyViewed = loadRecentlyViewed()
+        let hasTrending = !viewModel.trendingMovies.isEmpty || !viewModel.trendingTV.isEmpty
 
         ScrollView {
-            if viewModel.isLoadingTrending && !hasContent {
-                VStack(spacing: 16) {
-                    Spacer(minLength: 80)
-                    ProgressView()
-                    Text("Loading trending content…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            LazyVStack(alignment: .leading, spacing: 24) {
+                if !recentlyViewed.isEmpty {
+                    recentlyViewedSection(recentlyViewed)
                 }
-                .frame(maxWidth: .infinity)
-            } else if let error = viewModel.trendingError, !hasContent {
-                ServiceErrorView(title: "Couldn't Load Trending", message: error, onRetry: { await loadTrending() })
-            } else if hasContent {
-                LazyVStack(alignment: .leading, spacing: 24) {
+
+                if viewModel.isLoadingTrending && !hasTrending {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text("Loading trending content…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, recentlyViewed.isEmpty ? 80 : 24)
+                } else if let error = viewModel.trendingError, !hasTrending {
+                    ServiceErrorView(title: "Couldn't Load Trending", message: error, onRetry: { await loadTrending() })
+                } else {
                     if !viewModel.trendingMovies.isEmpty {
                         trendingSection(title: "Trending Movies", icon: "film", items: viewModel.trendingMovies)
                     }
@@ -453,10 +466,75 @@ struct SearchView: View {
                         trendingSection(title: "Trending TV Shows", icon: "tv", items: viewModel.trendingTV)
                     }
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 32)
             }
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
+    }
+
+    private func recentlyViewedSection(_ items: [SearchRecentlyViewedItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundStyle(.secondary)
+                Text("Recently Viewed")
+                    .font(.title3)
+                    .fontWeight(.bold)
+            }
+            .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(items) { item in
+                        NavigationLink(value: item.destination) {
+                            recentlyViewedCardLabel(item)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .horizontalSoftEdges()
+        }
+        .accessibilityIdentifier("search-recently-viewed")
+    }
+
+    private func recentlyViewedCardLabel(_ item: SearchRecentlyViewedItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ArrArtworkView(url: item.posterURL, contentMode: .fill) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.quaternary)
+                    .overlay {
+                        Image(systemName: item.systemImage)
+                            .font(.title2)
+                            .foregroundStyle(.tertiary)
+                    }
+            }
+            .frame(width: hSizeClass == .regular ? 180 : 140, height: hSizeClass == .regular ? 270 : 210)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.primary)
+
+                HStack(spacing: 4) {
+                    if let year = item.year {
+                        Text(year, format: .number.grouping(.never))
+                    }
+                    Text(item.kindLabel)
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            .frame(width: hSizeClass == .regular ? 180 : 140, alignment: .leading)
+            .padding(.top, 6)
+            .padding(.horizontal, 2)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -1088,6 +1166,24 @@ struct SearchView: View {
         saveRecents([])
     }
 
+    private func loadRecentlyViewed() -> [SearchRecentlyViewedItem] {
+        SearchRecentlyViewedHistory.decode(recentlyViewedStorage)
+    }
+
+    private func recordRecentlyViewed(_ destination: ArrMediaDestination) {
+        let current = loadRecentlyViewed()
+        let item = SearchRecentlyViewedItem(
+            destination: destination,
+            movies: viewModel.radarrMovies,
+            series: viewModel.sonarrSeries
+        ) ?? current.first(where: { $0.destination == destination })
+
+        guard let item else { return }
+        recentlyViewedStorage = SearchRecentlyViewedHistory.encode(
+            SearchRecentlyViewedHistory.inserting(item, into: current)
+        )
+    }
+
     #if os(macOS)
     @ToolbarContentBuilder
     private var macOSSearchBarToolbarItem: some ToolbarContent {
@@ -1115,6 +1211,156 @@ struct SearchView: View {
 }
 
 // MARK: - Arr result rows
+
+nonisolated struct SearchRecentlyViewedItem: Codable, Identifiable, Sendable {
+    nonisolated enum Presentation: String, Codable, Sendable {
+        case library
+        case lookup
+    }
+
+    nonisolated enum Payload: Codable, Sendable {
+        case movie(RadarrMovie)
+        case series(SonarrSeries)
+    }
+
+    let payload: Payload
+    let presentation: Presentation
+    let instanceID: UUID?
+
+    init(movie: RadarrMovie, presentation: Presentation) {
+        self.payload = .movie(movie)
+        self.presentation = presentation
+        self.instanceID = movie.instanceID
+    }
+
+    init(series: SonarrSeries, presentation: Presentation) {
+        self.payload = .series(series)
+        self.presentation = presentation
+        self.instanceID = series.instanceID
+    }
+
+    init?(
+        destination: ArrMediaDestination,
+        movies: [RadarrMovie],
+        series: [SonarrSeries]
+    ) {
+        switch destination {
+        case .movie(let id, let instanceID, _):
+            guard let movie = movies.first(where: {
+                $0.id == id && (instanceID == nil || $0.instanceID == instanceID)
+            }) else { return nil }
+            self.init(movie: movie, presentation: .library)
+
+        case .movieLookup(let movie):
+            self.init(movie: movie, presentation: .lookup)
+
+        case .series(let id, let instanceID, _):
+            guard let item = series.first(where: {
+                $0.id == id && (instanceID == nil || $0.instanceID == instanceID)
+            }) else { return nil }
+            self.init(series: item, presentation: .library)
+
+        case .seriesLookup(let series):
+            self.init(series: series, presentation: .lookup)
+
+        case .episode:
+            return nil
+        }
+    }
+
+    var id: String {
+        switch payload {
+        case .movie(let movie):
+            if let tmdbID = movie.tmdbId { return "movie-tmdb-\(tmdbID)" }
+            if let imdbID = movie.imdbId { return "movie-imdb-\(imdbID)" }
+            return "movie-\(instanceID?.uuidString ?? "lookup")-\(movie.lookupIdentity)"
+
+        case .series(let series):
+            if let tvdbID = series.tvdbId { return "series-tvdb-\(tvdbID)" }
+            if let imdbID = series.imdbId { return "series-imdb-\(imdbID)" }
+            return "series-\(instanceID?.uuidString ?? "lookup")-\(series.lookupIdentity)"
+        }
+    }
+
+    var title: String {
+        switch payload {
+        case .movie(let movie): movie.title
+        case .series(let series): series.title
+        }
+    }
+
+    var year: Int? {
+        switch payload {
+        case .movie(let movie): movie.year
+        case .series(let series): series.year
+        }
+    }
+
+    var posterURL: URL? {
+        switch payload {
+        case .movie(let movie): movie.posterURL
+        case .series(let series): series.posterURL
+        }
+    }
+
+    var systemImage: String {
+        switch payload {
+        case .movie: "film"
+        case .series: "tv"
+        }
+    }
+
+    var kindLabel: String {
+        switch payload {
+        case .movie: "Movie"
+        case .series: "Series"
+        }
+    }
+
+    var destination: ArrMediaDestination {
+        switch (payload, presentation) {
+        case (.movie(let movie), .library):
+            return .movie(id: movie.id, instanceID: instanceID)
+        case (.movie(var movie), .lookup):
+            movie.instanceID = instanceID
+            return .movieLookup(movie)
+        case (.series(let series), .library):
+            return .series(id: series.id, instanceID: instanceID)
+        case (.series(var series), .lookup):
+            series.instanceID = instanceID
+            return .seriesLookup(series)
+        }
+    }
+}
+
+nonisolated enum SearchRecentlyViewedHistory {
+    static let maximumCount = 20
+
+    static func inserting(
+        _ item: SearchRecentlyViewedItem,
+        into history: [SearchRecentlyViewedItem]
+    ) -> [SearchRecentlyViewedItem] {
+        var updated = history.filter { $0.id != item.id }
+        updated.insert(item, at: 0)
+        return Array(updated.prefix(maximumCount))
+    }
+
+    static func decode(_ storage: String) -> [SearchRecentlyViewedItem] {
+        guard let data = storage.data(using: .utf8),
+              let items = try? JSONDecoder().decode([SearchRecentlyViewedItem].self, from: data) else {
+            return []
+        }
+        return items
+    }
+
+    static func encode(_ items: [SearchRecentlyViewedItem]) -> String {
+        guard let data = try? JSONEncoder().encode(items),
+              let storage = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return storage
+    }
+}
 
 struct ArrLookupError: Identifiable {
     let service: String

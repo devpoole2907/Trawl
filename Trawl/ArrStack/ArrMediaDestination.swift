@@ -88,12 +88,16 @@ enum ArrMediaDestination: Hashable {
 /// library match loads in.
 private struct ArrMediaNavigationDestinationsModifier: ViewModifier {
     var onLibraryChanged: (() async -> Void)?
+    var onVisit: ((ArrMediaDestination) -> Void)?
     var zoomNamespace: Namespace.ID?
 
     func body(content: Content) -> some View {
         content
             .navigationDestination(for: ArrMediaDestination.self) { destination in
                 destinationView(for: destination)
+                    .onAppear {
+                        onVisit?(destination)
+                    }
             }
     }
 
@@ -194,12 +198,21 @@ extension View {
     /// - Parameters:
     ///   - onLibraryChanged: Invoked after a discover-mode "Add to library" completes. Mirrors
     ///     the old per-site `onAdded:` callback (e.g. Search passes a library-refresh closure).
+    ///   - onVisit: Invoked when the named detail actually appears. Search uses this to retain
+    ///     recently viewed media without relying on pointer-only tap gestures.
     ///   - zoomNamespace: Optional namespace shared with `.matchedTransitionSource(id:in:)` on the
     ///     pushing card, so the detail view continues a `.navigationTransition(.zoom)` (iOS only).
     func arrMediaNavigationDestinations(
         onLibraryChanged: (() async -> Void)? = nil,
+        onVisit: ((ArrMediaDestination) -> Void)? = nil,
         zoomNamespace: Namespace.ID? = nil
     ) -> some View {
-        modifier(ArrMediaNavigationDestinationsModifier(onLibraryChanged: onLibraryChanged, zoomNamespace: zoomNamespace))
+        modifier(
+            ArrMediaNavigationDestinationsModifier(
+                onLibraryChanged: onLibraryChanged,
+                onVisit: onVisit,
+                zoomNamespace: zoomNamespace
+            )
+        )
     }
 }
