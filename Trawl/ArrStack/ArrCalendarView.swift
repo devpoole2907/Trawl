@@ -428,10 +428,10 @@ struct ArrCalendarView: View {
     @Environment(\.dismiss) private var dismiss
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
+    #endif
     /// Set on the iPhone's Calendar tab. A tab root keeps the tab bar - hiding it
     /// would leave no way out - so Subscribe moves up into the navigation bar.
     @Environment(\.calendarIsTabRoot) private var isTabRoot
-    #endif
 
     let showsCloseButton: Bool
 
