@@ -21,6 +21,14 @@ final class TrawlUITestsLaunchTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The landscape configurations rotate the *device*, not just this app, and the
+    /// rotation outlives the test. Every suite that ran afterwards launched sideways,
+    /// where the phone's More list shows fewer rows and the Library tip lays out
+    /// differently - seven unrelated journeys failed on a full run and passed alone.
+    override func tearDownWithError() throws {
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// Fails if the welcome screen doesn't render its real content on this
     /// configuration - a blank window, a crash, or a stuck spinner would all
     /// fail this, whereas a bare screenshot attachment would not.

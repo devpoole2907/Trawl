@@ -75,13 +75,48 @@ extension View {
     ///
     /// `.top` is the edge the arrow comes out of, which puts the bubble under the
     /// navigation bar with its point on the title.
-    @ViewBuilder
     func libraryScopeTip(isShown: Bool) -> some View {
-        if isShown {
-            popoverTip(LibraryScopeTip(), arrowEdge: .top)
-        } else {
-            self
-        }
+        modifier(LibraryScopeTipAnchor(isShown: isShown))
+    }
+}
+
+/// Holds the tip back until the screen it points into has settled.
+///
+/// The tip becomes eligible in the same render that swaps the Library's empty state
+/// for its list - the moment the first titles arrive. That swap rebuilds the bar, and
+/// a popover presented mid-rebuild anchors to the title menu's frame *before* the bar
+/// has placed it: the bubble sat over the title at the top of the screen, its arrow
+/// pointing at the corner, and stayed there. It only happened when the library loaded
+/// after the first frame rather than before it, which is the ordinary case on a slow
+/// network.
+///
+/// So the popover gets its tip only once TipKit says it should display *and* a beat
+/// has passed for the bar to lay out, and only while the anchor has a real frame below
+/// the top edge. Once shown it stays put; TipKit moves it with the title from there.
+private struct LibraryScopeTipAnchor: ViewModifier {
+    let isShown: Bool
+    @State private var isPlaced = false
+    @State private var isSettled = false
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: Bool.self) { proxy in
+                let frame = proxy.frame(in: .global)
+                return frame.minY > 0 && frame.height > 0
+            } action: { isPlaced = $0 }
+            .task {
+                for await shouldDisplay in LibraryScopeTip().shouldDisplayUpdates {
+                    guard shouldDisplay else {
+                        isSettled = false
+                        continue
+                    }
+                    guard !isSettled else { continue }
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    isSettled = true
+                }
+            }
+            .popoverTip(isShown && isPlaced && isSettled ? LibraryScopeTip() : nil, arrowEdge: .top)
     }
 }
 
