@@ -57,14 +57,16 @@ final class InAppNotificationCenter {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
 
-        showSuccess(title: "Download Complete", message: trimmedName)
+        showSuccess(title: "Download Complete", message: trimmedName, isOutcome: true)
     }
 
     func showProgress(title: String, message: String, key: String? = nil, source: NotificationLogEntry.Source = .inApp) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
-        appendLog(title: trimmedTitle, message: trimmedMessage, style: .progress, source: source)
+        if NotificationLogPolicy.logs(style: .progress, source: source, destination: nil, isOutcome: false) {
+            appendLog(title: trimmedTitle, message: trimmedMessage, style: .progress, source: source)
+        }
 
         presentImmediately(
             InAppBannerItem(
@@ -86,18 +88,21 @@ final class InAppNotificationCenter {
         message: String,
         action: InAppBannerAction? = nil,
         source: NotificationLogEntry.Source = .inApp,
-        destination: NotificationLogDestination? = nil
+        destination: NotificationLogDestination? = nil,
+        isOutcome: Bool = false
     ) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
-        appendLog(
-            title: trimmedTitle,
-            message: trimmedMessage,
-            style: .success,
-            source: source,
-            destination: destination
-        )
+        if NotificationLogPolicy.logs(style: .success, source: source, destination: destination, isOutcome: isOutcome) {
+            appendLog(
+                title: trimmedTitle,
+                message: trimmedMessage,
+                style: .success,
+                source: source,
+                destination: destination
+            )
+        }
 
         #if os(iOS)
         if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
@@ -301,15 +306,34 @@ final class InAppNotificationCenter {
         isPresentingRecentNotifications = true
     }
 
-    /// Set when the sheet should open on its Downloads section rather than Activity.
-    /// Read and cleared by the sheet as it appears.
-    var opensOnDownloads = false
+    /// The tab the sheet should open on, or switch to if it is already open. Read and
+    /// cleared by the sheet. `nil` keeps whichever tab the user last had open.
+    var requestedSheetTab: NotificationSheetTab?
+    /// The tab the sheet was last left on, for this launch only. A fresh launch
+    /// opens on Alerts; a tab remembered from last week answers a different question.
+    var lastSheetTab: NotificationSheetTab?
 
     /// Opens the notification sheet on Downloads - the iPhone's home for downloads,
     /// now that they have no tab of their own.
     func showDownloads() {
-        opensOnDownloads = true
+        showRecentNotifications(on: .downloads)
+    }
+
+    /// Opens the sheet on a given tab: the one holding whatever the bar was showing.
+    func showRecentNotifications(on tab: NotificationSheetTab?) {
+        requestedSheetTab = tab
         isPresentingRecentNotifications = true
+    }
+
+    // MARK: - Quick action runs
+
+    /// When each quick action last finished, for the "Last run" line on Actions.
+    /// Kept per launch: it answers "did I already do this just now?", and a stale
+    /// time from last week would answer a different question.
+    private(set) var lastQuickActionRuns: [String: QuickActionRunRecord] = [:]
+
+    func recordQuickActionRun(_ actionID: String, succeeded: Bool, targetCount: Int, at date: Date = .now) {
+        lastQuickActionRuns[actionID] = QuickActionRunRecord(date: date, succeeded: succeeded, targetCount: targetCount)
     }
 
     /// What tapping a banner does, wherever it is presented.
@@ -660,6 +684,57 @@ struct InAppBannerItem: Identifiable, @unchecked Sendable {
             baseMessage: baseMessage
         )
     }
+}
+
+/// What goes in the Alerts log.
+///
+/// The log is a record of what happened, not an echo of what the user just did.
+/// Every push, every error and every outcome of long-running work is kept. A success
+/// raised by the user's own tap ("Copied", "Saved", "Deleted") already showed as a
+/// banner at the moment it happened, and logging it buried the events that came
+/// from the servers. A success with a destination is about a title, so it stays.
+/// Progress is not logged at all: running work lives under Happening now, and its
+/// result is logged when it lands.
+nonisolated enum NotificationLogPolicy {
+    static func logs(
+        style: InAppBannerStyle,
+        source: NotificationLogEntry.Source,
+        destination: NotificationLogDestination?,
+        isOutcome: Bool
+    ) -> Bool {
+        switch style {
+        case .error: true
+        case .progress: false
+        case .success: source == .system || destination != nil || isOutcome
+        }
+    }
+}
+
+/// The sheet's tabs, in pipeline order. Requests and Downloads are offered only
+/// where they have content to hold: Requests when Seerr is set up, Downloads on the
+/// tab chrome, where it has no tab of its own.
+nonisolated enum NotificationSheetTab: String, CaseIterable, Identifiable, Sendable {
+    case requests = "Requests"
+    case downloads = "Downloads"
+    case alerts = "Alerts"
+    case actions = "Actions"
+
+    var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .requests: "film.stack"
+        case .downloads: "tray.and.arrow.down"
+        case .alerts: "bell"
+        case .actions: "bolt"
+        }
+    }
+}
+
+nonisolated struct QuickActionRunRecord: Equatable, Sendable {
+    let date: Date
+    let succeeded: Bool
+    let targetCount: Int
 }
 
 struct NotificationLogEntry: Identifiable, Codable, Sendable {

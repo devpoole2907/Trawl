@@ -170,7 +170,7 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         case ("GET", "/api/v1/auth/me"):
             return (200, Self.authenticatedUserJSON)
         case ("GET", "/api/v1/request") where includesRequests:
-            return (200, requestListJSON())
+            return (200, requestListJSON(filter: Self.queryValue("filter", in: request.query) ?? "pending"))
         case ("GET", "/api/v1/request/count") where includesRequests:
             return (200, requestCountJSON())
         case ("POST", "/api/v1/request/801/approve") where includesRequests:
@@ -211,12 +211,21 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         return (200, requestJSON(id: id, status: status))
     }
 
-    private func requestListJSON() -> String {
+    /// Answers each `filter` the way Seerr does: `pending` is status 1, and
+    /// `processing` is approved and not yet available - status 2 here, since nothing
+    /// in the fixture ever becomes available. Any other filter is empty.
+    private func requestListJSON(filter: String) -> String {
         lock.lock()
         let statuses = requestStatuses
         lock.unlock()
+        let wanted: Int?
+        switch filter {
+        case "pending": wanted = 1
+        case "processing": wanted = 2
+        default: wanted = nil
+        }
         let requests = statuses.keys.sorted().compactMap { id -> String? in
-            guard let status = statuses[id], status == 1 else { return nil }
+            guard let wanted, let status = statuses[id], status == wanted else { return nil }
             return requestJSON(id: id, status: status)
         }
         return #"{"pageInfo":{"pages":1,"pageSize":20,"results":\#(requests.count),"page":1},"results":[\#(requests.joined(separator: ","))]}"#
@@ -288,6 +297,14 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return issueIsResolved ? 2 : 1
+    }
+
+    static func queryValue(_ name: String, in query: String) -> String? {
+        query.split(separator: "&").lazy.compactMap { pair -> String? in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0] == name else { return nil }
+            return String(parts[1]).removingPercentEncoding ?? String(parts[1])
+        }.first
     }
 
     private static func parseRequest(from data: Data) -> RecordedRequest? {

@@ -305,6 +305,11 @@ struct QuickActionRunner {
     /// One summary banner per action rather than one per service - on a partial
     /// failure the successes and the failure reasons share a single line.
     private func report(_ action: NotificationQuickAction, outcome: NotificationQuickActionOutcome) {
+        inAppNotificationCenter.recordQuickActionRun(
+            action.rawValue,
+            succeeded: !outcome.isEmpty && outcome.failures.isEmpty,
+            targetCount: outcome.succeeded.count + outcome.failures.count
+        )
         guard !outcome.isEmpty else {
             inAppNotificationCenter.showError(
                 title: action.bannerTitle,
@@ -321,7 +326,7 @@ struct QuickActionRunner {
         let message = parts.joined(separator: " · ")
 
         if outcome.failures.isEmpty {
-            inAppNotificationCenter.showSuccess(title: action.bannerTitle, message: "\(message).")
+            inAppNotificationCenter.showSuccess(title: action.bannerTitle, message: "\(message).", isOutcome: true)
         } else {
             inAppNotificationCenter.showError(title: action.bannerTitle, message: message)
         }

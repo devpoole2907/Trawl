@@ -187,7 +187,7 @@ struct InAppNotificationCoalescingTests {
         let center = center()
         let before = center.recentNotifications.count
         for index in 1...10 {
-            center.showSuccess(title: "Import Complete", message: "Movie \(index)")
+            center.showSuccess(title: "Import Complete", message: "Movie \(index)", isOutcome: true)
         }
 
         #expect(center.recentNotifications.count == before + 10)

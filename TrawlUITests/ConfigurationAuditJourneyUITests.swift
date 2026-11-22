@@ -216,7 +216,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             tapWhenHittable(app.buttons["Notifications"], in: app, timeout: 10),
             "The notification accessory should open the notifications sheet."
         )
-        XCTAssertTrue(app.navigationBars["Notifications"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Alerts"].waitForExistence(timeout: 10))
 
         let setupAttention = app.buttons["notifications-setup-attention"]
         XCTAssertTrue(

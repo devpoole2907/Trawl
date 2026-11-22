@@ -1572,11 +1572,11 @@ struct ContentView: View {
         case "trawl":
             let host = url.host?.lowercased() ?? ""
             // A pending-request push exists to get a decision, so it opens the
-            // notification sheet's Pending Approval section rather than the
-            // management list. Browsing every request is a different intent and is
-            // a destination of its own.
+            // notification sheet's Requests tab rather than the management list.
+            // Browsing every request is a different intent and is a destination of
+            // its own.
             if host == "seerr-requests", !shouldShowWelcomeScreen {
-                inAppNotificationCenter.showRecentNotifications()
+                inAppNotificationCenter.showRecentNotifications(on: .requests)
                 return
             }
             guard let target = Self.deepLinkTarget(host: host) else { return }

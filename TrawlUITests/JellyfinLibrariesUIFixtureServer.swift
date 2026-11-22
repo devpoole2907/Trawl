@@ -170,6 +170,9 @@ final class JellyfinLibrariesUIFixtureServer: @unchecked Sendable {
                 return .json(#"{"Message":"Unexpected library removal query"}"#, status: 400)
             }
             return .noContent
+        case ("POST", "/Library/Refresh"):
+            // The Actions tab's Rescan Libraries.
+            return .noContent
         default:
             return .json(#"{"Message":"Fixture route not implemented"}"#, status: 404)
         }

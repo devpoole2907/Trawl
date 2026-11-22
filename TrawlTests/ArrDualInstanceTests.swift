@@ -436,8 +436,10 @@ struct ArrDualInstanceTests {
         #expect(retrySucceeded)
         #expect(attempts == [hd.id, uhd.id, uhd.id])
         #expect(state.failureMessage == nil)
-        #expect(InAppNotificationCenter.shared.recentNotifications.count == notificationsBefore + 2)
-        #expect(InAppNotificationCenter.shared.recentNotifications.first?.title == "Added")
+        // The success is the user's own tap confirmed: a banner, not a log entry.
+        // The failure before it stays the newest thing in the log.
+        #expect(InAppNotificationCenter.shared.recentNotifications.count == notificationsBefore + 1)
+        #expect(InAppNotificationCenter.shared.recentNotifications.first?.title == "Add Failed")
     }
 
     /// The regression the search journey caught: a 500 from Sonarr reached the sheet

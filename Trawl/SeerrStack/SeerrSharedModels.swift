@@ -120,6 +120,31 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
     let originalTitle: String?
     let originalName: String?
     let posterPath: String?
+    /// When the media server first reported the title, and when Seerr last touched
+    /// the media record. Both optional: the request list's embedded media carries
+    /// them on current Seerr, and an older server simply leaves "Recently available"
+    /// empty rather than failing the decode.
+    let mediaAddedAt: String?
+    let updatedAt: String?
+    /// What the linked Sonarr or Radarr is downloading for this title right now,
+    /// one entry per queue item. Seerr fills these from the Arr queue; empty or
+    /// absent when nothing is downloading.
+    let downloadStatus: [SeerrDownloadStatus]?
+    let downloadStatus4k: [SeerrDownloadStatus]?
+
+    /// Fraction downloaded across every queue item for the requested quality, or nil
+    /// when nothing is in the queue for it.
+    func downloadProgress(is4k: Bool) -> Double? {
+        let items = (is4k ? downloadStatus4k : downloadStatus) ?? []
+        let total = items.compactMap(\.size).reduce(0, +)
+        guard total > 0 else { return nil }
+        let left = items.compactMap(\.sizeLeft).reduce(0, +)
+        return min(max(1 - left / total, 0), 1)
+    }
+
+    func downloadingCount(is4k: Bool) -> Int {
+        ((is4k ? downloadStatus4k : downloadStatus) ?? []).count
+    }
 
     var displayTitle: String {
         title ?? name ?? originalTitle ?? originalName ?? tmdbDisplayTitle
@@ -158,6 +183,12 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
         guard let status4k else { return nil }
         return SeerrMediaStatus(rawValue: status4k)
     }
+}
+
+nonisolated struct SeerrDownloadStatus: Codable, Sendable {
+    let size: Double?
+    let sizeLeft: Double?
+    let title: String?
 }
 
 /// The full detail Seerr returns from `/api/v1/movie/{id}` and `/api/v1/tv/{id}`.

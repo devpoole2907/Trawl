@@ -215,7 +215,7 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
             "The app-wide Notifications accessory should be available after the seeded Sonarr profile reaches the normal app chrome."
         )
         XCTAssertTrue(
-            app.navigationBars["Notifications"].waitForExistence(timeout: 10),
+            app.navigationBars["Alerts"].waitForExistence(timeout: 10),
             "Tapping the accessory should present the real Notifications sheet."
         )
 

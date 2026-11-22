@@ -72,6 +72,8 @@ final class SeerrServiceManager {
             isConnected = false
             cachedUserCount = nil
             pendingRequests = []
+            inFlightRequests = []
+            recentlyAvailableRequests = []
         }
     }
 
@@ -84,6 +86,9 @@ final class SeerrServiceManager {
         isConnecting = false
         cachedUserCount = nil
         pendingRequests = []
+        inFlightRequests = []
+        recentlyAvailableRequests = []
+        requestSummaries = [:]
     }
 
     func updateCachedUserCount(_ count: Int) {
@@ -117,9 +122,118 @@ final class SeerrServiceManager {
         }
     }
 
+    // MARK: - Requests in flight
+
+    /// Approved requests that are not available yet - "where's my thing?". Seerr's
+    /// `processing` filter, which is approved-and-not-yet-available on the server.
+    private(set) var inFlightRequests: [SeerrMediaRequest] = []
+    /// Requests whose media became available inside `recentlyAvailableWindow`.
+    private(set) var recentlyAvailableRequests: [SeerrMediaRequest] = []
+    /// Titles and posters for request rows, keyed by `SeerrServiceManager.titleKey`.
+    ///
+    /// Seerr's request list embeds the media *record*, which has ids and status but
+    /// usually no title, so a row built from the list alone reads "TMDb 101". The
+    /// full Requests screen enriches its own rows; this does the same once for the
+    /// sheet, and keeps the answers across refreshes so a row never flickers back.
+    private(set) var requestSummaries: [String: SeerrMediaSummary] = [:]
+
+    nonisolated static let recentlyAvailableWindow: TimeInterval = 24 * 60 * 60
+
+    /// Pending, in-flight and recently available requests, plus their titles.
+    /// The sheet's Requests tab is built from exactly this.
+    func refreshRequestQueue(now: Date = .now) async {
+        await refreshPendingRequests()
+        guard let client = activeClient, isConnected else {
+            inFlightRequests = []
+            recentlyAvailableRequests = []
+            return
+        }
+
+        if let response = try? await client.getRequests(take: 20, skip: 0, filter: "processing", sort: "modified") {
+            inFlightRequests = response.results
+        }
+        if let response = try? await client.getRequests(take: 20, skip: 0, filter: "available", sort: "modified") {
+            recentlyAvailableRequests = Self.recentlyAvailable(response.results, now: now)
+        }
+
+        await enrichRequestSummaries(using: client)
+    }
+
+    /// The ones that became available inside the window, newest first.
+    ///
+    /// The media's own `mediaAddedAt` is the moment it landed; `updatedAt` on the
+    /// media and then on the request are fallbacks for servers that leave it out.
+    /// A request with no date at all is dropped: "recently" is a claim about time,
+    /// and an undated row would sit there forever.
+    nonisolated static func recentlyAvailable(_ requests: [SeerrMediaRequest], now: Date) -> [SeerrMediaRequest] {
+        requests
+            .compactMap { request -> (SeerrMediaRequest, Date)? in
+                guard let date = availableDate(of: request) else { return nil }
+                let age = now.timeIntervalSince(date)
+                guard age >= 0, age <= recentlyAvailableWindow else { return nil }
+                return (request, date)
+            }
+            .sorted { $0.1 > $1.1 }
+            .map(\.0)
+    }
+
+    nonisolated static func availableDate(of request: SeerrMediaRequest) -> Date? {
+        SeerrDateFormatter.date(from: request.media?.mediaAddedAt)
+            ?? SeerrDateFormatter.date(from: request.media?.updatedAt)
+            ?? SeerrDateFormatter.date(from: request.updatedAt)
+    }
+
+    nonisolated static func titleKey(for request: SeerrMediaRequest) -> String? {
+        guard let tmdbId = request.media?.tmdbId, let mediaType = request.media?.mediaType else { return nil }
+        return "\(mediaType):\(tmdbId)"
+    }
+
+    /// The best title known for a request: the embedded one, else the looked-up one.
+    func displayTitle(for request: SeerrMediaRequest) -> String {
+        let embedded = request.media?.displayTitle
+        if let embedded, !embedded.hasPrefix("TMDb "), embedded != "Unknown Media" { return embedded }
+        if let key = Self.titleKey(for: request), let summary = requestSummaries[key] {
+            return summary.displayTitle
+        }
+        return embedded ?? "Unknown Media"
+    }
+
+    private func enrichRequestSummaries(using client: SeerrAPIClient) async {
+        let all = pendingRequests + inFlightRequests + recentlyAvailableRequests
+        var missing: [(key: String, tmdbId: Int, mediaType: String)] = []
+        for request in all {
+            guard let key = Self.titleKey(for: request),
+                  requestSummaries[key] == nil,
+                  !missing.contains(where: { $0.key == key }),
+                  let tmdbId = request.media?.tmdbId,
+                  let mediaType = request.media?.mediaType else { continue }
+            let embedded = request.media?.displayTitle ?? ""
+            guard embedded.hasPrefix("TMDb ") || embedded == "Unknown Media" else { continue }
+            missing.append((key, tmdbId, mediaType))
+        }
+        guard !missing.isEmpty else { return }
+
+        await withTaskGroup(of: (String, SeerrMediaSummary?).self) { group in
+            for item in missing {
+                group.addTask {
+                    (item.key, try? await client.getMediaSummary(tmdbId: item.tmdbId, mediaType: item.mediaType))
+                }
+            }
+            for await (key, summary) in group {
+                if let summary { requestSummaries[key] = summary }
+            }
+        }
+    }
+
     func approveRequest(id: Int) async throws {
         guard let client = activeClient else { return }
-        _ = try await client.approveRequest(id: id)
+        let approved = try await client.approveRequest(id: id)
+        if let request = pendingRequests.first(where: { $0.id == id }) {
+            // Straight into "on the way": the next refresh would put it there anyway,
+            // and in the meantime the row should move rather than vanish.
+            inFlightRequests.removeAll { $0.id == id }
+            inFlightRequests.insert(request.media == nil ? approved : request, at: 0)
+        }
         pendingRequests.removeAll { $0.id == id }
     }
 

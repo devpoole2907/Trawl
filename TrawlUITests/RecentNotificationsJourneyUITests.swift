@@ -2,10 +2,10 @@
 //  RecentNotificationsJourneyUITests.swift
 //  TrawlUITests
 //
-//  Generates a notification through a real user mutation, then verifies the
-//  notification sheet's log and destructive clear flow. No notification state is
-//  installed by the test: JellyfinLibrariesView owns the success event exactly as
-//  it does in production.
+//  Generates log entries through real user actions, then verifies what the Alerts
+//  log keeps, its New since heading, detail, and destructive clear flow. No
+//  notification state is installed by the test: the library removal and the
+//  Actions tab's rescan raise their events exactly as they do in production.
 
 import XCTest
 
@@ -21,8 +21,14 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
         fixtureServer = nil
     }
 
+    /// Alerts keeps a record of what happened, not an echo of what the user just did.
+    ///
+    /// A library removal is the user's own tap: it shows as a banner and is not
+    /// logged. A rescan run from the Actions tab is the outcome of work on the server,
+    /// so it is logged, lands under "New since", opens its detail, survives being read,
+    /// and goes only through the destructive Clear confirmation.
     @MainActor
-    func testRealLibraryRemovalAppearsInNotificationsAndCanBeCleared() async throws {
+    func testAlertsLogOutcomesNotTapConfirmationsAndCanBeCleared() async throws {
         let server = try await JellyfinLibrariesUIFixtureServer()
         fixtureServer = server
 
@@ -42,95 +48,88 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
 
         let library = app.staticTexts[JellyfinLibrariesUIFixtureServer.libraryName]
         XCTAssertTrue(library.waitForExistence(in: app, timeout: 15))
-        XCTAssertTrue(
-            revealSwipeAction(on: library, buttonLabel: "Remove", in: app),
-            "The notification must originate from JellyfinLibrariesView's real removal action."
-        )
-
+        XCTAssertTrue(revealSwipeAction(on: library, buttonLabel: "Remove", in: app))
         let removalConfirmation = app.alerts["Remove Library?"]
         XCTAssertTrue(removalConfirmation.waitForExistence(timeout: 10))
         XCTAssertTrue(tapWhenHittable(removalConfirmation.buttons["Remove"], in: app, timeout: 5))
-        XCTAssertTrue(
-            app.staticTexts["No Libraries"].waitForExistence(timeout: 15),
-            "The fixture must accept the DELETE before the resulting success notification is inspected."
-        )
+        XCTAssertTrue(app.staticTexts["No Libraries"].waitForExistence(timeout: 15))
         XCTAssertEqual(server.requestCount(method: "DELETE", path: "/Library/VirtualFolders"), 1)
 
         let notifications = app.buttons["Notifications"]
         XCTAssertTrue(notifications.waitForExistence(timeout: 10))
-        XCTAssertTrue(
-            String(describing: notifications.value).contains("Library Removed"),
-            "The accessory should summarize the newest notification rather than standing issues."
-        )
-        XCTAssertTrue(
-            tapWhenHittable(notifications, in: app, timeout: 10),
-            "The notification accessory should expose the event produced by the library removal."
-        )
-
-        let sheet = app.navigationBars["Notifications"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 10))
-        XCTAssertTrue(
-            app.staticTexts["Library Removed"].waitForExistence(timeout: 10),
-            "The notification log should contain the exact success title emitted by JellyfinLibrariesView."
-        )
-        XCTAssertTrue(
-            app.staticTexts[JellyfinLibrariesUIFixtureServer.libraryName].waitForExistence(timeout: 5),
-            "The logged notification should retain the affected server library as its message."
-        )
-
-        let recentNotification = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Library Removed"))
-            .firstMatch
-        XCTAssertTrue(
-            tapWhenHittable(recentNotification, in: app, timeout: 5),
-            "A short notification should open detail just like a long notification."
-        )
-        let detail = app.navigationBars["Notification"]
-        XCTAssertTrue(detail.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts[JellyfinLibrariesUIFixtureServer.libraryName].exists)
-        capture(app, "notification-short-message-detail")
-
-        XCTAssertTrue(tapWhenHittable(backButton(in: detail), in: app, timeout: 5))
-        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-        dismissSheet(sheet, in: app)
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
         XCTAssertFalse(
             String(describing: notifications.value).contains("Library Removed"),
-            "Opening history marks it read, so the accessory must not advertise that old event forever."
+            "A confirmation of the user's own tap is a banner, not a log entry for the bar to advertise."
+        )
+        XCTAssertTrue(tapWhenHittable(notifications, in: app, timeout: 10))
+
+        let alerts = app.navigationBars["Alerts"]
+        XCTAssertTrue(alerts.waitForExistence(timeout: 10), "With nothing waiting, the sheet opens on Alerts.")
+        XCTAssertTrue(app.tabBars.buttons["Alerts"].isSelected)
+        XCTAssertFalse(app.staticTexts["Library Removed"].exists, "The removal must not be in the log.")
+
+        XCTAssertTrue(tapWhenHittable(app.tabBars.buttons["Actions"], in: app, timeout: 5))
+        XCTAssertTrue(app.navigationBars["Actions"].waitForExistence(timeout: 5))
+        XCTAssertTrue(tapWhenHittable(app.buttons["Rescan Libraries"], in: app, timeout: 10))
+        let rescanned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            server.requestCount(method: "POST", path: "/Library/Refresh") == 1
+        }, object: nil)
+        await fulfillment(of: [rescanned], timeout: 10)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["quick-action-last-run-rescanJellyfinLibraries"]
+                .waitForExistence(timeout: 10),
+            "A finished action should say when it last ran."
         )
 
-        XCTAssertTrue(tapWhenHittable(notifications, in: app, timeout: 5))
-        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(tapWhenHittable(app.tabBars.buttons["Alerts"], in: app, timeout: 5))
+        let rescanEntry = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Rescanned Jellyfin"))
+            .firstMatch
         XCTAssertTrue(
-            app.staticTexts["Library Removed"].waitForExistence(timeout: 5),
-            "Read history remains in Recent even after it leaves the accessory headline."
+            rescanEntry.waitForExistence(in: app, timeout: 10),
+            "The outcome of a quick action belongs in the log."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["notifications-new-since"].exists,
+            "An entry newer than the last look sits under the New since heading."
+        )
+
+        XCTAssertTrue(tapWhenHittable(rescanEntry, in: app, timeout: 5), "A log row opens its detail.")
+        let detail = app.navigationBars["Notification"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        capture(app, "notification-detail")
+        XCTAssertTrue(tapWhenHittable(backButton(in: detail), in: app, timeout: 5))
+        XCTAssertTrue(alerts.waitForExistence(timeout: 5))
+
+        dismissSheet(alerts, in: app)
+        XCTAssertTrue(alerts.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(tapWhenHittable(notifications, in: app, timeout: 5))
+        XCTAssertTrue(alerts.waitForExistence(timeout: 5), "The sheet reopens on the tab it was left on.")
+        XCTAssertTrue(
+            rescanEntry.waitForExistence(in: app, timeout: 5),
+            "Read history remains in the log after it stops being new."
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["notifications-new-since"].exists,
+            "Once read, the entry is no longer under New since."
         )
         capture(app, "notification-read-history-retained")
 
-        let clear = sheet.buttons["Clear"]
+        let clear = alerts.buttons["Clear"]
         XCTAssertTrue(tapWhenHittable(clear, in: app, timeout: 5))
         let clearConfirmation = app.alerts["Clear Notifications?"]
-        XCTAssertTrue(
-            clearConfirmation.waitForExistence(timeout: 5),
-            "Clearing the notification log must require the production destructive confirmation."
-        )
+        XCTAssertTrue(clearConfirmation.waitForExistence(timeout: 5))
         XCTAssertTrue(tapWhenHittable(clearConfirmation.buttons["Cancel"], in: app, timeout: 5))
-        XCTAssertTrue(
-            app.staticTexts["Library Removed"].waitForExistence(timeout: 5),
-            "Cancelling the destructive confirmation must preserve the notification."
-        )
+        XCTAssertTrue(rescanEntry.waitForExistence(in: app, timeout: 5), "Cancel must keep the log.")
 
         XCTAssertTrue(tapWhenHittable(clear, in: app, timeout: 5))
         XCTAssertTrue(clearConfirmation.waitForExistence(timeout: 5))
         XCTAssertTrue(tapWhenHittable(clearConfirmation.buttons["Clear"], in: app, timeout: 5))
-        XCTAssertTrue(
-            app.staticTexts["No Notifications Yet"].waitForExistence(timeout: 10),
-            "Confirming Clear should reconcile the real notification center to its empty state."
-        )
-        XCTAssertFalse(app.staticTexts["Library Removed"].exists)
+        XCTAssertTrue(app.staticTexts["No Notifications Yet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(rescanEntry.exists)
         #if os(macOS)
-        XCTAssertTrue(tapWhenHittable(sheet.buttons["Close"], in: app, timeout: 5))
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(tapWhenHittable(alerts.buttons["Close"], in: app, timeout: 5))
+        XCTAssertTrue(alerts.waitForNonExistence(timeout: 5))
         #endif
     }
 

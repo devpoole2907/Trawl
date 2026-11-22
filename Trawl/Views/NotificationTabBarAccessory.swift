@@ -32,6 +32,44 @@ struct NotificationTabBarAccessory: View {
     #endif
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(ArrServiceManager.self) private var arrServiceManager: ArrServiceManager?
+    @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
+
+    /// What the bar leads with. The most urgent thing in the sheet comes first, and
+    /// a tap opens the tab that holds it - see `NotificationBarLead`.
+    private var lead: NotificationBarLead {
+        NotificationBarLead.resolve(
+            pendingRequests: pendingApprovalCount,
+            failingDownloads: failingDownloads.count,
+            isDownloading: downloads != nil,
+            hasUnreadEvent: latestNotification != nil,
+            isImporting: !runningImportJobs.isEmpty
+        )
+    }
+
+    /// Failing downloads, on the phone only: there the sheet's Downloads tab is
+    /// their home. In the sidebar footer Downloads is a row of its own with its own
+    /// count, and the bar stays about notifications.
+    private var failingDownloads: [DownloadListItem] {
+        guard showsDownloads, let arrServiceManager, let syncService, let sabnzbdServiceManager else { return [] }
+        return DownloadsViewModel.attentionItems(
+            serviceManager: arrServiceManager,
+            torrents: syncService.torrents,
+            sabActiveJobs: sabnzbdServiceManager.activeJobs,
+            sabHistoryJobs: sabnzbdServiceManager.historyJobs
+        )
+    }
+
+    private var pendingRequestHeadline: String {
+        pendingApprovalCount == 1
+            ? "1 request awaiting approval"
+            : "\(pendingApprovalCount) requests awaiting approval"
+    }
+
+    private var failingHeadline: String {
+        let count = failingDownloads.count
+        return count == 1 ? "1 download needs attention" : "\(count) downloads need attention"
+    }
 
     /// Requests waiting on a decision. Deliberately kept apart from `unreadCount`:
     /// this is standing state, not an event. Folding it into "unread" would leave a
@@ -75,61 +113,68 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var headline: String {
-        // This accessory is the at-a-glance notification surface. Standing issues
-        // remain in the sheet, where their context and actions are available.
-        // Downloads lead while there are any: they are what the bar is for on iPhone,
-        // and a finished one becomes the notification that would have been here.
-        if let downloads {
-            return downloads.leadName
+        switch lead {
+        case .requestsWaiting:
+            return pendingRequestHeadline
+        case .downloadsFailing:
+            return failingHeadline
+        case .downloading:
+            return downloads?.leadName ?? "Downloads"
+        case .latestEvent:
+            return latestNotification?.title ?? "Notifications"
+        case .importing:
+            if runningImportJobs.count > 1 {
+                return "Importing \(runningImportJobs.count) jobs"
+            }
+            let fileCount = primaryRunningJob?.fileCount ?? 0
+            return "Importing \(fileCount) \(fileCount == 1 ? "file" : "files")"
+        case .idle:
+            return "Notifications"
         }
-        if let latestNotification {
-            return latestNotification.title
-        }
-        if pendingApprovalCount > 0 {
-            return pendingApprovalCount == 1
-                ? "1 request awaiting approval"
-                : "\(pendingApprovalCount) requests awaiting approval"
-        }
-        if runningImportJobs.count > 1 {
-            return "Importing \(runningImportJobs.count) jobs"
-        }
-        if let job = primaryRunningJob {
-            let fileWord = job.fileCount == 1 ? "file" : "files"
-            return "Importing \(job.fileCount) \(fileWord)"
-        }
-        return "Notifications"
     }
 
     private var subtitle: String {
-        if let downloads {
+        switch lead {
+        case .requestsWaiting:
+            guard let first = seerrServiceManager.pendingRequests.first else { return "Tap to approve or decline" }
+            let title = seerrServiceManager.displayTitle(for: first)
+            if let requester = first.requestedBy?.displayName, !requester.isEmpty {
+                return "\(title) · \(requester)"
+            }
+            return title
+        case .downloadsFailing:
+            return failingDownloads.first?.attentionDetail ?? "Tap to see what failed"
+        case .downloading:
+            guard let downloads else { return "" }
             let speed = downloads.bytesPerSecond > 0
                 ? " · " + ByteCountFormatter.string(fromByteCount: downloads.bytesPerSecond, countStyle: .file) + "/s"
                 : ""
             return downloads.detail + speed
-        }
-        if let latestNotification {
+        case .latestEvent:
+            guard let latestNotification else { return "" }
             return "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
-        }
-        if pendingApprovalCount > 0 {
-            return "Swipe up to approve or decline"
-        }
-        if runningImportJobs.count > 1 {
-            let services = Set(runningImportJobs.map(\.serviceTitle)).sorted().joined(separator: " · ")
-            return services.isEmpty ? "Imports in progress" : services
-        }
-        if let job = primaryRunningJob {
+        case .importing:
+            if runningImportJobs.count > 1 {
+                let services = Set(runningImportJobs.map(\.serviceTitle)).sorted().joined(separator: " · ")
+                return services.isEmpty ? "Imports in progress" : services
+            }
+            guard let job = primaryRunningJob else { return "Imports in progress" }
             return "\(job.serviceTitle) · \(job.primaryName)"
-        }
-        if unreadCount == 1 {
-            return "1 unread notification"
-        } else if unreadCount > 1 {
-            return "\(unreadCount) unread notifications"
-        } else {
+        case .idle:
             return "No recent notifications"
         }
     }
 
     private var notificationAccessibilityValue: String {
+        switch lead {
+        case .requestsWaiting:
+            let word = pendingApprovalCount == 1 ? "request is" : "requests are"
+            return "\(pendingApprovalCount) \(word) awaiting approval"
+        case .downloadsFailing:
+            return failingHeadline
+        default:
+            break
+        }
         if let latestNotification {
             if unreadCount == 1 {
                 return "\(latestNotification.title), 1 unread notification"
@@ -157,11 +202,10 @@ struct NotificationTabBarAccessory: View {
     }
 
     private func presentRecentNotifications() {
-        if downloads != nil {
-            inAppNotificationCenter.showDownloads()
-        } else {
-            inAppNotificationCenter.showRecentNotifications()
+        if case .downloadsFailing = lead {
+            downloadsNavigator?.show(.issues)
         }
+        inAppNotificationCenter.showRecentNotifications(on: lead.tab)
         if inAppNotificationCenter.currentBanner != nil {
             inAppNotificationCenter.dismissCurrentBanner()
         }
@@ -181,14 +225,14 @@ struct NotificationTabBarAccessory: View {
         #if os(iOS)
         .simultaneousGesture(swipeUpGesture)
         #endif
-        .accessibilityLabel(downloads == nil ? "Notifications" : "Downloads")
-        .accessibilityValue(downloads.map { "\($0.leadName), \($0.detail)" } ?? notificationAccessibilityValue)
+        .accessibilityLabel(lead == .downloading ? "Downloads" : "Notifications")
+        .accessibilityValue(lead == .downloading ? downloads.map { "\($0.leadName), \($0.detail)" } ?? "" : notificationAccessibilityValue)
         .accessibilityIdentifier("notification-accessory")
         .task {
             // Slow cadence on purpose. Approvals arrive by push, and this is only
             // here so the count is right when the app has been sitting open.
             while !Task.isCancelled {
-                await seerrServiceManager.refreshPendingRequests()
+                await seerrServiceManager.refreshRequestQueue()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -208,28 +252,22 @@ struct NotificationTabBarAccessory: View {
     #endif
 
     private var inlineSummary: String {
-        if let downloads {
+        switch lead {
+        case .downloading:
+            guard let downloads else { return headline }
             return "\(downloads.leadName) · \(downloads.detail)"
-        }
-        if let latestNotification {
-            return latestNotification.title
-        }
-        if pendingApprovalCount > 0 {
-            return pendingApprovalCount == 1
-                ? "1 request awaiting approval"
-                : "\(pendingApprovalCount) requests awaiting approval"
-        }
-        if runningImportJobs.count > 1 {
-            return "Importing \(runningImportJobs.count) jobs"
-        }
-        if let job = primaryRunningJob {
-            let fileWord = job.fileCount == 1 ? "file" : "files"
-            return "Importing \(job.fileCount) \(fileWord) · \(job.serviceTitle)"
-        }
-        if unreadCount >= 1 {
-            return unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
-        } else {
+        case .importing:
+            if let job = primaryRunningJob, runningImportJobs.count == 1 {
+                return "\(headline) · \(job.serviceTitle)"
+            }
+            return headline
+        case .idle:
+            if unreadCount >= 1 {
+                return unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
+            }
             return "Notifications"
+        default:
+            return headline
         }
     }
 
@@ -298,86 +336,63 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var iconTint: AnyShapeStyle {
-        if latestNotification == nil, pendingApprovalCount > 0 {
-            return AnyShapeStyle(ServiceIdentity.seerr.brandColor)
+        switch lead {
+        case .requestsWaiting: AnyShapeStyle(ServiceIdentity.seerr.brandColor)
+        case .downloadsFailing: AnyShapeStyle(.orange)
+        default: AnyShapeStyle(.tint)
         }
-        return AnyShapeStyle(.tint)
     }
 
     private var notificationIcon: some View {
         Group {
-            if let downloads {
-                Gauge(value: downloads.leadProgress) {
-                    EmptyView()
-                }
-                .gaugeStyle(.accessoryCircularCapacity)
-                .scaleEffect(0.5)
-                .frame(width: 24, height: 24)
-                .tint(.blue)
-                .overlay {
-                    Image(systemName: "arrow.down")
-                        .font(.caption2.weight(.bold))
-                }
-            } else if latestNotification != nil {
-                Image(systemName: "bell.fill")
-                    .symbolRenderingMode(.hierarchical)
-            } else if pendingApprovalCount > 0 {
+            switch lead {
+            case .requestsWaiting:
                 Image(systemName: "checkmark.circle.badge.questionmark.fill")
                     .symbolRenderingMode(.hierarchical)
-            } else if inAppNotificationCenter.hasRunningImportJobs {
+            case .downloadsFailing:
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .symbolRenderingMode(.hierarchical)
+            case .downloading:
+                if let downloads {
+                    Gauge(value: downloads.leadProgress) {
+                        EmptyView()
+                    }
+                    .gaugeStyle(.accessoryCircularCapacity)
+                    .scaleEffect(0.5)
+                    .frame(width: 24, height: 24)
+                    .tint(.blue)
+                    .overlay {
+                        Image(systemName: "arrow.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                }
+            case .importing:
                 Image(systemName: "tray.and.arrow.down.fill")
                     .symbolRenderingMode(.hierarchical)
-            } else {
+            case .latestEvent, .idle:
                 Image(systemName: "bell.fill")
                     .symbolRenderingMode(.hierarchical)
             }
         }
         .overlay(alignment: .topTrailing) {
-            if let downloads, downloads.othersCount > 0 {
-                Text("\(downloads.count)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(.blue, in: Capsule())
-                    .offset(x: 10, y: -10)
-                    .accessibilityHidden(true)
-            } else if downloads != nil {
-                EmptyView()
-            } else if latestNotification != nil, unreadCount > 0 {
-                Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(.red, in: Capsule())
-                    .offset(x: 10, y: -10)
-                    .accessibilityHidden(true)
-            } else if pendingApprovalCount > 0 {
-                Text(pendingApprovalCount > 99 ? "99+" : "\(pendingApprovalCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(ServiceIdentity.seerr.brandColor, in: Capsule())
-                    .offset(x: 10, y: -10)
-                    .accessibilityHidden(true)
-            } else if inAppNotificationCenter.hasRunningImportJobs {
+            switch lead {
+            case .requestsWaiting(let count):
+                countBadge(count, color: ServiceIdentity.seerr.brandColor)
+            case .downloadsFailing(let count):
+                countBadge(count, color: .orange)
+            case .downloading:
+                if let downloads, downloads.othersCount > 0 {
+                    countBadge(downloads.count, color: .blue)
+                }
+            case .latestEvent:
+                if unreadCount > 0 {
+                    countBadge(unreadCount, color: .red)
+                }
+            case .importing:
                 let count = inAppNotificationCenter.runningImportJobsCount
                 Group {
                     if count > 1 {
-                        Text("\(count)")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .minimumScaleFactor(0.7)
-                            .lineLimit(1)
-                            .padding(.horizontal, 5)
-                            .frame(minWidth: 18, minHeight: 18)
-                            .background(.blue, in: Capsule())
+                        countBadge(count, color: .blue, offset: false)
                     } else {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .symbolEffect(.rotate, options: .repeat(.continuous))
@@ -389,8 +404,24 @@ struct NotificationTabBarAccessory: View {
                 }
                 .offset(x: 10, y: -10)
                 .accessibilityHidden(true)
+            case .idle:
+                EmptyView()
             }
         }
+    }
+
+    @ViewBuilder
+    private func countBadge(_ count: Int, color: Color, offset: Bool = true) -> some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(color, in: Capsule())
+            .offset(x: offset ? 10 : 0, y: offset ? -10 : 0)
+            .accessibilityHidden(true)
     }
 }
 
@@ -412,26 +443,14 @@ extension NotificationLogEntry {
 
 // MARK: - Recent Notifications Sheet
 
-private enum NotificationSheetLayout {
-    /// How many failing downloads render before "Load More".
-    static let attentionPageSize = 5
-}
-
-/// The two halves of the notification sheet. `activity` is the default and holds
-/// the import/notification log; `actions` holds global service commands.
-private enum NotificationSheetSection: String, CaseIterable, Identifiable {
-    case activity = "Alerts"
-    /// iPhone only: the whole Downloads screen, which has no tab of its own there.
-    case downloads = "Downloads"
-    case actions = "Actions"
-
-    var id: String { rawValue }
-
-    var segmentBarItem: TrawlSegmentBarItem<Self> {
-        TrawlSegmentBarItem(rawValue, value: self)
-    }
-}
-
+/// The notification sheet: the stack's work in progress.
+///
+/// Anything moving between "I want this" and "it's in my library" belongs here, in
+/// pipeline order - Requests (asked for), Downloads (on the way), Alerts (what
+/// happened, and what's broken) - plus Actions, the controls that push the pipeline
+/// along. The root tabs hold the two ends: what you might want and what you have.
+/// Badges count only what is waiting on the user, so they clear when the thing is
+/// dealt with rather than when the sheet is opened.
 struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -449,10 +468,10 @@ struct RecentNotificationsSheet: View {
     @Environment(\.navigateToSetupCheck) private var navigateToSetupCheck
     /// Optional so the sheet still works anywhere a navigator isn't injected.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
-    @State private var selectedSection: NotificationSheetSection = .activity
+    @State private var selectedTab: NotificationSheetTab = .alerts
     /// The Downloads screen, built by the root so it carries the same session and
     /// services the tab did. `nil` where Downloads has a home of its own - the
-    /// sidebar - and the section is not offered.
+    /// sidebar - and the tab is not offered.
     var downloadsContent: AnyView? = nil
 
     init(downloadsContent: AnyView? = nil) {
@@ -461,16 +480,9 @@ struct RecentNotificationsSheet: View {
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
     @State private var queuedImportCommands: [QueuedImportCommand] = []
-    /// Requests with an approve/decline call in flight, so the row can't be
-    /// double-tapped while the server is still deciding.
-    @State private var requestActionIDs: Set<Int> = []
-    @State private var isAttentionExpanded = false
-    @State private var attentionVisibleCount = NotificationSheetLayout.attentionPageSize
     @State private var showSetupCheck = false
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
-
-    fileprivate static let attentionPageSize = NotificationSheetLayout.attentionPageSize
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
     private var unreadNotificationCount: Int {
@@ -480,19 +492,25 @@ struct RecentNotificationsSheet: View {
         unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
     }
 
-    /// Requests awaiting a decision. This is the only part of Seerr that belongs in
-    /// this sheet: it's time-sensitive and answerable in one tap. Browsing requests
-    /// stays where it lives, under More.
-    private var pendingRequests: [SeerrMediaRequest] {
-        seerrServiceManager.pendingRequests
+    /// Requests are offered wherever Seerr is set up - reachable or not, so a server
+    /// that is down still has somewhere to say so.
+    private var hasSeerr: Bool {
+        seerrServiceManager.hasConfiguredProfile || seerrServiceManager.isConnected
     }
 
-    private var activeJobs: [ActiveImportJob] {
-        inAppNotificationCenter.activeImportJobs
+    private var availableTabs: [NotificationSheetTab] {
+        NotificationSheetTabs.available(hasSeerr: hasSeerr, hasDownloads: downloadsContent != nil)
     }
 
-    /// Standing download issues live in the sheet rather than replacing the newest
-    /// notification in the app-wide accessory.
+    /// Running imports only. A finished one has already become a log entry - its
+    /// "Import Complete" or "Import Failed" - so keeping it here as well said the
+    /// same thing twice.
+    private var runningJobs: [ActiveImportJob] {
+        inAppNotificationCenter.activeImportJobs.filter { $0.status == .running }
+    }
+
+    /// Standing download issues. On the phone these are the Downloads tab's badge;
+    /// where Downloads isn't in the sheet, Alerts carries one summary row for them.
     private var attentionItems: [DownloadListItem] {
         DownloadsViewModel.attentionItems(
             serviceManager: arrServiceManager,
@@ -503,7 +521,7 @@ struct RecentNotificationsSheet: View {
     }
 
     private var hasImportActivity: Bool {
-        !activeJobs.isEmpty || !displayedImportCommands.isEmpty
+        !runningJobs.isEmpty || !displayedImportCommands.isEmpty
     }
 
     private var trawlClientHosts: [DownloadClientLinkKind: [String]] {
@@ -529,59 +547,77 @@ struct RecentNotificationsSheet: View {
             || !configurationAuditStore.unknowns.isEmpty
     }
 
+    private var setupProblemCount: Int {
+        configurationAuditStore?.problems.count ?? 0
+    }
+
     private var displayedImportCommands: [QueuedImportCommand] {
-        guard !activeJobs.isEmpty else { return queuedImportCommands }
+        guard !runningJobs.isEmpty else { return queuedImportCommands }
         return queuedImportCommands.filter(\.isQueued)
     }
 
-    private var subtitleText: String {
-        if selectedSection == .actions {
+    private func subtitle(for tab: NotificationSheetTab) -> String {
+        switch tab {
+        case .requests:
+            let waiting = seerrServiceManager.pendingRequests.count
+            let onTheWay = seerrServiceManager.inFlightRequests.count
+            var parts: [String] = []
+            if waiting > 0 { parts.append("\(waiting) waiting") }
+            if onTheWay > 0 { parts.append("\(onTheWay) on the way") }
+            return parts.isEmpty ? "Nothing in flight" : parts.joined(separator: " · ")
+        case .actions:
             let count = availableActions.count
             return count == 1 ? "1 action available" : "\(count) actions available"
-        }
-        let running = inAppNotificationCenter.runningImportJobsCount
-        let displayedCommands = displayedImportCommands
-        let queued = displayedCommands.filter(\.isQueued).count
-        let remoteActive = displayedCommands.count
-        let active = running + remoteActive
-        if active > 0 {
-            let word = active == 1 ? "import" : "imports"
-            if queued > 0 {
-                return "\(active) \(word) active, \(queued) queued · \(unreadNotificationCount) unread"
+        case .alerts, .downloads:
+            var parts: [String] = []
+            if setupProblemCount > 0 {
+                parts.append(setupProblemCount == 1 ? "1 setup problem" : "\(setupProblemCount) setup problems")
             }
-            return "\(active) \(word) in progress · \(unreadNotificationCount) unread"
+            let importing = runningJobs.count + displayedImportCommands.count
+            if importing > 0 {
+                parts.append(importing == 1 ? "1 import running" : "\(importing) imports running")
+            }
+            if unreadNotificationCount > 0 { parts.append("\(unreadNotificationCount) new") }
+            return parts.isEmpty ? "Nothing new" : parts.joined(separator: " · ")
         }
-        return "\(unreadNotificationCount) unread"
     }
 
     var body: some View {
         sectionTabs
         .onAppear {
-            if inAppNotificationCenter.opensOnDownloads, downloadsContent != nil {
-                selectedSection = .downloads
-            }
-            inAppNotificationCenter.opensOnDownloads = false
+            selectedTab = NotificationSheetTabs.opening(
+                requested: inAppNotificationCenter.requestedSheetTab,
+                lastUsed: inAppNotificationCenter.lastSheetTab,
+                available: availableTabs
+            )
+            inAppNotificationCenter.requestedSheetTab = nil
             unreadSinceDate = inAppNotificationCenter.lastReadDate
             inAppNotificationCenter.markAllRead()
         }
-        // Asked for while already open - a failing download in Activity routes to
-        // Downloads by switching section rather than stacking anything.
-        .onChange(of: inAppNotificationCenter.opensOnDownloads) { _, opens in
-            guard opens else { return }
-            if downloadsContent != nil {
-                withAnimation { selectedSection = .downloads }
-            }
-            inAppNotificationCenter.opensOnDownloads = false
+        // Anything that arrived while the sheet was open was seen, so it isn't new
+        // next time - nor something for the bar to keep advertising.
+        .onDisappear {
+            inAppNotificationCenter.markAllRead()
         }
-        .onChange(of: isAttentionExpanded) { _, expanded in
-            // Collapsing resets the page, so reopening doesn't restore a list the
-            // user already scrolled past.
-            if !expanded {
-                attentionVisibleCount = Self.attentionPageSize
+        // Asked for while already open - a deep link, or a row that hands over to
+        // another tab - switches tab rather than stacking anything.
+        .onChange(of: inAppNotificationCenter.requestedSheetTab) { _, requested in
+            guard let requested else { return }
+            withAnimation {
+                selectedTab = NotificationSheetTabs.opening(
+                    requested: requested,
+                    lastUsed: nil,
+                    available: availableTabs
+                )
             }
+            inAppNotificationCenter.requestedSheetTab = nil
         }
-        .task {
-            await seerrServiceManager.refreshPendingRequests()
+        .onChange(of: selectedTab, initial: true) { _, tab in
+            inAppNotificationCenter.lastSheetTab = tab
+        }
+        .task(id: hasSeerr) {
+            guard hasSeerr else { return }
+            await seerrServiceManager.refreshRequestQueue()
         }
         .task(id: auditInputRevision) {
             await refreshConfigurationAuditIfNeeded()
@@ -598,18 +634,24 @@ struct RecentNotificationsSheet: View {
         }
     }
 
-    /// The default segment. Unchanged from before the Activity/Actions split:
-    /// in-flight imports (local jobs plus remote manual-import commands) on top,
-    /// then the recent notification log.
+    /// Alerts: what is broken, what is running, then what happened.
+    ///
+    /// Setup problems lead because they are standing state - they stay until fixed -
+    /// and "All clear" takes their place when there are none, which still answers "is
+    /// anything wrong?". Running imports come next. Then the log, from where the user
+    /// left off, grouped by day.
     @ViewBuilder
-    private var activityContent: some View {
-        let failures = attentionItems
-        if failures.isEmpty && pendingRequests.isEmpty && !hasImportActivity && !hasConfigurationAttention
-            && inAppNotificationCenter.recentNotifications.isEmpty {
+    private var alertsContent: some View {
+        let failures = downloadsContent == nil ? attentionItems : []
+        let sections = NotificationTimeline.sections(
+            inAppNotificationCenter.recentNotifications,
+            lastRead: effectiveUnreadSinceDate
+        )
+        if !hasConfigurationAttention && failures.isEmpty && !hasImportActivity && sections.isEmpty {
             ContentUnavailableView {
                 Label("No Notifications Yet", systemImage: "bell.slash")
             } description: {
-                Text("Recent in-app and system notifications will appear here.")
+                Text("Grabs, imports, failed downloads and requests will show up here.")
             } actions: {
                 Button("Open Notification Settings") {
                     #if os(iOS)
@@ -621,93 +663,34 @@ struct RecentNotificationsSheet: View {
             }
         } else {
             List {
-                configurationAttentionSection
-
-                if !failures.isEmpty {
-                    // Collapsed by default and paged: this list is unbounded, and
-                    // fully expanded it buried the notification log underneath it.
-                    // The count lives in the label so it still reads while shut.
-                    //
-                    // DisclosureGroup rather than Section(isExpanded:) - the latter
-                    // compiles fine but renders without a chevron under this list
-                    // style, so the section was permanently open.
-                    Section {
-                        DisclosureGroup(isExpanded: $isAttentionExpanded) {
-                            attentionRows(failures)
-                        } label: {
-                            HStack {
-                                Text("Needs Attention")
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer(minLength: 8)
-                                Text("\(failures.count)")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                    }
-                }
-
-
-                if !pendingRequests.isEmpty {
-                    Section {
-                        ForEach(pendingRequests) { request in
-                            pendingRequestRow(request)
-                        }
-                    } header: {
-                        Text("Pending Approval")
-                    }
-                }
+                setupSection(failures: failures)
 
                 if hasImportActivity {
-                    Section {
-                        ForEach(activeJobs) { job in
-                            Group {
-                                if job.fileNames.count > 1 {
-                                    NavigationLink {
-                                        ImportJobFilesView(job: job)
-                                    } label: {
-                                        activeImportJobRow(job)
-                                    }
-                                } else {
+                    Section("Happening Now") {
+                        ForEach(runningJobs) { job in
+                            if job.fileNames.count > 1 {
+                                NavigationLink {
+                                    ImportJobFilesView(job: job)
+                                } label: {
                                     activeImportJobRow(job)
                                 }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
-                                if job.status != .running {
-                                    Button(role: .destructive) {
-                                        inAppNotificationCenter.removeImportJob(id: job.id)
-                                    } label: {
-                                        Label("Dismiss", systemImage: "xmark")
-                                    }
-                                }
+                            } else {
+                                activeImportJobRow(job)
                             }
                         }
-
                         ForEach(displayedImportCommands) { command in
                             queuedImportCommandRow(command)
                         }
-                    } header: {
-                        HStack {
-                            Text("Imports")
-                            Spacer(minLength: 8)
-                            if activeJobs.contains(where: { $0.status != .running }) {
-                                Button("Clear Finished") {
-                                    inAppNotificationCenter.clearFinishedImportJobs()
-                                }
-                                .font(.caption.weight(.semibold))
-                                .textCase(nil)
-                            }
-                        }
                     }
                 }
 
-                if !inAppNotificationCenter.recentNotifications.isEmpty {
+                ForEach(sections) { section in
                     Section {
-                        ForEach(inAppNotificationCenter.recentNotifications) { entry in
+                        ForEach(section.entries) { entry in
                             notificationRow(for: entry)
                         }
                     } header: {
-                        Text("Recent")
+                        timelineHeader(section.kind)
                     }
                 }
             }
@@ -720,69 +703,145 @@ struct RecentNotificationsSheet: View {
     }
 
     @ViewBuilder
-    private var configurationAttentionSection: some View {
-        if let configurationAuditStore, hasConfigurationAttention {
+    private func timelineHeader(_ kind: NotificationTimeline.SectionKind) -> some View {
+        let title = NotificationTimeline.title(for: kind, now: .now)
+        if case .new = kind {
+            Text(title)
+                .foregroundStyle(.tint)
+                .accessibilityIdentifier("notifications-new-since")
+        } else {
+            Text(title)
+        }
+    }
+
+    /// The top of Alerts: setup problems, failing downloads where Downloads isn't a
+    /// tab of its own, or one "All clear" line when neither has anything to say.
+    @ViewBuilder
+    private func setupSection(failures: [DownloadListItem]) -> some View {
+        if let configurationAuditStore, hasConfigurationAttention || !failures.isEmpty {
             Section {
-                Button {
-                    // Where the chrome has Setup Check as a destination, go there:
-                    // stacking the wizard's sheet on top of this one buries the
-                    // screen the user is already looking at to show them something
-                    // they could simply have been taken to. The compact chrome has
-                    // nowhere to send them, so it still presents the sheet.
-                    if let navigateToSetupCheck {
-                        dismiss()
-                        navigateToSetupCheck()
-                    } else {
-                        showSetupCheck = true
-                    }
-                } label: {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: configurationAuditStore.isAuditing ? "checklist" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(configurationAuditStore.isAuditing ? Color.secondary : Color.orange)
-                            .frame(width: 24)
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(configurationAttentionTitle(configurationAuditStore))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text(configurationAttentionDetail(configurationAuditStore))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                if hasConfigurationAttention {
+                    Button {
+                        // Where the chrome has Setup Check as a destination, go there:
+                        // stacking the wizard's sheet on top of this one buries the
+                        // screen the user is already looking at. The compact chrome has
+                        // nowhere to send them, so it still presents the sheet.
+                        if let navigateToSetupCheck {
+                            dismiss()
+                            navigateToSetupCheck()
+                        } else {
+                            showSetupCheck = true
                         }
-
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(configurationAuditStore.isAuditing && !configurationAuditStore.hasCompletedAnAudit)
-                .accessibilityIdentifier("notifications-setup-attention")
-
-                Button("Check Again", systemImage: "arrow.clockwise") {
-                    Task {
-                        await configurationAuditStore.refresh(
-                            serviceManager: arrServiceManager,
-                            trawlClients: trawlClientHosts,
-                            inputRevision: auditInputRevision
+                    } label: {
+                        attentionLabel(
+                            systemImage: configurationAuditStore.isAuditing ? "checklist" : "exclamationmark.triangle.fill",
+                            tint: configurationAuditStore.isAuditing ? .secondary : .orange,
+                            title: configurationAttentionTitle(configurationAuditStore),
+                            detail: configurationAttentionDetail(configurationAuditStore)
                         )
                     }
+                    .buttonStyle(.plain)
+                    .disabled(configurationAuditStore.isAuditing && !configurationAuditStore.hasCompletedAnAudit)
+                    .accessibilityIdentifier("notifications-setup-attention")
+                    .swipeActions(edge: .trailing) {
+                        Button("Check Again", systemImage: "arrow.clockwise") {
+                            checkSetupAgain(configurationAuditStore)
+                        }
+                        .tint(.blue)
+                    }
+                    .contextMenu {
+                        Button("Check Again", systemImage: "arrow.clockwise") {
+                            checkSetupAgain(configurationAuditStore)
+                        }
+                    }
                 }
-                .disabled(configurationAuditStore.isAuditing)
-            } header: {
-                Text("System Attention")
+
+                if !failures.isEmpty {
+                    Button {
+                        dismiss()
+                        // These are the Issues filter's contents, so land there rather
+                        // than on the default segment.
+                        downloadsNavigator?.show(.issues)
+                        navigateToDownloadsTab()
+                    } label: {
+                        attentionLabel(
+                            systemImage: "exclamationmark.arrow.triangle.2.circlepath",
+                            tint: .red,
+                            title: failures.count == 1 ? "1 download failing" : "\(failures.count) downloads failing",
+                            detail: failures.first?.attentionTitle ?? ""
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("notifications-failing-downloads")
+                }
             }
+        } else if configurationAuditStore?.hasCompletedAnAudit == true {
+            Section {
+                attentionLabel(
+                    systemImage: "checkmark.circle.fill",
+                    tint: .green,
+                    title: "All clear",
+                    detail: "Setup checks pass and nothing is failing.",
+                    showsChevron: false
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("notifications-all-clear")
+            }
+        }
+    }
+
+    private func attentionLabel(
+        systemImage: String,
+        tint: Color,
+        title: String,
+        detail: String,
+        showsChevron: Bool = true
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                Image(systemName: systemImage)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    private func checkSetupAgain(_ store: ConfigurationAuditStore) {
+        Task {
+            await store.refresh(
+                serviceManager: arrServiceManager,
+                trawlClients: trawlClientHosts,
+                inputRevision: auditInputRevision
+            )
         }
     }
 
     private func configurationAttentionTitle(_ store: ConfigurationAuditStore) -> String {
         if store.isAuditing && !store.hasCompletedAnAudit { return "Checking your setup…" }
-        if !store.problems.isEmpty {
-            return store.problems.count == 1 ? "Setup needs attention" : "\(store.problems.count) setup problems"
-        }
+        if let first = store.problems.first { return first.title }
         return "Setup check incomplete"
     }
 
@@ -790,11 +849,19 @@ struct RecentNotificationsSheet: View {
         if store.isAuditing && !store.hasCompletedAnAudit {
             return "Trawl is checking how your services are connected."
         }
-        if !store.problems.isEmpty, !store.unknowns.isEmpty {
-            return "\(store.unknowns.count) additional \(store.unknowns.count == 1 ? "check could" : "checks could") not be completed."
+        let otherProblems = max(store.problems.count - 1, 0)
+        var parts: [String] = []
+        if otherProblems > 0 {
+            parts.append(otherProblems == 1 ? "and 1 other setup problem" : "and \(otherProblems) other setup problems")
         }
-        if let first = store.problems.first ?? store.unknowns.first { return first.title }
-        return "Review the affected connections and check again."
+        if !store.unknowns.isEmpty {
+            let count = store.unknowns.count
+            parts.append(count == 1 ? "1 check could not be completed" : "\(count) checks could not be completed")
+        }
+        if parts.isEmpty {
+            return store.problems.isEmpty ? "Review the affected connections and check again." : "Open Setup Check to fix it."
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func refreshConfigurationAuditIfNeeded() async {
@@ -809,20 +876,22 @@ struct RecentNotificationsSheet: View {
         )
     }
 
-    /// Alerts, Downloads and Actions as tabs of the sheet's own.
+    /// The sheet's own tab bar, in pipeline order.
     ///
-    /// A tab bar rather than the segmented control the sheet had. Downloads brings
-    /// its own filter bar, and a second segmented row stacked on the sheet's read as
-    /// two competing switches; a tab bar at the bottom of the sheet is a different
-    /// kind of control, in a different place, for a different job.
+    /// A tab bar rather than a segmented control: Downloads brings its own filter
+    /// bar, and a second segmented row stacked on the sheet's read as two competing
+    /// switches.
     @ViewBuilder
     private var sectionTabs: some View {
-        TabView(selection: $selectedSection) {
-            Tab(NotificationSheetSection.activity.rawValue, systemImage: "bell", value: NotificationSheetSection.activity) {
-                sectionShell(.activity)
+        TabView(selection: $selectedTab) {
+            if hasSeerr {
+                Tab(NotificationSheetTab.requests.rawValue, systemImage: NotificationSheetTab.requests.systemImage, value: NotificationSheetTab.requests) {
+                    sectionShell(.requests)
+                }
+                .badge(seerrServiceManager.pendingRequests.count)
             }
             if let downloadsContent {
-                Tab(NotificationSheetSection.downloads.rawValue, systemImage: "tray.and.arrow.down", value: NotificationSheetSection.downloads) {
+                Tab(NotificationSheetTab.downloads.rawValue, systemImage: NotificationSheetTab.downloads.systemImage, value: NotificationSheetTab.downloads) {
                     NavigationStack {
                         downloadsContent
                     }
@@ -831,15 +900,20 @@ struct RecentNotificationsSheet: View {
                     .presentationDragIndicator(.visible)
                     #endif
                 }
+                .badge(attentionItems.count)
             }
-            Tab(NotificationSheetSection.actions.rawValue, systemImage: "bolt", value: NotificationSheetSection.actions) {
+            Tab(NotificationSheetTab.alerts.rawValue, systemImage: NotificationSheetTab.alerts.systemImage, value: NotificationSheetTab.alerts) {
+                sectionShell(.alerts)
+            }
+            .badge(setupProblemCount)
+            Tab(NotificationSheetTab.actions.rawValue, systemImage: NotificationSheetTab.actions.systemImage, value: NotificationSheetTab.actions) {
                 sectionShell(.actions)
             }
         }
         .accessibilityIdentifier("notification-sheet-tabs")
     }
 
-    private func sectionShell(_ section: NotificationSheetSection) -> some View {
+    private func sectionShell(_ tab: NotificationSheetTab) -> some View {
         #if os(macOS)
         let showsClose = true
         #else
@@ -847,8 +921,8 @@ struct RecentNotificationsSheet: View {
         #endif
 
         return AppSheetShell(
-            title: section == .actions ? "Actions" : "Notifications",
-            subtitle: subtitleText,
+            title: tab.rawValue,
+            subtitle: subtitle(for: tab),
             cancelTitle: "Close",
             cancelSystemImage: {
                 #if os(macOS)
@@ -864,9 +938,11 @@ struct RecentNotificationsSheet: View {
             dragIndicator: .visible
         ) {
             Group {
-                switch section {
-                case .activity:
-                    activityContent
+                switch tab {
+                case .requests:
+                    NotificationRequestsTab()
+                case .alerts:
+                    alertsContent
                 case .actions:
                     actionsContent
                 case .downloads:
@@ -891,7 +967,7 @@ struct RecentNotificationsSheet: View {
                     }
                 }
 
-                if section == .activity, notificationCount > 0 {
+                if tab == .alerts, notificationCount > 0 {
                     ToolbarSpacer(.flexible, placement: .topBarTrailing)
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button("Clear") {
@@ -1005,6 +1081,12 @@ struct RecentNotificationsSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                    if !isRunning, let run = inAppNotificationCenter.lastQuickActionRuns[action.rawValue] {
+                        Text(lastRunText(run))
+                            .font(.caption2)
+                            .foregroundStyle(run.succeeded ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
+                            .accessibilityIdentifier("quick-action-last-run-\(action.rawValue)")
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -1016,6 +1098,14 @@ struct RecentNotificationsSheet: View {
         .disabled(isRunning)
         .accessibilityLabel(action.title)
         .accessibilityValue(isRunning ? "Running" : "")
+    }
+
+    /// "Last run 22:04 · 3 instances", or "Last run 22:04 · failed".
+    private func lastRunText(_ run: QuickActionRunRecord) -> String {
+        let time = run.date.formatted(date: .omitted, time: .shortened)
+        if !run.succeeded { return "Last run \(time) · failed" }
+        if run.targetCount > 1 { return "Last run \(time) · \(run.targetCount) instances" }
+        return "Last run \(time)"
     }
 
     private func icon(for entry: NotificationLogEntry) -> String {
@@ -1061,6 +1151,7 @@ struct RecentNotificationsSheet: View {
         if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return .seerr }
         if tokens.contains("sabnzbd") || tokens.contains("usenet") || tokens.contains("nzb") { return .sabnzbd }
         if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return .qbittorrent }
+        if tokens.contains("jellyfin") { return .jellyfin }
         return .trawl
     }
 
@@ -1072,6 +1163,7 @@ struct RecentNotificationsSheet: View {
         case prowlarr
         case bazarr
         case seerr
+        case jellyfin
         case trawl
 
         var title: String {
@@ -1083,6 +1175,7 @@ struct RecentNotificationsSheet: View {
             case .prowlarr: "Prowlarr"
             case .bazarr: "Bazarr"
             case .seerr: "Seerr"
+            case .jellyfin: "Jellyfin"
             case .trawl: "Trawl"
             }
         }
@@ -1096,6 +1189,7 @@ struct RecentNotificationsSheet: View {
             case .prowlarr: ServiceIdentity.prowlarr.systemImage
             case .bazarr: ServiceIdentity.bazarr.systemImage
             case .seerr: ServiceIdentity.seerr.systemImage
+            case .jellyfin: ServiceIdentity.jellyfin.systemImage
             case .trawl: "app.badge"
             }
         }
@@ -1148,166 +1242,6 @@ struct RecentNotificationsSheet: View {
         } catch {
             return []
         }
-    }
-
-    @ViewBuilder
-    private func attentionRows(_ failures: [DownloadListItem]) -> some View {
-        ForEach(failures.prefix(attentionVisibleCount)) { item in
-            Button {
-                dismiss()
-                // These rows are the Issues segment's contents, so land there
-                // rather than on the default segment.
-                downloadsNavigator?.show(.issues)
-                navigateToDownloadsTab()
-            } label: {
-                attentionRow(item)
-            }
-            .buttonStyle(.plain)
-        }
-
-        if failures.count > attentionVisibleCount {
-            Button {
-                withAnimation {
-                    attentionVisibleCount += Self.attentionPageSize
-                }
-            } label: {
-                let remaining = failures.count - attentionVisibleCount
-                Label(
-                    remaining == 1 ? "Load 1 More" : "Load \(min(remaining, Self.attentionPageSize)) More",
-                    systemImage: "chevron.down.circle"
-                )
-                .font(.subheadline.weight(.medium))
-            }
-        }
-    }
-
-    /// Approve and decline sit on the row itself rather than behind a push. A
-    /// pending request has exactly two answers, and making the user leave the sheet
-    /// to give one defeats the point of surfacing it here.
-    @ViewBuilder
-    private func pendingRequestRow(_ request: SeerrMediaRequest) -> some View {
-        let isInFlight = requestActionIDs.contains(request.id)
-
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(ServiceIdentity.seerr.brandColor.opacity(0.15))
-                    .frame(width: 38, height: 38)
-                Image(systemName: request.media?.mediaType == "tv" ? "tv" : "film")
-                    .font(.title3)
-                    .foregroundStyle(ServiceIdentity.seerr.brandColor)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(request.media?.displayTitle ?? "Unknown Media")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(pendingRequestDetail(request))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            if isInFlight {
-                ProgressView()
-            }
-        }
-        .padding(.vertical, 4)
-        .disabled(isInFlight)
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button {
-                performRequestDecision(request, approve: true)
-            } label: {
-                Label("Approve", systemImage: "checkmark.circle")
-            }
-            .tint(.green)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                performRequestDecision(request, approve: false)
-            } label: {
-                Label("Decline", systemImage: "xmark.circle")
-            }
-            .tint(.orange)
-        }
-        .contextMenu {
-            Button("Approve", systemImage: "checkmark.circle") {
-                performRequestDecision(request, approve: true)
-            }
-            Button("Decline", systemImage: "xmark.circle") {
-                performRequestDecision(request, approve: false)
-            }
-        }
-    }
-
-    private func pendingRequestDetail(_ request: SeerrMediaRequest) -> String {
-        var parts = [request.media?.typeLabel ?? "Media"]
-        if request.is4k == true {
-            parts.append("4K")
-        }
-        if let requester = request.requestedBy?.displayName, !requester.isEmpty {
-            parts.append("Requested by \(requester)")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func performRequestDecision(_ request: SeerrMediaRequest, approve: Bool) {
-        guard !requestActionIDs.contains(request.id) else { return }
-        requestActionIDs.insert(request.id)
-
-        Task {
-            defer { requestActionIDs.remove(request.id) }
-            do {
-                if approve {
-                    try await seerrServiceManager.approveRequest(id: request.id)
-                } else {
-                    try await seerrServiceManager.declineRequest(id: request.id)
-                }
-            } catch {
-                inAppNotificationCenter.showError(
-                    title: approve ? "Approve Failed" : "Decline Failed",
-                    message: error.localizedDescription
-                )
-            }
-        }
-    }
-
-    /// A failing download. Tapping takes the user to Downloads, where the Issues
-    /// segment carries the retry/blocklist verbs this sheet deliberately doesn't.
-    @ViewBuilder
-    private func attentionRow(_ item: DownloadListItem) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.orange.opacity(0.15))
-                    .frame(width: 38, height: 38)
-                Image(systemName: item.attentionSystemImage)
-                    .font(.title3)
-                    .foregroundStyle(.orange)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.attentionTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Text(item.attentionDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 0)
-
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -1499,40 +1433,41 @@ struct RecentNotificationsSheet: View {
         }
     }
 
+    /// Two lines: what happened, then where and what. The time sits on the right as
+    /// "4m" or "21:58"; the full date is on the detail screen, not repeated per row.
     @ViewBuilder
     private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
         let service = serviceContext(for: entry)
+        let isNew = entry.timestamp > effectiveUnreadSinceDate
 
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
-                    .frame(width: 7, height: 7)
-                HStack(spacing: 4) {
-                    Image(systemName: icon(for: entry))
-                        .foregroundStyle(color(for: entry.style))
-                    Text(entry.title)
-                        .font(.headline)
-                        .lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: icon(for: entry))
+                .font(.subheadline)
+                .foregroundStyle(color(for: entry.style))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title)
+                    .font(.subheadline.weight(isNew ? .semibold : .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(service.title)
+                        .foregroundStyle(.tertiary)
+                    if !entry.message.isEmpty {
+                        Text(entry.message)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(truncate ? 2 : 3)
+                    }
                 }
-                Spacer()
-                Text(service.title)
                 .font(.caption)
-                .foregroundStyle(.secondary)
             }
-            if !entry.message.isEmpty {
-                Text(entry.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 15)
-                    .lineLimit(truncate ? 2 : nil)
-            }
-            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.leading, 15)
+            Spacer(minLength: 8)
+            Text(NotificationTimeline.timeText(for: entry.timestamp, now: .now))
+                .font(.caption)
+                .foregroundStyle(isNew ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .monospacedDigit()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
     }
 }
 

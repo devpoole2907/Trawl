@@ -128,6 +128,55 @@ struct SeerrServiceManagerTests {
         }
     }
 
+    @Test("refreshRequestQueue reads pending and processing requests and looks up their titles")
+    func refreshRequestQueueReadsEachFilterAndTitles() async throws {
+        let server = try await SeerrManagerLoopbackServer(label: "request-queue")
+        defer { server.stop() }
+        server.route("GET /api/v1/auth/me", SeerrManagerFakeResponse(body: Data(#"{"id":1}"#.utf8)))
+        server.route("GET /api/v1/user", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":1,"results":1,"page":1},"results":[{"id":1}]}"#.utf8)
+        ))
+        server.route("GET /api/v1/request?filter=pending", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":20,"results":1,"page":1},"results":[{"id":1,"status":1,"media":{"id":11,"tmdbId":101,"mediaType":"movie","status":2}}]}"#.utf8)
+        ))
+        server.route("GET /api/v1/request?filter=processing", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":20,"results":1,"page":1},"results":[{"id":2,"status":2,"media":{"id":12,"tmdbId":102,"mediaType":"tv","status":3}}]}"#.utf8)
+        ))
+        server.route("GET /api/v1/request?filter=available", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":20,"results":0,"page":1},"results":[]}"#.utf8)
+        ))
+        // The request list embeds the media record without a title, as Seerr does;
+        // the title comes from the media endpoint.
+        server.route("GET /api/v1/movie/101", SeerrManagerFakeResponse(body: Data(#"{"id":101,"title":"Queue Movie"}"#.utf8)))
+        server.route("GET /api/v1/tv/102", SeerrManagerFakeResponse(body: Data(#"{"id":102,"name":"Queue Series"}"#.utf8)))
+        server.route("POST /api/v1/request/1/approve", SeerrManagerFakeResponse(body: Data(#"{"id":1,"status":2}"#.utf8)))
+
+        let profile = SeerrServiceProfile(displayName: "Test Seerr", hostURL: server.baseURL)
+        let manager = SeerrServiceManager()
+
+        try await withSavedSessionCookie(for: profile, cookie: "test-session") {
+            await manager.connectService(profile)
+            await manager.refreshRequestQueue()
+
+            #expect(manager.pendingRequests.map(\.id) == [1])
+            #expect(manager.inFlightRequests.map(\.id) == [2])
+            #expect(manager.recentlyAvailableRequests.isEmpty)
+            #expect(manager.displayTitle(for: manager.pendingRequests[0]) == "Queue Movie")
+            #expect(manager.displayTitle(for: manager.inFlightRequests[0]) == "Queue Series")
+
+            // An approval moves the row to On the Way at once, keeping its title,
+            // rather than leaving a gap until the next refresh.
+            try await manager.approveRequest(id: 1)
+            #expect(manager.pendingRequests.isEmpty)
+            #expect(manager.inFlightRequests.map(\.id) == [1, 2])
+            #expect(manager.displayTitle(for: manager.inFlightRequests[0]) == "Queue Movie")
+
+            manager.disconnect()
+            #expect(manager.inFlightRequests.isEmpty)
+            #expect(manager.recentlyAvailableRequests.isEmpty)
+        }
+    }
+
     @Test("refreshPendingRequests clears the list when there's no active client")
     func refreshPendingRequestsClearsListWithNoActiveClient() async throws {
         let server = try await SeerrManagerLoopbackServer(label: "refresh-no-client")
@@ -417,10 +466,13 @@ private nonisolated final class SeerrManagerLoopbackServer: @unchecked Sendable 
                 return
             }
             let key = Self.requestKey(from: data)
+            let filteredKey = Self.filter(from: data).map { "\(key)?filter=\($0)" }
 
             self.lock.lock()
             self.recordedRequests.append(key)
-            let response = self.routes[key] ?? SeerrManagerFakeResponse(statusCode: 404, body: Data())
+            let response = filteredKey.flatMap { self.routes[$0] }
+                ?? self.routes[key]
+                ?? SeerrManagerFakeResponse(statusCode: 404, body: Data())
             self.lock.unlock()
 
             connection.send(
@@ -442,6 +494,23 @@ private nonisolated final class SeerrManagerLoopbackServer: @unchecked Sendable 
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
         let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
         return "\(method) \(path)"
+    }
+
+    /// The request list's `filter` query value, so one path can answer pending,
+    /// processing and available differently - routed as "GET /path?filter=value".
+    private static func filter(from data: Data) -> String? {
+        guard let text = String(data: data, encoding: .utf8),
+              let firstLine = text.split(separator: "\r\n", maxSplits: 1).first else {
+            return nil
+        }
+        let parts = firstLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard let target = parts.dropFirst().first,
+              let query = target.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
+        for pair in query.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2, kv[0] == "filter" { return String(kv[1]) }
+        }
+        return nil
     }
 
     private static func httpResponse(_ response: SeerrManagerFakeResponse) -> Data {

@@ -670,7 +670,8 @@ final class LibraryImportScanViewModel {
                 notificationCenter.completeImportJob(id: jobID, succeeded: true)
                 notificationCenter.showSuccess(
                     title: "Import Started",
-                    message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running."
+                    message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running.",
+                    isOutcome: true
                 )
                 return false
             }
@@ -709,7 +710,8 @@ final class LibraryImportScanViewModel {
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import Started",
-                message: "\(savedItems.count) \(savedItems.count == 1 ? "file" : "files") submitted to \(service.displayName). The import is still running; check Activity for progress."
+                message: "\(savedItems.count) \(savedItems.count == 1 ? "file" : "files") submitted to \(service.displayName). The import is still running; check Activity for progress.",
+                isOutcome: true
             )
             return false
         } catch {
@@ -1643,7 +1645,8 @@ final class LibraryImportScanViewModel {
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import In Progress",
-                message: "\(count) \(fileWord) submitted to \(service.displayName). The import is still running; check Activity for progress."
+                message: "\(count) \(fileWord) submitted to \(service.displayName). The import is still running; check Activity for progress.",
+                isOutcome: true
             )
             return false
         } catch {
