@@ -30,6 +30,23 @@ struct LibraryTabNavigationTests {
         #expect(RootTab.health.sidebarDestination == .health)
     }
 
+    /// The sidebar has no More row. A startup tab of More on an unfolded Duo used to
+    /// select it anyway and show the phone's More list beside the sidebar.
+    @Test func moreIsNeverASidebarSelection() {
+        #expect(!RootTab.sidebarDestinations.contains(.more))
+        #expect(RootTab.more.sidebarDestination == .series)
+        var scope = LibraryScope.all
+        #expect(ContentView.startupSelection(stored: "More", isCompact: false, scope: &scope) == .series)
+        #expect(ContentView.startupSelection(stored: "More", isCompact: true, scope: &scope) == .more)
+        // Unfolding on a screen More had pushed keeps that screen.
+        #expect(RootTab.sidebarDestination(forMoreRoot: .health) == .health)
+        #expect(RootTab.sidebarDestination(forMoreRoot: .setupCheck) == .setupCheck)
+        // Every compact startup choice lands on a row the sidebar actually lists.
+        for tab in RootTab.startupChoices {
+            #expect(RootTab.sidebarDestinations.contains(tab.sidebarDestination), "\(tab) has no sidebar row")
+        }
+    }
+
     @Test func storedStartupTabsMapToThePhoneTabs() {
         var scope = LibraryScope.all
         #expect(ContentView.startupSelection(stored: "Downloads", isCompact: true, scope: &scope) == .library)

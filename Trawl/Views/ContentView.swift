@@ -584,6 +584,12 @@ struct ContentView: View {
                 }
             } else if selectedTab == .library {
                 selectedTab = libraryScope == .movies ? .movies : .series
+            } else if selectedTab == .more {
+                // Unfolding a Duo that was on More. The sidebar has no More row, but
+                // it has a row for every screen More leads to, so stay on the one
+                // that was open; More's own list has no equivalent, so it is Series.
+                selectedTab = morePath.first.flatMap(RootTab.sidebarDestination(forMoreRoot:))
+                    ?? RootTab.more.sidebarDestination
             }
         }
         .sheet(item: $magnetDeepLink) { link in
@@ -797,7 +803,6 @@ struct ContentView: View {
         .environment(\.selectLibraryTitle, selectLibraryTitle)
         .environment(\.openMediaInSearch, openMediaInSearch)
         .environment(\.selectDownload, selectDownload)
-        .environment(\.showsSidebarAttentionBanner, true)
     }
 
     /// The sidebar column, with the notification bar pinned beneath it.
@@ -812,7 +817,6 @@ struct ContentView: View {
         #if os(macOS)
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                sidebarAttentionBanner
                 sidebarList(downloadBadge: downloadBadge)
                 sidebarNotificationBar(services: services)
             }
@@ -822,40 +826,12 @@ struct ContentView: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         #else
         sidebarList(downloadBadge: downloadBadge)
-            .safeAreaInset(edge: .top) {
-                sidebarAttentionBanner
-            }
             .safeAreaInset(edge: .bottom) {
                 sidebarNotificationBar(services: services)
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         #endif
-    }
-
-    /// The setup-attention banner, at the top of the sidebar rather than on each
-    /// screen it concerns.
-    ///
-    /// This chrome has somewhere better to put it than the compact one does. On
-    /// iPhone the banner has to live on the screen the finding is about, because that
-    /// screen is the whole window and there is nowhere else; here the sidebar is
-    /// always on show, so one banner covers the app and is visible from wherever the
-    /// user happens to be. It takes no topic for the same reason - it speaks for
-    /// every finding, not for whichever screen is open.
-    ///
-    /// Tapping selects Setup Check rather than presenting the wizard as a sheet. The
-    /// sidebar already has Setup Check as a destination, and a sheet covering the
-    /// screen the user is reading, to show something they can also just navigate to,
-    /// is the compact chrome's compromise rather than this one's.
-    ///
-    /// It occupies no height when the audit is clear - the banner renders nothing at
-    /// all in that case, so the inset costs nothing.
-    private var sidebarAttentionBanner: some View {
-        ConfigurationAttentionBanner(topic: nil) {
-            guard !isSidebarNavigationBlockedByEditing else { return }
-            selectedTab = .setupCheck
-        }
-        .disabled(isSidebarNavigationBlockedByEditing)
     }
 
     /// The notification bar, as the sidebar's own footer.

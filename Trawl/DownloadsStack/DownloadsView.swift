@@ -559,7 +559,6 @@ struct DownloadsView: View {
             // client" is the cause, and this is the screen the user is looking at
             // when they notice.
             //
-            .configurationAttention(.downloads)
             .onChange(of: visibleSections) { _, sections in
                 // A selected segment normally keeps itself visible while it empties.
                 // Scope changes are different: SABnzbd cannot seed, and its successful

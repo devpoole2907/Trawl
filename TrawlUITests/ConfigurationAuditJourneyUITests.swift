@@ -238,18 +238,15 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         )
     }
 
-    /// The third surface: the screen the fault actually breaks.
+    /// Setup attention has one home: the notifications sheet's Alerts tab.
     ///
-    /// Downloads is chosen because the fixture's fault is a download-client one, so
-    /// this also pins the topic filter - a banner that showed every finding on every
-    /// screen would pass an assertion that only looked for *a* banner.
-    ///
-    /// The opt-in is deliberate and mirrors the discovery tips: a UI-test launch
-    /// hides these banners, because a fixture answering `/downloadclient` with an
-    /// empty array is a genuine fault on nearly every suite in this target, and a
-    /// banner inset above the content would move the rows those suites assert on.
+    /// There used to be a third surface - a card above Downloads, Requests, Subtitles
+    /// and Search on the phone, and one floating above the sidebar's destination list
+    /// on iPad and an unfolded Duo. It repeated what the sheet already says, so it is
+    /// gone. This launch opts back in to the passive surfaces, which is what used to
+    /// draw the card, so it proves the card is gone rather than just hidden in tests.
     @MainActor
-    func testDownloadsShowsSetupAttentionForADownloadClientFault() async throws {
+    func testSetupAttentionLivesOnlyInTheNotificationsSheet() async throws {
         let sonarr = try await SonarrFixtureServer(seriesJSON: #"[{"id":1,"title":"Audit Fixture Series"}]"#)
         self.sonarr = sonarr
         let app = launchApp(sonarr: sonarr, showingContextualAttention: true)
@@ -257,42 +254,40 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
         XCTAssertTrue(openDestination(.downloads, in: app), "Downloads should be reachable.")
 
-        // Where the banner lives depends on the chrome, and deliberately so. The
-        // compact chrome has nowhere to put it but the screen the finding is about;
-        // the sidebar chrome puts one banner above its destination list, speaking
-        // for every topic, and drops the per-screen copies rather than saying the
-        // same thing twice on one display.
-        let banner = app.buttons[
-            TrawlChrome.isSidebar ? "configuration-attention-sidebar" : "configuration-attention-downloads"
-        ]
-        XCTAssertTrue(
-            banner.waitForExistence(timeout: 40),
-            "A Sonarr with no download client should say so - on the screen whose queue will therefore stay empty, or in the sidebar that is always on show."
-        )
-        if TrawlChrome.isSidebar {
-            XCTAssertFalse(
-                app.buttons["configuration-attention-downloads"].exists,
-                "The sidebar's banner covers every topic, so Downloads should not carry a second one beside it."
+        // The sheet's card first, so the audit has definitely finished: asserting
+        // the banner's absence before anything could have drawn it would pass for
+        // the wrong reason.
+        // On the phone Downloads *is* the sheet, opened on its Downloads tab, so the
+        // Alerts tab is one tap away; on the sidebar the bar opens it.
+        let alertsTab = app.tabBars.buttons["Alerts"]
+        if alertsTab.waitForExistence(timeout: 3) {
+            XCTAssertTrue(tapWhenHittable(alertsTab, in: app, timeout: 5), "The sheet's Alerts tab should be selectable.")
+        } else {
+            XCTAssertTrue(
+                tapWhenHittable(app.buttons["Notifications"], in: app, timeout: 10),
+                "The notification bar should open the notifications sheet."
             )
         }
-        let headline = app.staticTexts
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "no download client"))
-            .firstMatch
         XCTAssertTrue(
-            headline.waitForExistence(timeout: 15),
-            "The banner should name the finding, not just that something is wrong."
+            app.buttons["notifications-setup-attention"].waitForExistence(in: app, timeout: 30),
+            "The fixture's missing download client should be reported in the notifications sheet."
+        )
+        dismissNotificationsSheetIfPresent(in: app)
+        XCTAssertTrue(
+            app.buttons["notifications-setup-attention"].waitForNonExistence(timeout: 10),
+            "The notifications sheet should close."
         )
 
-        // The headline rather than the button. The banner used to be a full-bleed
-        // top safe-area inset whose button reported a frame starting at the top of
-        // the window, so a tap at its centre landed on the navigation title and the
-        // run reported a banner that would not respond. It is an inset card now and
-        // the frame is honest, but tapping the words is what a person does anyway.
-        XCTAssertTrue(headline.isHittable, "The banner text should be on screen and tappable.")
-        headline.tap()
-        XCTAssertTrue(
-            app.navigationBars["Setup Check"].waitForExistence(in: app, timeout: 10),
-            "Either route leads to the same Setup Check as the System hub, not to a second repair flow - as a sheet on the compact chrome, and as the sidebar's own destination where there is one to select."
+        let banners = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "configuration-attention-"))
+        XCTAssertEqual(
+            banners.count, 0,
+            "No screen, and not the sidebar, should carry a setup-attention card of its own."
+        )
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "other things need attention"))
+                .firstMatch.exists,
+            "The card's summary line should not be drawn anywhere outside the sheet."
         )
     }
 

@@ -73,7 +73,6 @@ struct BazarrBrowserView: View {
         // Bazarr fetches subtitles only for libraries it is linked to, so an
         // unlinked or wrongly pointed app looks exactly like a library with no
         // subtitles available.
-        .configurationAttention(.subtitles)
         .navigationTitle("Subtitles")
         .navigationSubtitle("Bazarr")
         #if os(iOS)

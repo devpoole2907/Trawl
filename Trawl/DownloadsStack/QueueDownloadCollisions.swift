@@ -102,8 +102,8 @@ nonisolated enum QueueDownloadCollisionDetector {
 
 /// The Downloads tab's own notice that two instances are racing for one download.
 ///
-/// Built on `TrawlInlineCallout` rather than `ConfigurationAttentionBanner`: that
-/// banner opens the Setup Check sheet and reads from `ConfigurationAuditStore`,
+/// Built on `TrawlInlineCallout`, not routed through the notifications sheet's setup
+/// attention: that opens Setup Check and reads from `ConfigurationAuditStore`,
 /// neither of which applies here - there is no configuration to repair and no
 /// audit result to hand it. `TrawlInlineCallout` is the notice style that already
 /// means "true about your setup for as long as this condition holds, and gone the

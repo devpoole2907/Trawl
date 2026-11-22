@@ -158,7 +158,6 @@ struct SearchView: View {
             // between them, and on iPad - where the container is the split view's
             // content column rather than a stack of its own - the field disappeared
             // entirely, which is the exact defect the two-chrome work fixed.
-            .configurationAttention(.search)
             .onAppear { resumeVisibleArrLookup() }
         }
     }

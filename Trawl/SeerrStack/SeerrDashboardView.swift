@@ -28,7 +28,6 @@ struct SeerrDashboardView: View {
                 // side, the queue stays in front of you while you work through it.
                 TrawlListDetailPanes(title: "Requests") {
                     requestList(viewModel: viewModel)
-                        .configurationAttention(.requests)
                 } detail: {
                     selectedRequestDetail(viewModel: viewModel)
                 }

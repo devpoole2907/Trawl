@@ -324,8 +324,21 @@ enum RootTab: Hashable, CaseIterable {
     /// The sidebar's equivalent of a compact-only tab. The sidebar has no Library
     /// row, so Library opens Series there, which is where the tab bar's old first
     /// library tab pointed.
+    ///
+    /// It has no More row either - every hub More holds is a sidebar row of its own -
+    /// so More opens Series too. Before this, a startup tab of More on an unfolded
+    /// iPhone Duo selected a destination the sidebar does not list and showed the
+    /// phone's More screen beside it.
     var sidebarDestination: RootTab {
-        self == .library ? .series : self
+        switch self {
+        case .library, .more: .series
+        default: self
+        }
+    }
+
+    /// The sidebar row for a screen More pushes as its first level, if there is one.
+    static func sidebarDestination(forMoreRoot root: MoreDestination) -> RootTab? {
+        sidebarDestinations.first { $0.moreRoot == root }
     }
 
     /// Every sidebar row, in section order.

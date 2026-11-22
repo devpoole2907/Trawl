@@ -2,13 +2,20 @@
 //  ConfigurationAttention.swift
 //  Trawl
 //
-//  The audit's findings, put in front of the person on the screen they affect.
+//  Keeping the configuration audit fresh. Its findings are shown in one place: the
+//  notifications sheet's Alerts tab (and Setup Check, which it opens).
 //
 
 import SwiftUI
 import SwiftData
 
-/// Whether the contextual banners may render on this launch.
+/// Whether passive, screen-level setup notices may render on this launch.
+///
+/// The setup-attention banners that used to sit above Downloads, Requests,
+/// Subtitles, Search and the sidebar are gone: findings live in the notifications
+/// sheet's Alerts tab, which already says when the setup needs attention, and a
+/// floating card repeating it in the sidebar read as clutter. What this still gates
+/// is the queue-collision notice on Downloads and the passive audit refresh.
 ///
 /// The same problem the discovery tips have, for the same reason. Nearly every
 /// journey suite in the UI target asserts against a screen a banner could sit above,
@@ -135,170 +142,11 @@ enum ConfigurationAuditInput {
 extension View {
     /// Runs the configuration audit for this screen, if the cached result is stale.
     ///
-    /// Pass `forContextualBanner: true` on a screen that only wants the audit in
-    /// order to draw a `ConfigurationAttentionBanner`, so that a UI-test launch -
-    /// which hides those banners - does not fan out across every service to build
-    /// findings nothing will render.
+    /// Pass `forContextualBanner: true` for a passive refresh - one that only keeps
+    /// the notification bar's summary current, rather than a screen showing findings.
+    /// A UI-test launch skips those, so fixture faults do not change the bar's text
+    /// under suites that are not about the audit.
     func refreshesConfigurationAudit(forContextualBanner: Bool = false) -> some View {
         modifier(ConfigurationAuditTask(isForContextualBanner: forContextualBanner))
-    }
-}
-
-/// A short line about the setup, on the screen it stops working.
-///
-/// Deliberately not the Setup Check, and not a modal. That is the place to walk
-/// every finding; this is the place to notice one - so it names the first, counts the
-/// rest, opens the Setup Check, and gets out of the way. It renders nothing at all when
-/// the topic is clear, which is why `configurationAttention(_:)` can be applied
-/// unconditionally.
-///
-/// Notes are excluded on purpose. "These two hostnames differ" is worth reading once
-/// in the Setup Check and is not worth a standing banner on the Downloads screen: a banner
-/// people learn to ignore is worse than no banner.
-struct ConfigurationAttentionBanner: View {
-    /// The screen's subject, or `nil` for a banner that is not attached to a screen
-    /// at all - the sidebar's, which speaks for the whole app.
-    let topic: ConfigurationIssueTopic?
-    let action: () -> Void
-
-    @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
-
-    var body: some View {
-        if let headline = relevant.first {
-            Button(action: action) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: headline.severity == .problem ? "exclamationmark.triangle.fill" : "questionmark.diamond.fill")
-                        .font(.title3)
-                        .foregroundStyle(.orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(headline.title)
-                            .font(.subheadline.weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // An inset card, not a slab of chrome. This used to be edge-to-edge
-                // with `.background(.bar)` and a `Divider()` under it, which reads
-                // correctly on iPhone - it tucks under an opaque navigation bar and
-                // looks like part of it. On iPadOS the bar is translucent and the
-                // inset's content is laid out into the bar's own region, so the slab
-                // painted up behind the toolbar and stopped partway across the row,
-                // leaving a hard seam with the chevron floating outside it. The
-                // button's frame reaching the top of the window is the same fact seen
-                // from the test side.
-                //
-                // Matching `TrawlInlineCallout` rather than inventing a third style:
-                // this is the same kind of notice - one sentence about the user's own
-                // setup, with one thing to do about it.
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
-                )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("configuration-attention-\(topic?.rawValue ?? "sidebar")")
-        }
-    }
-
-    private var relevant: [ConfigurationIssue] {
-        guard ConfigurationAttention.isContextuallyVisible else { return [] }
-        guard let auditStore, auditStore.hasCompletedAnAudit else { return [] }
-        let scoped = topic.map { auditStore.issues.concerning($0) } ?? auditStore.issues
-        return scoped.filter { $0.severity != .note }
-    }
-
-    private var summary: String {
-        let remaining = relevant.count - 1
-        guard remaining > 0 else { return "Open the setup check to fix this." }
-        return remaining == 1
-            ? "And 1 other thing needs attention."
-            : "And \(remaining) other things need attention."
-    }
-}
-
-/// Owns the banner, the Setup Check it opens, and the audit that feeds both.
-///
-/// The sheet lives here rather than on the banner itself: a `.sheet` attached inside
-/// a `safeAreaInset`'s content does not present, so the button only reports the tap
-/// and the screen it decorates does the presenting.
-private struct ConfigurationAttentionInset: ViewModifier {
-    let topic: ConfigurationIssueTopic
-
-    @Environment(\.showsSidebarAttentionBanner) private var sidebarCarriesTheBanner
-    @State private var showSetupCheck = false
-
-    /// Only where the screen is the whole window.
-    ///
-    /// The sidebar chrome carries one banner of its own, above the destination list,
-    /// and it speaks for every topic. Leaving the per-screen banners on there would
-    /// say the same thing twice on the same display, and the sidebar's copy is the
-    /// better of the two: it is visible from wherever you are rather than only from
-    /// the screen the finding happens to be about.
-    /// Asked of the chrome rather than of the size class. The obvious test -
-    /// `horizontalSizeClass == .compact` - is wrong here: a `NavigationSplitView`'s
-    /// content column reports itself compact on iPad, so the per-screen banner went
-    /// on drawing beside the sidebar's copy and the screen said the same thing twice.
-    private var showsContextualBanner: Bool { !sidebarCarriesTheBanner }
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if showsContextualBanner {
-            content
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    ConfigurationAttentionBanner(topic: topic) { showSetupCheck = true }
-                }
-                .refreshesConfigurationAudit(forContextualBanner: true)
-                .sheet(isPresented: $showSetupCheck) {
-                    SetupCheckSheet()
-                }
-        } else {
-            // An inset whose content conditionally renders `EmptyView` is still an
-            // inset in AppKit's split-view layout. Do not create the layout boundary
-            // at all when the sidebar already owns the banner.
-            content
-                .refreshesConfigurationAudit(forContextualBanner: true)
-        }
-    }
-}
-
-extension View {
-    /// Shows the setup-attention banner for `topic` above this screen, and keeps the
-    /// audit fresh for it.
-    ///
-    /// A top safe-area inset rather than a row in each screen's list: the four
-    /// screens that carry one are a `List`, a search results view, a dashboard and a
-    /// browser, and threading a row into each means knowing the shape of all four.
-    /// It is chrome, not content, and it occupies no height at all when there is
-    /// nothing to say.
-    func configurationAttention(_ topic: ConfigurationIssueTopic) -> some View {
-        modifier(ConfigurationAttentionInset(topic: topic))
-    }
-}
-
-private struct ShowsSidebarAttentionBannerKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    /// Whether the surrounding chrome already shows a setup-attention banner of its
-    /// own, in which case a screen inside it should not show a second one.
-    var showsSidebarAttentionBanner: Bool {
-        get { self[ShowsSidebarAttentionBannerKey.self] }
-        set { self[ShowsSidebarAttentionBannerKey.self] = newValue }
     }
 }

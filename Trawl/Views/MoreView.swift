@@ -1300,7 +1300,12 @@ struct MoreView: View {
                 var collapsed = collapsedMoreSectionsStorage
                     ?? Set(Self.defaultCollapsedMoreSections.map(\.rawValue))
                 if isExpanded { collapsed.remove(section.rawValue) } else { collapsed.insert(section.rawValue) }
-                collapsedMoreSectionsRaw = collapsed.sorted().joined(separator: "\n")
+                // The header's own toggle does not carry an animation through this
+                // binding: the change lands in `@AppStorage`, which re-renders the
+                // list outside any transaction, so the rows snapped in and out.
+                withAnimation(.snappy) {
+                    collapsedMoreSectionsRaw = collapsed.sorted().joined(separator: "\n")
+                }
             }
         )
     }
