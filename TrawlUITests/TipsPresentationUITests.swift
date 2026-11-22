@@ -108,7 +108,7 @@ final class TipsPresentationUITests: XCTestCase {
             app.staticTexts[Self.seriesTitle].waitForExistence(in: app, timeout: 20),
             "The library should connect before the Calendar is opened, since the tip only shows for a connected service."
         )
-        XCTAssertTrue(tapWhenPossible(app.buttons["Calendar"], timeout: 15), "The Series toolbar should offer Calendar.")
+        XCTAssertTrue(openDestination(.calendar, in: app), "Calendar should be reachable.")
         XCTAssertTrue(
             app.showsScreen(named: "Calendar", timeout: 20),
             "Calendar should present before its tip is looked for."

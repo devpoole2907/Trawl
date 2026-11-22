@@ -18,13 +18,17 @@ struct RadarrMovieListView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
     private let session: ArrLibraryRootSession<RadarrViewModel>
+    /// The iPhone Library tab's scope switch; see `ArrMediaListView.libraryScope`.
+    private var libraryScope: Binding<LibraryScope>? = nil
     @State private var showSetupSheet = false
 
     init(
         detailSelection: Binding<ArrMergeKey?>? = nil,
-        session: ArrLibraryRootSession<RadarrViewModel>? = nil
+        session: ArrLibraryRootSession<RadarrViewModel>? = nil,
+        libraryScope: Binding<LibraryScope>? = nil
     ) {
         self.detailSelection = detailSelection
+        self.libraryScope = libraryScope
         self.session = session ?? ArrLibraryRootSession()
         #if DEBUG
         previewPresentation = nil
@@ -136,11 +140,13 @@ struct RadarrMovieListView: View {
                 detailDestination: { key in
                     RadarrMovieDetailView(mergeKey: key, viewModel: vm)
                 },
-                session: session.list
+                session: session.list,
+                libraryScope: libraryScope
             )
         } else {
             radarrUnavailableContent
-                .navigationTitle("Movies")
+                .navigationTitle(libraryScope == nil ? "Movies" : "")
+                .libraryScopeTitleMenu(libraryScope)
         }
     }
 

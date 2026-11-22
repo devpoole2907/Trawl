@@ -88,8 +88,17 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     override func rebuildFilteredItems() {
-        filteredItems = makeFilteredEntries(
+        filteredItems = libraryEntries(filter: selectedFilter, searchText: searchText, sort: sortOrder)
+    }
+
+    /// This library merged, filtered and sorted by the given settings rather than
+    /// the list's own - see `makeFilteredEntries`.
+    func libraryEntries(filter: SonarrFilter, searchText: String, sort: SonarrSortOrder) -> [ArrLibraryEntry<SonarrSeries>] {
+        makeFilteredEntries(
             from: series,
+            filter: filter,
+            searchText: searchText,
+            sort: sort,
             matchesSearch: { series, query in
                 series.title.localizedCaseInsensitiveContains(query)
             },

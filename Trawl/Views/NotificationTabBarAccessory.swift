@@ -20,6 +20,12 @@ extension EnvironmentValues {
 
 struct NotificationTabBarAccessory: View {
     var prefersCompactLayout = false
+    /// The iPhone bar, which is also Downloads' home there: while anything is
+    /// downloading it leads with that, and a tap opens the sheet on Downloads.
+    /// Off in the sidebar footer, where Downloads is a row of its own.
+    var showsDownloads = false
+    @Environment(SyncService.self) private var syncService: SyncService?
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
 
     #if os(iOS)
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
@@ -59,9 +65,23 @@ struct NotificationTabBarAccessory: View {
         runningImportJobs.first
     }
 
+    /// What is downloading, when this bar is showing downloads at all.
+    private var downloads: ActiveDownloadsSummary? {
+        guard showsDownloads else { return nil }
+        return ActiveDownloadsSummary.make(
+            torrents: syncService.map { Array($0.torrents.values) } ?? [],
+            sabJobs: sabnzbdServiceManager?.unpausedJobs ?? []
+        )
+    }
+
     private var headline: String {
         // This accessory is the at-a-glance notification surface. Standing issues
         // remain in the sheet, where their context and actions are available.
+        // Downloads lead while there are any: they are what the bar is for on iPhone,
+        // and a finished one becomes the notification that would have been here.
+        if let downloads {
+            return downloads.leadName
+        }
         if let latestNotification {
             return latestNotification.title
         }
@@ -81,6 +101,12 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var subtitle: String {
+        if let downloads {
+            let speed = downloads.bytesPerSecond > 0
+                ? " · " + ByteCountFormatter.string(fromByteCount: downloads.bytesPerSecond, countStyle: .file) + "/s"
+                : ""
+            return downloads.detail + speed
+        }
         if let latestNotification {
             return "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
         }
@@ -131,7 +157,11 @@ struct NotificationTabBarAccessory: View {
     }
 
     private func presentRecentNotifications() {
-        inAppNotificationCenter.showRecentNotifications()
+        if downloads != nil {
+            inAppNotificationCenter.showDownloads()
+        } else {
+            inAppNotificationCenter.showRecentNotifications()
+        }
         if inAppNotificationCenter.currentBanner != nil {
             inAppNotificationCenter.dismissCurrentBanner()
         }
@@ -151,8 +181,9 @@ struct NotificationTabBarAccessory: View {
         #if os(iOS)
         .simultaneousGesture(swipeUpGesture)
         #endif
-        .accessibilityLabel("Notifications")
-        .accessibilityValue(notificationAccessibilityValue)
+        .accessibilityLabel(downloads == nil ? "Notifications" : "Downloads")
+        .accessibilityValue(downloads.map { "\($0.leadName), \($0.detail)" } ?? notificationAccessibilityValue)
+        .accessibilityIdentifier("notification-accessory")
         .task {
             // Slow cadence on purpose. Approvals arrive by push, and this is only
             // here so the count is right when the app has been sitting open.
@@ -177,6 +208,9 @@ struct NotificationTabBarAccessory: View {
     #endif
 
     private var inlineSummary: String {
+        if let downloads {
+            return "\(downloads.leadName) · \(downloads.detail)"
+        }
         if let latestNotification {
             return latestNotification.title
         }
@@ -272,7 +306,19 @@ struct NotificationTabBarAccessory: View {
 
     private var notificationIcon: some View {
         Group {
-            if latestNotification != nil {
+            if let downloads {
+                Gauge(value: downloads.leadProgress) {
+                    EmptyView()
+                }
+                .gaugeStyle(.accessoryCircularCapacity)
+                .scaleEffect(0.5)
+                .frame(width: 24, height: 24)
+                .tint(.blue)
+                .overlay {
+                    Image(systemName: "arrow.down")
+                        .font(.caption2.weight(.bold))
+                }
+            } else if latestNotification != nil {
                 Image(systemName: "bell.fill")
                     .symbolRenderingMode(.hierarchical)
             } else if pendingApprovalCount > 0 {
@@ -287,7 +333,18 @@ struct NotificationTabBarAccessory: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if latestNotification != nil, unreadCount > 0 {
+            if let downloads, downloads.othersCount > 0 {
+                Text("\(downloads.count)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(.blue, in: Capsule())
+                    .offset(x: 10, y: -10)
+                    .accessibilityHidden(true)
+            } else if downloads != nil {
+                EmptyView()
+            } else if latestNotification != nil, unreadCount > 0 {
                 Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
@@ -363,7 +420,9 @@ private enum NotificationSheetLayout {
 /// The two halves of the notification sheet. `activity` is the default and holds
 /// the import/notification log; `actions` holds global service commands.
 private enum NotificationSheetSection: String, CaseIterable, Identifiable {
-    case activity = "Activity"
+    case activity = "Alerts"
+    /// iPhone only: the whole Downloads screen, which has no tab of its own there.
+    case downloads = "Downloads"
     case actions = "Actions"
 
     var id: String { rawValue }
@@ -391,6 +450,14 @@ struct RecentNotificationsSheet: View {
     /// Optional so the sheet still works anywhere a navigator isn't injected.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
     @State private var selectedSection: NotificationSheetSection = .activity
+    /// The Downloads screen, built by the root so it carries the same session and
+    /// services the tab did. `nil` where Downloads has a home of its own - the
+    /// sidebar - and the section is not offered.
+    var downloadsContent: AnyView? = nil
+
+    init(downloadsContent: AnyView? = nil) {
+        self.downloadsContent = downloadsContent
+    }
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
     @State private var queuedImportCommands: [QueuedImportCommand] = []
@@ -488,72 +555,23 @@ struct RecentNotificationsSheet: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        let showsClose = true
-        #else
-        let showsClose = false
-        #endif
-
-        return AppSheetShell(
-            title: "Notifications",
-            subtitle: subtitleText,
-            cancelTitle: "Close",
-            cancelSystemImage: {
-                #if os(macOS)
-                nil
-                #else
-                "xmark"
-                #endif
-            }(),
-            showsCancel: showsClose,
-            usesInlineLargeTitle: true,
-            minContentHeight: 520,
-            detents: [.medium, .large],
-            dragIndicator: .visible
-        ) {
-            Group {
-                switch selectedSection {
-                case .activity:
-                    activityContent
-                case .actions:
-                    actionsContent
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                sectionSegmentBar
-            }
-            .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
-                Button("Clear", role: .destructive) {
-                    inAppNotificationCenter.clearRecentNotifications()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("All recent notifications will be removed.")
-            }
-            #if os(iOS)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    NavigationLink {
-                        NotificationSettingsHubView()
-                    } label: {
-                        Label("Notification Settings", systemImage: "gearshape")
-                    }
-                }
-
-                if selectedSection == .activity, notificationCount > 0 {
-                    ToolbarSpacer(.flexible, placement: .topBarTrailing)
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button("Clear") {
-                            showClearConfirmation = true
-                        }
-                    }
-                }
-            }
-            #endif
-        }
+        sectionTabs
         .onAppear {
+            if inAppNotificationCenter.opensOnDownloads, downloadsContent != nil {
+                selectedSection = .downloads
+            }
+            inAppNotificationCenter.opensOnDownloads = false
             unreadSinceDate = inAppNotificationCenter.lastReadDate
             inAppNotificationCenter.markAllRead()
+        }
+        // Asked for while already open - a failing download in Activity routes to
+        // Downloads by switching section rather than stacking anything.
+        .onChange(of: inAppNotificationCenter.opensOnDownloads) { _, opens in
+            guard opens else { return }
+            if downloadsContent != nil {
+                withAnimation { selectedSection = .downloads }
+            }
+            inAppNotificationCenter.opensOnDownloads = false
         }
         .onChange(of: isAttentionExpanded) { _, expanded in
             // Collapsing resets the page, so reopening doesn't restore a list the
@@ -791,15 +809,99 @@ struct RecentNotificationsSheet: View {
         )
     }
 
-    private var sectionSegmentBar: some View {
-        TrawlSegmentBar(
-            "Notifications",
-            selection: Binding(
-                get: { selectedSection },
-                set: { newSection in withAnimation { selectedSection = newSection } }
-            ),
-            items: NotificationSheetSection.allCases.map(\.segmentBarItem)
-        )
+    /// Alerts, Downloads and Actions as tabs of the sheet's own.
+    ///
+    /// A tab bar rather than the segmented control the sheet had. Downloads brings
+    /// its own filter bar, and a second segmented row stacked on the sheet's read as
+    /// two competing switches; a tab bar at the bottom of the sheet is a different
+    /// kind of control, in a different place, for a different job.
+    @ViewBuilder
+    private var sectionTabs: some View {
+        TabView(selection: $selectedSection) {
+            Tab(NotificationSheetSection.activity.rawValue, systemImage: "bell", value: NotificationSheetSection.activity) {
+                sectionShell(.activity)
+            }
+            if let downloadsContent {
+                Tab(NotificationSheetSection.downloads.rawValue, systemImage: "tray.and.arrow.down", value: NotificationSheetSection.downloads) {
+                    NavigationStack {
+                        downloadsContent
+                    }
+                    #if os(iOS)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    #endif
+                }
+            }
+            Tab(NotificationSheetSection.actions.rawValue, systemImage: "bolt", value: NotificationSheetSection.actions) {
+                sectionShell(.actions)
+            }
+        }
+        .accessibilityIdentifier("notification-sheet-tabs")
+    }
+
+    private func sectionShell(_ section: NotificationSheetSection) -> some View {
+        #if os(macOS)
+        let showsClose = true
+        #else
+        let showsClose = false
+        #endif
+
+        return AppSheetShell(
+            title: section == .actions ? "Actions" : "Notifications",
+            subtitle: subtitleText,
+            cancelTitle: "Close",
+            cancelSystemImage: {
+                #if os(macOS)
+                nil
+                #else
+                "xmark"
+                #endif
+            }(),
+            showsCancel: showsClose,
+            usesInlineLargeTitle: true,
+            minContentHeight: 520,
+            detents: [.medium, .large],
+            dragIndicator: .visible
+        ) {
+            Group {
+                switch section {
+                case .activity:
+                    activityContent
+                case .actions:
+                    actionsContent
+                case .downloads:
+                    EmptyView()
+                }
+            }
+            .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
+                Button("Clear", role: .destructive) {
+                    inAppNotificationCenter.clearRecentNotifications()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("All recent notifications will be removed.")
+            }
+            #if os(iOS)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        NotificationSettingsHubView()
+                    } label: {
+                        Label("Notification Settings", systemImage: "gearshape")
+                    }
+                }
+
+                if section == .activity, notificationCount > 0 {
+                    ToolbarSpacer(.flexible, placement: .topBarTrailing)
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button("Clear") {
+                            showClearConfirmation = true
+                        }
+                    }
+                }
+            }
+            #endif
+        }
     }
 
     // MARK: - Actions Segment

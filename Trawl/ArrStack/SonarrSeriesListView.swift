@@ -11,13 +11,17 @@ struct SonarrSeriesListView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
     private let session: ArrLibraryRootSession<SonarrViewModel>
+    /// The iPhone Library tab's scope switch; see `ArrMediaListView.libraryScope`.
+    private var libraryScope: Binding<LibraryScope>? = nil
     @State private var showSetupSheet = false
 
     init(
         detailSelection: Binding<ArrMergeKey?>? = nil,
-        session: ArrLibraryRootSession<SonarrViewModel>? = nil
+        session: ArrLibraryRootSession<SonarrViewModel>? = nil,
+        libraryScope: Binding<LibraryScope>? = nil
     ) {
         self.detailSelection = detailSelection
+        self.libraryScope = libraryScope
         self.session = session ?? ArrLibraryRootSession()
     }
 
@@ -69,11 +73,13 @@ struct SonarrSeriesListView: View {
                     detailDestination: { key in
                         SonarrSeriesDetailView(mergeKey: key, viewModel: vm)
                     },
-                    session: session.list
+                    session: session.list,
+                    libraryScope: libraryScope
                 )
             } else {
                 sonarrUnavailableContent
-                    .navigationTitle("Series")
+                    .navigationTitle(libraryScope == nil ? "Series" : "")
+                    .libraryScopeTitleMenu(libraryScope)
             }
         }
         .sheet(isPresented: $showSetupSheet) {

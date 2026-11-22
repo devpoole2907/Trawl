@@ -213,6 +213,25 @@ enum TrawlDestination: CaseIterable {
         }
     }
 
+    /// The More section this screen is listed under on the phone - the sidebar's
+    /// section, since More now draws the same map.
+    var compactMoreSectionTitle: String? {
+        switch self {
+        case .missing: "Library"
+        case .requests, .issues, .users, .requestsAndAccess: "Requests & Access"
+        case .jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding, .jellyfinPlugins, .jellyfinActivity, .mediaServer:
+            "Media Server"
+        case .indexers, .downloadClients, .linkedApplications, .remotePaths, .cleanuparr, .automation:
+            "Integrations"
+        case .rootFolders, .qualityProfiles, .qualityDefinitions, .naming, .libraryImport, .manualImport, .subtitles, .libraryManagement:
+            "Management"
+        case .setupCheck, .health, .tasks, .logs, .diskSpace, .updates, .backups, .settings, .system:
+            "System"
+        case .downloads, .series, .movies, .search, .calendar:
+            nil
+        }
+    }
+
     /// Which hub this screen is filed under in the compact chrome, if any.
     ///
     /// Nil for the primary tabs, which are in the tab bar, and for the hubs
@@ -307,10 +326,12 @@ extension XCTestCase {
     func ensureRootChromeIsReady(in app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
         switch TrawlChrome.current {
         case .tabBar:
-            if compactRootControl(for: .downloads, in: app, timeout: timeout) != nil { return true }
+            // Tab buttons do not carry the label's identifier, so the title is the
+            // match - "Library" is unique in the tab bar.
+            if app.tabBars.buttons["Library"].waitForExistence(timeout: timeout) { return true }
             // A relaunch inside a suite can come back with the bar still minimised.
             expandTabBarIfMinimized(in: app)
-            return compactRootControl(for: .downloads, in: app, timeout: 5) != nil
+            return app.tabBars.buttons["Library"].waitForExistence(timeout: 5)
         case .sidebar:
             // Landscape, and this is the one place it can be set: right after launch,
             // before any navigation has happened.
@@ -457,26 +478,84 @@ extension XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        guard destination.isHubBehindMore else {
-            var tab = compactRootControl(for: destination, in: app, timeout: 3)
-            if tab == nil {
-                expandTabBarIfMinimized(in: app)
-                tab = compactRootControl(for: destination, in: app, timeout: timeout)
+        // The phone's tab bar is Library, Calendar, More and Search. Downloads is a
+        // tab of the notification sheet, opened from the bar above the tabs; Series
+        // and Movies are the Library tab's scope; everything else is a row of More,
+        // in the sidebar's own sections.
+        if destination != .downloads {
+            dismissNotificationsSheetIfPresent(in: app)
+        }
+        switch destination {
+        case .series:
+            return openLibraryScope("Series", in: app, timeout: timeout)
+        case .movies:
+            return openLibraryScope("Movies", in: app, timeout: timeout)
+        case .downloads:
+            return openDownloadsSheet(in: app, timeout: timeout)
+        case .search, .calendar:
+            guard let tab = compactTab(identifier: destination.navigationIdentifier, title: destination.title, in: app, timeout: timeout) else {
+                return false
             }
-            guard let tab else { return false }
             return tapWhenPossible(tab)
+        case .libraryManagement, .requestsAndAccess, .mediaServer, .automation, .system:
+            // No hub screens on the phone any more: each is a section of More's own
+            // list, so "opening" one is opening More with that section on screen.
+            return openCompactMoreRoot(in: app, timeout: timeout)
+        default:
+            guard openCompactMoreRoot(in: app, timeout: timeout) else { return false }
+            let row = app.buttons[destination.navigationIdentifier]
+            if !row.waitForExistence(timeout: 2), let section = destination.compactMoreSectionTitle {
+                revealCompactMoreSection(section, in: app)
+            }
+            guard scrollCompactMoreRowIntoView(row, in: app) else { return false }
+            row.tap()
+            return confirmArrival(at: destination, in: app, timeout: timeout)
         }
+    }
 
-        // A screen filed under a hub is two rows deep on this chrome: More, the hub,
-        // then the screen. The sidebar promotes both levels to one click, which is
-        // the whole difference between the chromes and the reason a test names the
-        // *screen* rather than the route to it.
-        if let hub = destination.parentHub {
-            guard openViaTabBar(hub, in: app, timeout: timeout) else { return false }
-            return tapListRow(titled: destination.title, in: app)
-                && confirmArrival(at: destination, in: app, timeout: timeout)
+    @MainActor
+    private func compactTab(identifier: String, title: String, in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
+        let conventional = app.tabBars.buttons[title]
+        if conventional.waitForExistence(timeout: 3) { return conventional }
+        let identified = app.buttons[identifier]
+        if identified.exists { return identified }
+        expandTabBarIfMinimized(in: app)
+        return conventional.waitForExistence(timeout: timeout) ? conventional : nil
+    }
+
+    /// Opens the Library tab at its root and picks a scope from its title menu.
+    @MainActor
+    func openLibraryScope(_ scope: String, in app: XCUIApplication, timeout: TimeInterval = 15) -> Bool {
+        guard let tab = compactTab(identifier: "nav.library", title: "Library", in: app, timeout: timeout),
+              tapWhenPossible(tab) else { return false }
+        popCompactMoreStackToRoot(in: app)
+
+        let menu = app.buttons
+            .matching(NSPredicate(format: "label ENDSWITH[c] %@", ", change view"))
+            .firstMatch
+        guard menu.waitForExistence(in: app, timeout: timeout) else { return false }
+        if menu.label.hasPrefix("\(scope),") { return true }
+        guard tapWhenPossible(menu) else { return false }
+        let option = app.buttons[scope].firstMatch
+        guard option.waitForExistence(timeout: 5), tapWhenPossible(option) else { return false }
+        let chosen = app.buttons["\(scope), change view"]
+        return chosen.waitForExistence(timeout: timeout)
+    }
+
+    /// Opens Downloads, which on the phone is a tab of the notification sheet.
+    @MainActor
+    func openDownloadsSheet(in app: XCUIApplication, timeout: TimeInterval = 15) -> Bool {
+        let sheetTab = app.tabBars.buttons["Downloads"]
+        if !sheetTab.exists {
+            let accessory = app.buttons["notification-accessory"]
+            guard accessory.waitForExistence(timeout: timeout), tapWhenPossible(accessory) else { return false }
         }
+        guard sheetTab.waitForExistence(timeout: timeout) else { return false }
+        return tapWhenPossible(sheetTab)
+    }
 
+    @MainActor
+    private func openCompactMoreRoot(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
         var more = compactMoreControl(in: app, timeout: 3)
         if more == nil {
             expandTabBarIfMinimized(in: app)
@@ -485,39 +564,43 @@ extension XCTestCase {
         guard let more, tapWhenPossible(more) else { return false }
         dismissNotificationsSheetIfPresent(in: app)
         popCompactMoreStackToRoot(in: app)
+        return app.navigationBars["More"].waitForExistence(timeout: timeout)
+    }
 
-        // More's own list is long enough that several rows start below the fold, so
-        // the row is scrolled to rather than merely waited for.
-        let row = app.buttons
-            .matching(NSPredicate(
-                format: "label ==[c] %@ OR label BEGINSWITH[c] %@",
-                destination.title,
-                "\(destination.title),"
-            ))
-            .firstMatch
-        if !row.waitForExistence(timeout: 3),
-           let moreList = compactMoreRootCollection(in: app) {
-            for _ in 0..<8 {
-                moreList.swipeUp()
+    /// Unfolds a More section. Called only once a row the section should hold is
+    /// missing, so it never folds a section that was already open. The setup
+    /// sections - Integrations and Management - start folded.
+    @MainActor
+    private func revealCompactMoreSection(_ title: String, in app: XCUIApplication) {
+        let header = app.buttons.matching(NSPredicate(format: "label ==[c] %@", title)).firstMatch
+        if !header.waitForExistence(timeout: 1), let list = compactMoreRootCollection(in: app) {
+            for _ in 0..<8 where !header.exists {
+                list.swipeUp()
+            }
+        }
+        guard header.exists else { return }
+        if let list = compactMoreRootCollection(in: app) {
+            for _ in 0..<6 where !header.isHittable { list.swipeUp() }
+        }
+        if header.isHittable { header.tap() }
+    }
+
+    @MainActor
+    private func scrollCompactMoreRowIntoView(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
+        if !row.waitForExistence(timeout: 3), let list = compactMoreRootCollection(in: app) {
+            for _ in 0..<10 {
+                list.swipeUp()
                 if row.waitForExistence(timeout: 1) { break }
             }
         }
-        guard row.waitForExistence(timeout: 5) else { return false }
-
-        // A TabView keeps off-screen tabs mounted. Scroll the visible More collection
-        // itself: on Duo's landscape outer display an application-wide swipe can
-        // begin over the persistent notification accessory and open its sheet instead
-        // of moving this list.
-        if let moreList = compactMoreRootCollection(in: app) {
+        guard row.waitForExistence(timeout: 3) else { return false }
+        if let list = compactMoreRootCollection(in: app) {
             for _ in 0..<8 where !row.isHittable {
-                moreList.swipeUp()
+                list.swipeUp()
                 _ = row.waitForExistence(timeout: 0.5)
             }
         }
-        guard row.isHittable else { return false }
-        row.tap()
-
-        return confirmArrival(at: destination, in: app, timeout: timeout)
+        return row.isHittable
     }
 
     /// Taps a row of whatever list is on screen, by its title.
@@ -605,19 +688,26 @@ extension XCTestCase {
     /// More's list. Close that sheet before resolving the root collection so a later
     /// route cannot accidentally scroll the modal's inset list.
     @MainActor
-    private func dismissNotificationsSheetIfPresent(in app: XCUIApplication) {
-        let notifications = app.navigationBars["Notifications"]
-        guard notifications.waitForExistence(timeout: 0.5) else { return }
+    func dismissNotificationsSheetIfPresent(in app: XCUIApplication) {
+        // The sheet has its own tab bar - Alerts, Downloads, Actions - which is how
+        // it is told apart from the app's.
+        let sheetTab = app.tabBars.buttons["Alerts"]
+        guard sheetTab.waitForExistence(timeout: 0.5) else { return }
 
-        let start = notifications.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
         start.press(forDuration: 0.05, thenDragTo: end)
 
         let gone = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
-            object: notifications
+            object: sheetTab
         )
-        _ = XCTWaiter().wait(for: [gone], timeout: 3)
+        if XCTWaiter().wait(for: [gone], timeout: 3) != .completed {
+            // A sheet resting at half height leaves the top of the screen dimmed;
+            // tapping there dismisses it.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
+            _ = XCTWaiter().wait(for: [gone], timeout: 3)
+        }
     }
 
     /// Returns More's full-window collection, excluding inset sheets such as Recent

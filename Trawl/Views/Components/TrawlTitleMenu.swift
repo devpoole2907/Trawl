@@ -20,7 +20,7 @@ struct TrawlTitleMenuOption<Value: Hashable>: Identifiable {
 /// The caller places this at the leading edge of a native sidebar content column,
 /// or in the principal title position on compact layouts. The regular navigation
 /// title is suppressed while the menu is visible.
-struct TrawlTitleMenu<Value: Hashable>: View {
+struct TrawlTitleMenu<Value: Hashable, Leading: View>: View {
     let options: [TrawlTitleMenuOption<Value>]
     @Binding var selection: Value
     /// Shrinks the title to inline size. A `.principal` item is fixed - it takes no
@@ -30,6 +30,14 @@ struct TrawlTitleMenu<Value: Hashable>: View {
     var isCompact: Bool = false
     var subtitle: String? = nil
     var animation: Animation = .snappy
+    /// Menu content drawn above this menu's own picker - the Library tab's
+    /// All / Series / Movies switch, which sits over a list's server picker.
+    var leading: Leading
+
+    /// The title is the selected option's, so a label for `options` with a single
+    /// entry still reads correctly; only the picker is dropped, because one choice
+    /// is not a choice.
+    private var showsOptionsPicker: Bool { options.count > 1 }
 
     private var titleFont: Font {
         #if os(macOS)
@@ -49,6 +57,8 @@ struct TrawlTitleMenu<Value: Hashable>: View {
 
     var body: some View {
         Menu {
+            leading
+            if showsOptionsPicker {
             Picker("View", selection: Binding(
                 get: { selection },
                 set: { newValue in withAnimation(animation) { selection = newValue } }
@@ -59,6 +69,7 @@ struct TrawlTitleMenu<Value: Hashable>: View {
                 }
             }
             .pickerStyle(.inline)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: isCompact ? 3 : 4) {
@@ -87,7 +98,44 @@ struct TrawlTitleMenu<Value: Hashable>: View {
     }
 }
 
+extension TrawlTitleMenu where Leading == EmptyView {
+    init(
+        options: [TrawlTitleMenuOption<Value>],
+        selection: Binding<Value>,
+        isCompact: Bool = false,
+        subtitle: String? = nil,
+        animation: Animation = .snappy
+    ) {
+        self.init(
+            options: options,
+            selection: selection,
+            isCompact: isCompact,
+            subtitle: subtitle,
+            animation: animation,
+            leading: EmptyView()
+        )
+    }
+}
+
 extension TrawlTitleMenu {
+    init(
+        options: [TrawlTitleMenuOption<Value>],
+        selection: Binding<Value>,
+        isCompact: Bool = false,
+        subtitle: String? = nil,
+        animation: Animation = .snappy,
+        @ViewBuilder leading: () -> Leading
+    ) {
+        self.options = options
+        self._selection = selection
+        self.isCompact = isCompact
+        self.subtitle = subtitle
+        self.animation = animation
+        self.leading = leading()
+    }
+}
+
+extension TrawlTitleMenu where Leading == EmptyView {
     /// Whether a screen with no detail column should put this menu in the
     /// `.principal` slot rather than `.topBarLeading`.
     ///

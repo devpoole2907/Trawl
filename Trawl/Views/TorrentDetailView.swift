@@ -6,6 +6,8 @@ struct TorrentDetailView: View {
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    /// Optional: the torrent screen also opens where no Arr stack is injected.
+    @Environment(ArrServiceManager.self) private var arrServiceManager: ArrServiceManager?
     @State private var viewModel: TorrentDetailViewModel?
     @State private var browseSheet: BrowseSheet?
 
@@ -106,6 +108,20 @@ struct TorrentDetailView: View {
                 headerSection(torrent: torrent, vm: vm)
             }
             .listRowBackground(Color.clear)
+
+            if let link = libraryLink {
+                Section {
+                    NavigationLink {
+                        ArrMediaDetailPane(destination: link.destination)
+                            .environment(syncService)
+                    } label: {
+                        Label("Open \(link.title)", systemImage: link.systemImage)
+                    }
+                    .accessibilityIdentifier("torrent-open-in-library")
+                } header: {
+                    sectionHeader("Library", systemImage: "rectangle.stack")
+                }
+            }
 
             Section {
                 navigationSection(vm: vm)
@@ -214,6 +230,26 @@ struct TorrentDetailView: View {
     }
 
     // MARK: - Sections
+
+    /// The series or film this torrent was grabbed for, when a Sonarr or Radarr
+    /// queue row names it - matched on the download ID the Arr recorded.
+    private var libraryLink: (destination: ArrMediaDestination, title: String, systemImage: String)? {
+        guard let arrServiceManager,
+              let record = arrServiceManager.queueItemsBySource.first(where: {
+                  $0.value.downloadId?.caseInsensitiveCompare(torrentHash) == .orderedSame
+              }) else { return nil }
+        let item = record.value
+        let instanceID = record.instance.id
+        if let movieId = item.movieId {
+            let title = arrServiceManager.movieLibrary.items(for: instanceID).first { $0.id == movieId }?.title
+            return (.movie(id: movieId, instanceID: instanceID), title ?? "Movie", "film")
+        }
+        if let seriesId = item.seriesId {
+            let title = arrServiceManager.seriesLibrary.items(for: instanceID).first { $0.id == seriesId }?.title
+            return (.series(id: seriesId, instanceID: instanceID), title ?? "Series", "tv")
+        }
+        return nil
+    }
 
     @ViewBuilder
     /// The same opening every non-media detail screen uses - see

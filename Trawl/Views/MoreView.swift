@@ -215,6 +215,8 @@ struct MoreView: View {
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     /// Optional so previews and any host that doesn't inject a navigator still work.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
+    /// Which More sections are folded, newline-separated. `nil` until first changed.
+    @AppStorage("collapsedMoreSections") private var collapsedMoreSectionsRaw: String?
     @State private var subtitleBadgeCount = 0
     @State private var moreSearchText = ""
     @State private var connectionEditSheet: ConnectionEditSheet?
@@ -606,52 +608,36 @@ struct MoreView: View {
                 moreSearchResultsContent
             } else {
                 connectivityAlertSection
-                Section {
-                    NavigationLink(value: MoreDestination.wanted) {
-                        moreRow(.wanted)
-                    }
-                }
-
-                Section {
-                    NavigationLink(value: MoreDestination.mediaManagement) {
-                        moreRow(.mediaManagement,
-                                subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : nil)
-                    }
-                }
-
-                Section {
-                    NavigationLink(value: MoreDestination.requestsAndAccess) {
-                        moreRow(.requestsAndAccess,
-                                subtitle: seerrProfile == nil && jellyfinProfile == nil ? "Not set up" : nil)
-                    }
-
-                    NavigationLink(value: MoreDestination.jellyfinManagement) {
-                        moreRow(.jellyfinManagement, subtitle: jellyfinProfile == nil ? "Not set up" : nil)
-                    }
-
-                    NavigationLink(value: MoreDestination.automationClients) {
-                        moreRow(.automationClients)
-                    }
-
-                    NavigationLink(value: MoreDestination.systemHub) {
-                        moreRow(.systemHub)
-                    }
-                }
-
-                Section {
-                    NavigationLink(value: MoreDestination.settings) {
-                        moreRow(.settings)
+                // The sidebar's own sections, rather than hub screens. A hub was a
+                // screen whose only job was listing more screens - a tap spent on
+                // nothing - and the iPad sidebar dropped them for that reason. Now
+                // the phone draws the same map, minus what the tab bar already has.
+                ForEach(SidebarSection.allCases) { section in
+                    let rows = Self.moreRows(in: section)
+                    if !rows.isEmpty {
+                        Section(isExpanded: moreSectionExpansion(section)) {
+                            ForEach(rows, id: \.self) { tab in
+                                moreSectionRow(tab)
+                            }
+                        } header: {
+                            Text(section.title)
+                        }
                     }
                 }
             }
         }
         #if os(iOS)
-        .listStyle(.insetGrouped)
+        // Sidebar style for its collapsible section headers - the setup sections
+        // are long and rarely visited, and start folded.
+        .listStyle(.sidebar)
         #else
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreServicesGradientBackground(services: configuredServiceIdentities))
+        // Setup Check's row shows the audit's verdict, so the audit has to run here
+        // now that the System screen it used to run on is gone from the phone.
+        .refreshesConfigurationAudit()
         .navigationTitle("More")
         .searchable(text: $moreSearchText, placement: .automatic, prompt: "Search settings and features")
         #if os(iOS)
@@ -1291,6 +1277,92 @@ struct MoreView: View {
 
     private func moreRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
         NavigationMenuRow(icon: icon, color: color, title: title, subtitle: subtitle)
+    }
+
+    /// The rows More lists for one sidebar section: everything the tab bar does not
+    /// already have a tab for. Series and Movies are the Library tab.
+    static func moreRows(in section: SidebarSection) -> [RootTab] {
+        section.rows.filter { !RootTab.compactTabs.contains($0) && $0 != .series && $0 != .movies }
+    }
+
+    /// Collapsed by default: the sections you set up once and rarely visit.
+    static let defaultCollapsedMoreSections: Set<SidebarSection> = [.integrations, .management]
+
+    private func moreSectionExpansion(_ section: SidebarSection) -> Binding<Bool> {
+        Binding(
+            get: {
+                if let stored = collapsedMoreSectionsStorage {
+                    return !stored.contains(section.rawValue)
+                }
+                return !Self.defaultCollapsedMoreSections.contains(section)
+            },
+            set: { isExpanded in
+                var collapsed = collapsedMoreSectionsStorage
+                    ?? Set(Self.defaultCollapsedMoreSections.map(\.rawValue))
+                if isExpanded { collapsed.remove(section.rawValue) } else { collapsed.insert(section.rawValue) }
+                collapsedMoreSectionsRaw = collapsed.sorted().joined(separator: "\n")
+            }
+        )
+    }
+
+    /// `nil` until the user has folded or opened something, so the defaults apply.
+    private var collapsedMoreSectionsStorage: Set<String>? {
+        collapsedMoreSectionsRaw.map { Set($0.split(separator: "\n").map(String.init)) }
+    }
+
+    @ViewBuilder
+    private func moreSectionRow(_ tab: RootTab) -> some View {
+        if tab == .setupCheck {
+            // The audit's verdict on the row itself, as the System screen showed it,
+            // so a problem is visible before Setup Check is ever opened.
+            NavigationLink(value: MoreDestination.setupCheck) {
+                SetupCheckMoreRow()
+            }
+            .accessibilityIdentifier("more-setup-check")
+        } else if tab == .downloads || tab == .blocklist {
+            // Neither is a More screen on the phone: Downloads lives in the bar above
+            // the tabs, and Blocklist is one of its screens.
+            Button {
+                if tab == .blocklist { downloadsNavigator?.show(.blocklist) }
+                navigateToDownloadsTab()
+            } label: {
+                fallbackMoreRow(tab)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(tab.navigationIdentifier)
+        } else if let root = tab.moreRoot {
+            NavigationLink(value: root) {
+                if MoreSearchIndex.entry(for: root) != nil {
+                    moreRow(root, subtitle: moreRowSubtitle(for: tab))
+                } else {
+                    fallbackMoreRow(tab)
+                }
+            }
+            .accessibilityIdentifier(tab.navigationIdentifier)
+        }
+    }
+
+    private func fallbackMoreRow(_ tab: RootTab) -> some View {
+        NavigationMenuRow(
+            icon: tab.systemImage,
+            color: .accentColor,
+            title: tab.displayName,
+            subtitle: tab == .downloads ? "Active downloads, queue, and history" : (tab == .blocklist ? "Releases you've blocked" : "")
+        )
+    }
+
+    /// Live subtitles that used to sit on the hub rows.
+    private func moreRowSubtitle(for tab: RootTab) -> String? {
+        switch tab {
+        case .subtitles where subtitleBadgeCount > 0:
+            "\(subtitleBadgeCount) items need subtitles"
+        case .requests, .issues:
+            seerrProfile == nil ? "Not set up" : nil
+        case .jellyfinLibraries, .jellyfinSessions, .jellyfinPlugins:
+            jellyfinProfile == nil ? "Not set up" : nil
+        default:
+            nil
+        }
     }
 
     /// Builds a dashboard row from the shared `MoreSearchIndex` catalog so the icon,
@@ -3318,6 +3390,30 @@ private struct RequestsAndAccessHubView: View {
     }
 }
 #endif
+
+/// More's Setup Check row, carrying the latest audit's verdict.
+private struct SetupCheckMoreRow: View {
+    @Environment(ConfigurationAuditStore.self) private var auditStore
+
+    var body: some View {
+        NavigationMenuRow(
+            icon: auditStore.problemCount > 0 ? "exclamationmark.triangle.fill" : "checklist",
+            color: auditStore.problemCount > 0 ? .orange : .teal,
+            title: "Setup Check",
+            subtitle: SetupCheckMoreRow.subtitle(for: auditStore)
+        )
+    }
+
+    static func subtitle(for auditStore: ConfigurationAuditStore) -> String {
+        guard auditStore.hasCompletedAnAudit else { return "How your services are wired to each other" }
+        let count = auditStore.problemCount
+        if count == 0, !auditStore.unknowns.isEmpty {
+            return auditStore.unknowns.count == 1 ? "1 check could not be completed" : "\(auditStore.unknowns.count) checks could not be completed"
+        }
+        if count == 0 { return "Nothing needs attention" }
+        return count == 1 ? "1 problem found" : "\(count) problems found"
+    }
+}
 
 /// System - the cross-service operational read-outs. Every child owns its own
 /// unavailable state, so the rows stay visible even with nothing configured

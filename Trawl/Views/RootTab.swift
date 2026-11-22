@@ -48,6 +48,9 @@ enum SidebarSection: String, CaseIterable, Identifiable, Codable {
 }
 
 enum RootTab: Hashable, CaseIterable {
+    /// iPhone only: Series and Movies together, switched by the title menu. The
+    /// sidebar has a row for each instead. See `LibraryTabView`.
+    case library
     case downloads
     case series
     case movies
@@ -108,6 +111,7 @@ enum RootTab: Hashable, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .library: "Library"
         case .downloads: "Downloads"
         case .blocklist: "Blocklist"
         case .series: "Series"
@@ -154,17 +158,23 @@ enum RootTab: Hashable, CaseIterable {
     /// narrow multitasking slot does at any moment - still reaches every one of these
     /// through the list they came from. Neither chrome has a dead end.
     var isSidebarOnly: Bool {
-        switch self {
-        case .downloads, .series, .movies, .search, .more: false
-        default: true
-        }
+        !Self.compactTabs.contains(self)
     }
+
+    /// The iPhone tab bar, in order.
+    ///
+    /// Library first because most jobs start from a title. Downloads is not here:
+    /// it lives in the bar above the tabs, which shows what is downloading on every
+    /// screen and opens the full list with a tap. Series and Movies are one tab,
+    /// and the slot that freed went to Calendar.
+    static let compactTabs: [RootTab] = [.library, .calendar, .more, .search]
+
 
     /// Which screen this destination roots its stack at. `nil` for the primary tabs,
     /// which have views of their own.
     var moreRoot: MoreDestination? {
         switch self {
-        case .downloads, .blocklist, .series, .movies, .search, .more: nil
+        case .library, .downloads, .blocklist, .series, .movies, .search, .more: nil
         case .missing: .wanted
         case .calendar: .calendar
         case .requests: .seerrAdmin
@@ -246,6 +256,7 @@ enum RootTab: Hashable, CaseIterable {
 
     var systemImage: String {
         switch self {
+        case .library: "rectangle.stack"
         case .downloads: "tray.and.arrow.down"
         case .blocklist: "hand.raised.slash"
         case .series: ServiceIdentity.sonarr.tabSystemImage
@@ -292,7 +303,29 @@ enum RootTab: Hashable, CaseIterable {
     /// and offering thirty options for a preference that means "which of the main
     /// tabs opens first" would make the choice harder rather than richer.
     static var startupChoices: [RootTab] {
-        allCases.filter { !$0.isSidebarOnly }
+        compactTabs.filter { $0 != .search }
+    }
+
+    /// What a stored startup tab, or a tab another part of the app asks for, means
+    /// on the iPhone tab bar - which has no Series, Movies or Downloads tab.
+    ///
+    /// `nil` means "not a tab here": Downloads opens the notification sheet on its
+    /// Downloads section instead, and a sidebar-only destination is pushed inside
+    /// More. The library kinds come back with the scope to show.
+    static func compactTab(for tab: RootTab) -> (tab: RootTab, scope: LibraryScope?)? {
+        switch tab {
+        case .series: (.library, .series)
+        case .movies: (.library, .movies)
+        case .library, .calendar, .more, .search: (tab, nil)
+        default: nil
+        }
+    }
+
+    /// The sidebar's equivalent of a compact-only tab. The sidebar has no Library
+    /// row, so Library opens Series there, which is where the tab bar's old first
+    /// library tab pointed.
+    var sidebarDestination: RootTab {
+        self == .library ? .series : self
     }
 
     /// Every sidebar row, in section order.

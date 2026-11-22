@@ -405,17 +405,23 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// belongs in both the Downloaded and the Missing list, and in each it keeps
     /// both copies - so its badges stay honest about where it actually lives
     /// instead of implying it exists only on the server that matched.
+    /// `filter`, `searchText` and `sort` default to this list's own state. The
+    /// iPhone Library tab's combined list passes its own, so it can read both
+    /// libraries without moving the Series or Movies list's filter or search.
     func makeFilteredEntries(
         from items: [LibraryItem],
+        filter: Filter? = nil,
+        searchText: String? = nil,
+        sort: Sort? = nil,
         matchesSearch: (LibraryItem, String) -> Bool,
         matchesFilter: (LibraryItem, Filter) -> Bool,
         areInIncreasingOrder: (ArrLibraryEntry<LibraryItem>, ArrLibraryEntry<LibraryItem>, Sort) -> Bool
     ) -> [ArrLibraryEntry<LibraryItem>] {
         FilterSortPipeline.apply(
             items: items.mergedByTitle(),
-            filter: selectedFilter,
-            searchText: searchText,
-            sort: sortOrder,
+            filter: filter ?? selectedFilter,
+            searchText: searchText ?? self.searchText,
+            sort: sort ?? sortOrder,
             matchesSearch: { entry, query in entry.copies.contains { matchesSearch($0, query) } },
             matchesFilter: { entry, filter in entry.copies.contains { matchesFilter($0, filter) } },
             areInIncreasingOrder: areInIncreasingOrder

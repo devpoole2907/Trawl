@@ -28,6 +28,7 @@ nonisolated enum TrawlTipID {
     static let arrBlendedLibrary = "trawl.arr.blended-library.v1"
     static let calendarSubscribe = "trawl.calendar.subscribe.v1"
     static let arrLibraryQuickActions = "trawl.arr.library-quick-actions.v1"
+    static let libraryScope = "trawl.library.scope.v1"
 }
 
 enum TrawlTips {
@@ -107,6 +108,7 @@ enum TrawlTips {
         case TrawlTipID.arrBlendedLibrary: ArrBlendedLibraryTip.self
         case TrawlTipID.calendarSubscribe: ArrCalendarSubscribeTip.self
         case TrawlTipID.arrLibraryQuickActions: ArrLibraryQuickActionsTip.self
+        case TrawlTipID.libraryScope: LibraryScopeTip.self
         default: nil
         }
     }

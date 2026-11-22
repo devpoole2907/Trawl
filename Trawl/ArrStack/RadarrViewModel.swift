@@ -66,8 +66,17 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     }
 
     override func rebuildFilteredItems() {
-        filteredItems = makeFilteredEntries(
+        filteredItems = libraryEntries(filter: selectedFilter, searchText: searchText, sort: sortOrder)
+    }
+
+    /// This library merged, filtered and sorted by the given settings rather than
+    /// the list's own - see `makeFilteredEntries`.
+    func libraryEntries(filter: RadarrFilter, searchText: String, sort: RadarrSortOrder) -> [ArrLibraryEntry<RadarrMovie>] {
+        makeFilteredEntries(
             from: movies,
+            filter: filter,
+            searchText: searchText,
+            sort: sort,
             matchesSearch: { movie, query in
                 movie.title.localizedCaseInsensitiveContains(query)
             },

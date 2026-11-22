@@ -352,10 +352,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             "Screen: Series tab should show the seeded Sonarr library before opening Calendar."
         )
 
-        app.buttons["Calendar"].tap()
+        XCTAssertTrue(openDestination(.calendar, in: app), "Screen: Calendar should be reachable.")
         XCTAssertTrue(
             app.showsScreen(named: "Calendar", timeout: 15),
-            "Screen: the Series toolbar's Calendar button should present ArrCalendarView."
+            "Screen: Calendar should present ArrCalendarView."
         )
         XCTAssertTrue(
             app.buttons["Today"].waitForExistence(timeout: 10),
@@ -402,10 +402,12 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
         popBack(app, fromTitle: "S01E01")
         XCTAssertTrue(app.showsScreen(named: "Calendar", timeout: 10))
-        app.buttons["Close"].tap()
+        // Calendar is a tab on the phone and a sidebar row on iPad - nothing to
+        // dismiss; going back to Series is going back to the library.
+        XCTAssertTrue(openDestination(.series, in: app))
         XCTAssertTrue(
             app.staticTexts["Fixture Series Alpha"].waitForExistence(in: app, timeout: 10),
-            "Screen: dismissing Calendar should return to the Series tab still showing its real content."
+            "Screen: leaving Calendar should find Series still showing its real content."
         )
 
         XCTAssertTrue(openDestination(.settings, in: app), "Screen: 'Settings' should open SettingsView.")
@@ -459,7 +461,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
         XCTAssertTrue(openDestination(.series, in: app))
         XCTAssertTrue(app.staticTexts["Empty Calendar Series"].waitForExistence(in: app, timeout: 15))
-        app.buttons["Calendar"].tap()
+        XCTAssertTrue(openDestination(.calendar, in: app))
         XCTAssertTrue(app.showsScreen(named: "Calendar", timeout: 15))
         XCTAssertTrue(
             app.staticTexts["No Upcoming Releases"].waitForExistence(timeout: 15),

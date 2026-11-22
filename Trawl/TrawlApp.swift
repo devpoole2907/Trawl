@@ -58,6 +58,13 @@ struct TrawlApp: App {
             // every other test - starting with the other server hidden. Cleared
             // here so each UI-test launch begins showing the whole library.
             UserDefaults.standard.removeObject(forKey: ArrInstanceFilterState.defaultsKey)
+            // The same for the navigation the user picks and the app remembers: the
+            // Library tab's scope and filters, the startup tab, and which More
+            // sections are folded. A test that chose Movies would otherwise open
+            // every later test on Movies.
+            for key in [LibraryScope.storageKey, "libraryAllFilter", "libraryAllSort", "startupTab", "collapsedMoreSections"] {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
 
             Self.seedUITestArrServiceIfRequested(into: modelContainer)
             Self.seedUITestRadarrServiceIfRequested(into: modelContainer)

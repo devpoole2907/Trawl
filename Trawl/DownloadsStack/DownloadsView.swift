@@ -95,6 +95,8 @@ struct DownloadsView: View {
     @State private var queueActionTarget: ArrQueueActionTarget?
     /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
     @State private var queueActionInFlightIDs: Set<String> = []
+    /// The series or film a row's "Open …" asked for, pushed on the tab chrome.
+    @State private var openedMedia: ArrMediaDestination?
     private let queueSwitchTip = DownloadsQueueSwitchTip()
     /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
     /// this stands in for the large-title collapse the system would do for us.
@@ -341,7 +343,7 @@ struct DownloadsView: View {
         #if os(macOS)
         detailSelection != nil
         #else
-        detailSelection != nil || !TrawlTitleMenu<Int>.prefersPrincipalSlot(barWidth: titleBarWidth)
+        detailSelection != nil || !TrawlTitleMenu<Int, EmptyView>.prefersPrincipalSlot(barWidth: titleBarWidth)
         #endif
     }
 
@@ -578,6 +580,11 @@ struct DownloadsView: View {
             }
             .navigationDestination(item: managementRouteBinding) { route in
                 managementDestination(route)
+            }
+            // The long-press "Open South Park" on a download row.
+            .navigationDestination(item: $openedMedia) { destination in
+                ArrMediaDetailPane(destination: destination)
+                    .environment(syncService)
             }
             .sheet(item: utilitySheetRouteBinding) { route in
                 NavigationStack {
@@ -1264,7 +1271,12 @@ struct DownloadsView: View {
             } label: {
                 TorrentRowView(torrent: torrent)
             }
-            .contextMenu { torrentActions(for: torrent) }
+            .contextMenu {
+                if let record = libraryRecord(forDownloadID: torrent.hash) {
+                    openInLibraryButton(for: record.value, source: record.instance.serviceType, instance: record.instance)
+                }
+                torrentActions(for: torrent)
+            }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     if isPaused(torrent) {
                         Button("Resume", systemImage: "play.fill") {
@@ -1452,6 +1464,7 @@ struct DownloadsView: View {
         }
         .disabled(isInFlight)
         .contextMenu {
+            openInLibraryButton(for: item, source: source, instance: instance)
             if linkedTorrent != nil || linkedSABJob != nil {
                 arrQueueClientActions(linkedTorrent: linkedTorrent, linkedSABJob: linkedSABJob)
                 Divider()
@@ -1528,6 +1541,66 @@ struct DownloadsView: View {
 
     // `includesSeparators` is off inside confirmation dialogs, which drop any
     // non-button content anyway.
+    /// "Open South Park" - the series or film a download is for, in the row's
+    /// long-press menu rather than on the row, which already opens the download.
+    @ViewBuilder
+    private func openInLibraryButton(for item: ArrQueueItem, source: ArrServiceType, instance: ArrInstanceRef?) -> some View {
+        if let destination = Self.libraryDestination(for: item, instanceID: instance?.id ?? arrServiceManager.refs(for: source).first?.id) {
+            let title = libraryTitle(for: item, source: source, instanceID: instance?.id)
+            Button {
+                if isDrivingDetailColumn {
+                    detailSelection?.wrappedValue = .arrMedia(destination)
+                } else {
+                    openedMedia = destination
+                }
+            } label: {
+                Label(
+                    "Open \(title ?? (item.movieId != nil ? "Movie" : "Series"))",
+                    systemImage: item.movieId != nil ? "film" : "tv"
+                )
+            }
+            Divider()
+        }
+    }
+
+    /// Where a queue row's title lives, without the import-issue scroll the row's
+    /// own tap asks for: this is "show me the show", not "fix the import".
+    static func libraryDestination(for item: ArrQueueItem, instanceID: UUID?) -> ArrMediaDestination? {
+        if let movieId = item.movieId {
+            return .movie(id: movieId, instanceID: instanceID)
+        }
+        if let seriesId = item.seriesId {
+            return .series(id: seriesId, instanceID: instanceID)
+        }
+        return nil
+    }
+
+    /// The library title a queue row is for, from the cached library. `nil` before
+    /// the library has loaded, where the button falls back to "Open Series".
+    private func libraryTitle(for item: ArrQueueItem, source: ArrServiceType, instanceID: UUID?) -> String? {
+        let ids = instanceID.map { [$0] } ?? arrServiceManager.refs(for: source).map(\.id)
+        if let movieId = item.movieId {
+            return ids.lazy.compactMap { id in
+                self.arrServiceManager.movieLibrary.items(for: id).first { $0.id == movieId }?.title
+            }.first
+        }
+        if let seriesId = item.seriesId {
+            return ids.lazy.compactMap { id in
+                self.arrServiceManager.seriesLibrary.items(for: id).first { $0.id == seriesId }?.title
+            }.first
+        }
+        return nil
+    }
+
+    /// The Sonarr or Radarr queue row that owns a client download, matched on the
+    /// download ID the Arr recorded when it grabbed it.
+    private func libraryRecord(forDownloadID downloadID: String) -> ArrInstanced<ArrQueueItem>? {
+        arrServiceManager.queueItemsBySource.first {
+            $0.value.downloadId?.caseInsensitiveCompare(downloadID) == .orderedSame
+                && ($0.value.seriesId != nil || $0.value.movieId != nil)
+        }
+    }
+
     @ViewBuilder
     private func torrentActions(for torrent: Torrent, includesSeparators: Bool = true) -> some View {
         if isPaused(torrent) {

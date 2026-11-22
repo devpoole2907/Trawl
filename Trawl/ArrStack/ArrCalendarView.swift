@@ -428,6 +428,9 @@ struct ArrCalendarView: View {
     @Environment(\.dismiss) private var dismiss
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
+    /// Set on the iPhone's Calendar tab. A tab root keeps the tab bar - hiding it
+    /// would leave no way out - so Subscribe moves up into the navigation bar.
+    @Environment(\.calendarIsTabRoot) private var isTabRoot
     #endif
 
     let showsCloseButton: Bool
@@ -546,7 +549,7 @@ struct ArrCalendarView: View {
     private var listBody: some View {
         calendarPanes
         #if os(iOS)
-        .toolbarVisibility(.hidden, for: .tabBar)
+        .toolbarVisibility(isTabRoot ? .automatic : .hidden, for: .tabBar)
         #endif
         .toolbar {
             if showsCloseButton {
@@ -589,7 +592,7 @@ struct ArrCalendarView: View {
                 }
             }
             if isConnected {
-                ToolbarItem(placement: platformBottomBarPlacement) {
+                ToolbarItem(placement: isTabRoot ? .primaryAction : platformBottomBarPlacement) {
                     Button("Subscribe") {
                         // The advertised action, performed - before the sheet, so a
                         // user who opens it once is never told about it again.
@@ -633,12 +636,12 @@ struct ArrCalendarView: View {
         }
         .onAppear {
             #if os(iOS)
-            setTabChromeHidden(true)
+            if !isTabRoot { setTabChromeHidden(true) }
             #endif
         }
         .onDisappear {
             #if os(iOS)
-            setTabChromeHidden(false)
+            if !isTabRoot { setTabChromeHidden(false) }
             #endif
         }
         .arrMediaNavigationDestinations()
@@ -1769,4 +1772,10 @@ private struct ICalSubscribeSheet: View {
 
         notificationCenter.showSuccess(title: "Copied", message: "iCal feed URL copied.")
     }
+}
+
+extension EnvironmentValues {
+    /// True on the iPhone's Calendar tab, where Calendar is a tab root rather than a
+    /// screen pushed or presented over something else.
+    @Entry var calendarIsTabRoot: Bool = false
 }

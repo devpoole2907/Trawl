@@ -83,11 +83,15 @@ struct ContentView: View {
     @State private var connectionError: String?
     @State private var isConnecting = false
     @State private var isInWelcomeFlow = true
-    @AppStorage("startupTab") private var startupTab: String = RootTab.downloads.displayName
+    @AppStorage("startupTab") private var startupTab: String = RootTab.library.displayName
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @State private var selectedTab: RootTab = .downloads
+    @State private var selectedTab: RootTab = .library
     @State private var morePath: [MoreDestination] = []
+    /// The iPhone Calendar tab's own stack.
+    @State private var calendarPath: [MoreDestination] = []
+    /// What the iPhone Library tab shows. Remembered, so it reopens where it was left.
+    @AppStorage(LibraryScope.storageKey) private var libraryScope: LibraryScope = .all
     /// One navigation stack per promoted sidebar destination. They are kept apart
     /// rather than sharing `morePath` because they are separate tabs: switching from
     /// System to Settings and back should find System where you left it, exactly as
@@ -255,13 +259,13 @@ struct ContentView: View {
             // The sheet is presented at root, so the services its Needs Attention
             // section reads have to be handed to it explicitly.
             #if os(iOS)
-            RecentNotificationsSheet()
+            RecentNotificationsSheet(downloadsContent: compactDownloadsContent)
                 .environment(inAppNotificationCenter)
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
-                .environment(\.navigateToSeriesTab) { selectedTab = .series }
-                .environment(\.navigateToMoviesTab) { selectedTab = .movies }
-                .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+                .environment(\.navigateToSeriesTab) { go(to: .series) }
+                .environment(\.navigateToMoviesTab) { go(to: .movies) }
+                .environment(\.navigateToDownloadsTab) { go(to: .downloads) }
                 // Only on the chrome that has Setup Check to select. Read here, at
                 // the root, rather than inside the sheet: a `NavigationSplitView`'s
                 // columns report themselves compact on iPad, so a size-class test
@@ -283,9 +287,9 @@ struct ContentView: View {
                 .environment(inAppNotificationCenter)
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
-                .environment(\.navigateToSeriesTab) { selectedTab = .series }
-                .environment(\.navigateToMoviesTab) { selectedTab = .movies }
-                .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+                .environment(\.navigateToSeriesTab) { go(to: .series) }
+                .environment(\.navigateToMoviesTab) { go(to: .movies) }
+                .environment(\.navigateToDownloadsTab) { go(to: .downloads) }
                 // Always available here: macOS has only the sidebar chrome.
                 .environment(\.navigateToSetupCheck) { selectedTab = .setupCheck }
             #endif
@@ -337,11 +341,12 @@ struct ContentView: View {
         .onAppear {
             evaluateInitialWelcomeStateIfNeeded()
 
-            if startupTab == "Torrents" {
-                startupTab = RootTab.downloads.displayName
-            }
-            if !hasSetStartupTab, let tab = RootTab.allCases.first(where: { $0.displayName == startupTab }) {
-                selectedTab = tab
+            if !hasSetStartupTab {
+                selectedTab = Self.startupSelection(
+                    stored: startupTab,
+                    isCompact: hSizeClass == .compact,
+                    scope: &libraryScope
+                )
                 hasSetStartupTab = true
             }
             #if os(iOS)
@@ -520,11 +525,10 @@ struct ContentView: View {
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
             if !isShowing, let pending = pendingDeepLink {
-                selectedTab = pending.tab
-                morePath = pending.morePath
                 if let section = pending.downloadsSection {
                     downloadsNavigator.show(section)
                 }
+                go(to: pending.tab)
                 pendingDeepLink = nil
             }
         }
@@ -564,6 +568,22 @@ struct ContentView: View {
                 compactTabs(services: services, downloadBadge: unifiedActiveDownloadCount)
             } else {
                 regularSidebar(services: services, downloadBadge: unifiedActiveDownloadCount)
+            }
+        }
+        // The two chromes have different destinations: a narrow iPad window that
+        // turns wide has no Library row to stay on, and one that turns narrow has no
+        // Series or Downloads tab. Either way, land on the nearest equivalent.
+        .onChange(of: hSizeClass) { _, newValue in
+            if newValue == .compact {
+                // Not into the Downloads sheet: a window resize is not a request to
+                // open anything.
+                if selectedTab == .downloads || selectedTab == .blocklist {
+                    selectedTab = .library
+                } else if !RootTab.compactTabs.contains(selectedTab) {
+                    go(to: selectedTab)
+                }
+            } else if selectedTab == .library {
+                selectedTab = libraryScope == .movies ? .movies : .series
             }
         }
         .sheet(item: $magnetDeepLink) { link in
@@ -609,47 +629,40 @@ struct ContentView: View {
     @ViewBuilder
     private func compactTabs(services: AppServices, downloadBadge: Int) -> some View {
         TabView(selection: $selectedTab) {
-            Tab(value: RootTab.downloads) {
+            Tab(value: RootTab.library) {
                 NavigationStack {
-                    // Inside the stack, not on it. `navigationDestination(for:)`
-                    // registers against the stack it is *contained by* - applied to
-                    // the `NavigationStack` itself it sits outside, and SwiftUI
-                    // discards it with a runtime warning rather than an error, so
-                    // the registration silently does nothing. Downloads needs it
-                    // because its import-issue rows now open Arr media detail.
-                    downloadsRoot(services: services)
-                        .arrMediaNavigationDestinations()
-                }
-            } label: {
-                Label("Downloads", systemImage: "tray.and.arrow.down")
-                    .accessibilityIdentifier(RootTab.downloads.navigationIdentifier)
-            }
-            .badge(downloadBadge)
-
-            Tab(value: RootTab.series) {
-                NavigationStack {
-                    SonarrSeriesListView(session: navigationSession.series)
+                    LibraryTabView(
+                        seriesSession: navigationSession.series,
+                        moviesSession: navigationSession.movies,
+                        scope: $libraryScope
+                    )
+                    .arrMediaNavigationDestinations()
                 }
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
             } label: {
-                Label("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
-                    .accessibilityIdentifier(RootTab.series.navigationIdentifier)
+                Label(RootTab.library.displayName, systemImage: RootTab.library.systemImage)
+                    .accessibilityIdentifier(RootTab.library.navigationIdentifier)
             }
 
-            Tab(value: RootTab.movies) {
-                NavigationStack {
-                    RadarrMovieListView(session: navigationSession.movies)
-                }
-                .environment(arrServiceManager)
-                .environment(services.syncService)
-                .environment(services.torrentService)
-                .environment(sabnzbdServiceManager)
+            // A tab of its own now. It used to be a sheet behind a toolbar button on
+            // Series and Movies, which put the "has the new one aired yet?" check two
+            // taps and a covered list away.
+            Tab(value: RootTab.calendar) {
+                moreStack(rootedAt: .calendar, path: $calendarPath, services: services)
+                    .environment(\.calendarIsTabRoot, true)
             } label: {
-                Label("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage)
-                    .accessibilityIdentifier(RootTab.movies.navigationIdentifier)
+                Label(RootTab.calendar.displayName, systemImage: RootTab.calendar.systemImage)
+                    .accessibilityIdentifier(RootTab.calendar.navigationIdentifier)
+            }
+
+            Tab(value: RootTab.more) {
+                moreStack(rootedAt: nil, path: $morePath, services: services)
+            } label: {
+                Label("More", systemImage: "ellipsis")
+                    .accessibilityIdentifier(RootTab.more.navigationIdentifier)
             }
 
             // `.search` on every OS, not iOS 27's `.prominent`: `.prominent` only
@@ -663,18 +676,21 @@ struct ContentView: View {
                     .accessibilityIdentifier(RootTab.search.navigationIdentifier)
             }
 
-            Tab(value: RootTab.more) {
-                moreStack(rootedAt: nil, path: $morePath, services: services)
-            } label: {
-                Label("More", systemImage: "ellipsis")
-                    .accessibilityIdentifier(RootTab.more.navigationIdentifier)
-            }
         }
         .tabViewStyle(.sidebarAdaptable)
         .searchTabActivatesSearch()
+        // A backstop for any code that still assigns a sidebar destination - Series,
+        // Downloads, Health - directly. The tab bar has no such tab, and a selection
+        // it cannot show leaves the bar on nothing, so it is rerouted the way
+        // `go(to:)` would have.
+        .onChange(of: selectedTab) { _, newValue in
+            guard !RootTab.compactTabs.contains(newValue) else { return }
+            go(to: newValue)
+        }
+
         #if os(iOS)
         .tabViewBottomAccessory(isEnabled: !isTabChromeHidden) {
-            NotificationTabBarAccessory()
+            NotificationTabBarAccessory(showsDownloads: true)
                 .environment(services.syncService)
                 .environment(downloadsNavigator)
         }
@@ -1327,6 +1343,26 @@ struct ContentView: View {
         destination == .more ? $morePath : sidebarPath(for: destination)
     }
 
+    /// Downloads as the notification sheet's section on the tab chrome, which has no
+    /// Downloads tab. The same view and session the tab used, so the list keeps its
+    /// filter and scroll between openings.
+    private var compactDownloadsContent: AnyView? {
+        #if os(iOS)
+        guard hSizeClass == .compact else { return nil }
+        return AnyView(
+            downloadsRoot(services: appServices ?? disconnectedServices)
+                .arrMediaNavigationDestinations()
+                .environment(\.navigateToSeriesTab) { go(to: .series) }
+                .environment(\.navigateToMoviesTab) { go(to: .movies) }
+                // It is the tab chrome's Downloads, so it behaves like one: pushes,
+                // rather than the sidebar's select-into-a-column.
+                .environment(\.hasTabBarChrome, true)
+        )
+        #else
+        return nil
+        #endif
+    }
+
     private func downloadsRoot(
         services: AppServices,
         detailSelection: Binding<DownloadDetailSelection?>? = nil
@@ -1402,9 +1438,9 @@ struct ContentView: View {
             .environment(sabnzbdServiceManager)
             .environment(cleanuparrServiceManager)
             .environment(downloadsNavigator)
-            .environment(\.navigateToSeriesTab) { selectedTab = .series }
-            .environment(\.navigateToMoviesTab) { selectedTab = .movies }
-            .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+            .environment(\.navigateToSeriesTab) { go(to: .series) }
+            .environment(\.navigateToMoviesTab) { go(to: .movies) }
+            .environment(\.navigateToDownloadsTab) { go(to: .downloads) }
             // Settings destinations route by chrome - see `openSettings`.
             .environment(\.navigateToQbittorrentSettings) { openSettings(.qbittorrentSettings, from: path) }
             .environment(\.navigateToSABnzbdSettings) { openSettings(.sabnzbdSettings, from: path) }
@@ -1472,6 +1508,73 @@ struct ContentView: View {
         #endif
     }
 
+    /// Takes the user to a destination by whatever route the current chrome has.
+    ///
+    /// Everything that means "go to Series" or "go to Downloads" comes through here,
+    /// because the two chromes no longer have the same tabs. The sidebar has a row
+    /// for every destination. The iPhone tab bar has Library (Series and Movies,
+    /// switched by its title), Calendar, More and Search: Downloads opens in the
+    /// notification sheet, and anything else is pushed inside More.
+    private func go(to destination: RootTab) {
+        #if os(iOS)
+        if hSizeClass == .compact {
+            if let mapped = RootTab.compactTab(for: destination) {
+                if let scope = mapped.scope { libraryScope = scope }
+                selectedTab = mapped.tab
+            } else if destination == .downloads {
+                inAppNotificationCenter.showDownloads()
+            } else if destination == .blocklist {
+                // Blocklist is a Downloads screen on the phone.
+                downloadsNavigator.show(.blocklist)
+                inAppNotificationCenter.showDownloads()
+            } else if let root = destination.moreRoot {
+                morePath = [root]
+                selectedTab = .more
+            } else {
+                selectedTab = .more
+            }
+            return
+        }
+        #endif
+        selectedTab = destination.sidebarDestination
+    }
+
+    /// The tab to open on launch.
+    ///
+    /// Stored as a display name, from when the setting offered the old tab bar.
+    /// Series and Movies become Library with that scope; Downloads, which is not a
+    /// tab any more, becomes Library. The sidebar has no Library row, so there it is
+    /// Series, as it always was for a library-first start.
+    static func startupSelection(stored: String, isCompact: Bool, scope: inout LibraryScope) -> RootTab {
+        let name = stored == "Torrents" ? RootTab.downloads.displayName : stored
+        let tab = RootTab.allCases.first { $0.displayName == name } ?? .library
+        guard isCompact else { return tab.sidebarDestination }
+        if let mapped = RootTab.compactTab(for: tab) {
+            if let newScope = mapped.scope { scope = newScope }
+            return mapped.tab
+        }
+        return .library
+    }
+
+    /// Where a `trawl://` host leads. `nil` for hosts the app does not know.
+    static func deepLinkTarget(host: String) -> RootTab? {
+        switch host {
+        case "torrents", "downloads": .downloads
+        case "calendar": .calendar
+        case "health": .health
+        case "seerr-requests": .requests
+        case "seerr-issue", "seerr-issues": .issues
+        case "series": .series
+        case "movies": .movies
+        case "library": .library
+        case "search": .search
+        case "missing", "wanted": .missing
+        case "settings": .settings
+        case "setup-check": .setupCheck
+        default: nil
+        }
+    }
+
     /// Single entry point for every URL that reaches the app - external links,
     /// opened files, and tapped push notifications.
     private func handleIncomingURL(_ url: URL) {
@@ -1491,51 +1594,23 @@ struct ContentView: View {
                 pendingMagnetURL = url.absoluteString
             }
         case "trawl":
+            let host = url.host?.lowercased() ?? ""
+            // A pending-request push exists to get a decision, so it opens the
+            // notification sheet's Pending Approval section rather than the
+            // management list. Browsing every request is a different intent and is
+            // a destination of its own.
+            if host == "seerr-requests", !shouldShowWelcomeScreen {
+                inAppNotificationCenter.showRecentNotifications()
+                return
+            }
+            guard let target = Self.deepLinkTarget(host: host) else { return }
+            let section = target == .downloads ? Self.downloadsSection(from: url) : nil
             if shouldShowWelcomeScreen {
-                // Store deep link to be applied after welcome screen completes
-                switch url.host?.lowercased() {
-                case "torrents", "downloads":
-                    pendingDeepLink = PendingDeepLink(
-                        tab: .downloads,
-                        morePath: [],
-                        downloadsSection: Self.downloadsSection(from: url)
-                    )
-                case "calendar":
-                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
-                case "health":
-                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.health])
-                case "seerr-requests":
-                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrAdmin])
-                case "seerr-issue":
-                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrIssues])
-                default:
-                    break
-                }
+                // Applied once the welcome screen completes.
+                pendingDeepLink = PendingDeepLink(tab: target, morePath: [], downloadsSection: section)
             } else {
-                switch url.host?.lowercased() {
-                case "torrents", "downloads":
-                    selectedTab = .downloads
-                    if let section = Self.downloadsSection(from: url) {
-                        downloadsNavigator.show(section)
-                    }
-                case "calendar":
-                    selectedTab = .more
-                    morePath = [.calendar]
-                case "health":
-                    selectedTab = .more
-                    morePath = [.health]
-                case "seerr-requests":
-                    // A pending-request push exists to get a decision, so it opens
-                    // the notification sheet's Pending Approval section rather than
-                    // the management list three levels into More. Browsing every
-                    // request is a different intent and still lives there.
-                    inAppNotificationCenter.showRecentNotifications()
-                case "seerr-issue":
-                    selectedTab = .more
-                    morePath = [.seerrIssues]
-                default:
-                    return
-                }
+                if let section { downloadsNavigator.show(section) }
+                go(to: target)
             }
         default:
             return

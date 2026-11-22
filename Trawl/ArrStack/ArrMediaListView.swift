@@ -43,6 +43,10 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     var detailSelection: Binding<ArrMergeKey?>?
     let detailDestination: (ArrMergeKey) -> Detail
     var session: ArrMediaListSession? = nil
+    /// The iPhone Library tab's All / Series / Movies switch, offered above the
+    /// server picker in the title menu. `nil` everywhere else - the sidebar has a
+    /// row per kind, and there is nothing to switch to.
+    var libraryScope: Binding<LibraryScope>? = nil
 
     /// The screen's width, which decides the title menu's slot - see `titleMenuPlacement`.
     @State private var titleBarWidth: CGFloat = 0
@@ -423,6 +427,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         let isBrowsing = hasItems && !editMode.isEditing
         ArrBlendedLibraryTip.isEligible = isBrowsing && availableInstanceRefs.count > 1
         ArrLibraryQuickActionsTip.isEligible = isBrowsing
+        if libraryScope != nil {
+            LibraryScopeTip.isEligible = isBrowsing
+        }
     }
 
     /// A merged row counts as monitored when any server is monitoring it, so the
@@ -460,7 +467,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         #if os(macOS)
         detailSelection != nil
         #else
-        detailSelection != nil || !TrawlTitleMenu<Int>.prefersPrincipalSlot(barWidth: titleBarWidth)
+        detailSelection != nil || !TrawlTitleMenu<Int, EmptyView>.prefersPrincipalSlot(barWidth: titleBarWidth)
         #endif
     }
 
@@ -473,7 +480,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                     selection: titleMenuSelection,
                     isCompact: isTitleCompact,
                     subtitle: titleMenuLeads ? navigationSubtitleText : nil
-                )
+                ) {
+                    if let libraryScope {
+                        LibraryScopePicker(scope: libraryScope)
+                    }
+                }
+                .libraryScopeTip(isShown: libraryScope != nil)
             }
             .sharedBackgroundVisibility(titleMenuLeads ? .hidden : .automatic)
         }
@@ -506,22 +518,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 }
             }
         } else {
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                // Not where there is a sidebar. Calendar is a row there, and a
-                // toolbar button that opens a sheet over the library duplicates a
-                // destination that is already one click away - with the sheet being
-                // the worse of the two, because it covers the list it came from.
-                if !hasSidebarChrome {
-                    Button("Calendar", systemImage: "calendar") {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-                            showCalendar = true
-                        }
-                    }
-                    #if os(iOS)
-                    .matchedTransitionSource(id: "calendar", in: namespace)
-                    #endif
-                }
-            }
+            // No Calendar shortcut here any more. It used to open a sheet over the
+            // library on iPhone, where Calendar had no home of its own; it is a tab
+            // there now, and the sidebar has always had it as a row.
             ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Menu {
@@ -665,12 +664,15 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// selecting - the title has a count to show, and a `.principal` toolbar item
     /// would replace it.
     private var showsTitleMenu: Bool {
-        availableInstanceRefs.count > 1 && !editMode.isEditing
+        (availableInstanceRefs.count > 1 || libraryScope != nil) && !editMode.isEditing
     }
 
     private var titleMenuOptions: [TrawlTitleMenuOption<InstanceScope>] {
+        // One server has nothing to choose between. The menu is still drawn on the
+        // Library tab for the scope switch, and an option list of one hides its own
+        // picker, so the title keeps reading "Series" without a lone checkmark.
         [TrawlTitleMenuOption(value: .all, title: nounPlural, systemImage: emptyIcon)]
-            + availableInstanceRefs.map {
+            + (availableInstanceRefs.count > 1 ? availableInstanceRefs : []).map {
                 // The server's own name, as the user typed it in setup - this menu
                 // is about which box to look at, and "Default"/"4K" names a tier
                 // rather than a server.

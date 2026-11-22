@@ -88,3 +88,32 @@ struct ArrLibraryQuickActionsTip: Tip {
 
     var options: [Option] { MaxDisplayCount(1) }
 }
+
+/// Points at the Library tab's title, which is the switch between the whole library,
+/// series and movies.
+///
+/// On iPhone Series and Movies used to be two tabs. They are one now, and the only
+/// way to narrow it is a title that does not look like a control, so this is the tip
+/// that keeps the merge from reading as "where did Movies go?". Shown as a popover
+/// with its arrow on the title itself rather than inline, because the thing it is
+/// explaining is that one spot in the bar.
+struct LibraryScopeTip: Tip {
+    /// The Library tab is on screen with something in it, and not mid-selection.
+    @Parameter static var isEligible: Bool = false
+
+    var id: String { TrawlTipID.libraryScope }
+
+    var title: Text { Text("Series and movies live here") }
+
+    var message: Text? {
+        Text("Tap the title to switch between your whole library, series, or movies.")
+    }
+
+    var image: Image? { Image(systemName: "rectangle.stack") }
+
+    var rules: [Rule] {
+        #Rule(Self.$isEligible) { $0 == true }
+    }
+
+    var options: [Option] { MaxDisplayCount(1) }
+}

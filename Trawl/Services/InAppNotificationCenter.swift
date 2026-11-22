@@ -301,6 +301,17 @@ final class InAppNotificationCenter {
         isPresentingRecentNotifications = true
     }
 
+    /// Set when the sheet should open on its Downloads section rather than Activity.
+    /// Read and cleared by the sheet as it appears.
+    var opensOnDownloads = false
+
+    /// Opens the notification sheet on Downloads - the iPhone's home for downloads,
+    /// now that they have no tab of their own.
+    func showDownloads() {
+        opensOnDownloads = true
+        isPresentingRecentNotifications = true
+    }
+
     /// What tapping a banner does, wherever it is presented.
     ///
     /// The Dynamic Island toast and the legacy top banner both route their tap
