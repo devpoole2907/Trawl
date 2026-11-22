@@ -1,0 +1,237 @@
+<title>Trawl Tab Bar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; phone mockups sit in a two-up row that stacks on narrow screens. */
+:root{
+  --bg:#f5f7f9; --surface:#ffffff; --fg:#14202b; --muted:#5b6b78; --line:#dbe2e8;
+  --accent:#1f7a8c; --accent-soft:#e1f0f3; --good:#2e7d4f; --warn:#b26a00; --bad:#b3261e;
+  --chip:#eef2f5; --phone:#0f1820; --phone-fg:#e8eef3; --phone-muted:#8b9aa6; --phone-sel:#4fc3d6;
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:"Inter",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e151b; --surface:#151f27; --fg:#e4ebf0; --muted:#93a3af; --line:#26333d;
+  --accent:#5cc2d4; --accent-soft:#16313a; --good:#5cc08a; --warn:#e3a243; --bad:#ef7b72;
+  --chip:#1c2831; --phone:#05090c; --phone-fg:#e8eef3; --phone-muted:#7d8c97; --phone-sel:#5cc2d4; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e151b; --surface:#151f27; --fg:#e4ebf0; --muted:#93a3af; --line:#26333d;
+  --accent:#5cc2d4; --accent-soft:#16313a; --good:#5cc08a; --warn:#e3a243; --bad:#ef7b72;
+  --chip:#1c2831; --phone:#05090c; --phone-fg:#e8eef3; --phone-muted:#7d8c97; --phone-sel:#5cc2d4; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6}
+.wrap{max-width:860px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:44px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:2.1rem}
+h2{font-size:1.4rem}
+h3{font-size:1.05rem}
+p{margin:0;max-width:68ch}
+section{display:grid;gap:16px}
+.eyebrow{font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:1.08rem;color:var(--muted)}
+.verdict{background:var(--accent-soft);border-radius:14px;padding:20px 22px;display:grid;gap:10px}
+.verdict ol{margin:0;padding-left:1.2em;display:grid;gap:6px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:.92rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.better{color:var(--good);font-weight:600}
+.worse{color:var(--bad);font-weight:600}
+.same{color:var(--muted)}
+.route{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+.phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+.phone{background:var(--phone);color:var(--phone-fg);border-radius:30px;padding:18px 14px 14px;display:grid;gap:12px;min-width:0}
+.phone .cap{font-family:var(--mono);font-size:.72rem;color:var(--phone-muted);letter-spacing:.06em;text-transform:uppercase;text-align:center}
+.screen{background:#1a252e;border-radius:18px;padding:14px;display:grid;gap:8px;min-height:190px;align-content:start}
+.screen .t{font-family:var(--display);font-weight:700;font-size:1.25rem}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:#26333d;border-radius:9px;padding:2px;font-size:.8rem;text-align:center}
+.seg span{padding:4px 0;border-radius:7px}
+.seg .on{background:#3a4a56;font-weight:600}
+.row{display:flex;gap:10px;align-items:center;font-size:.85rem}
+.row .poster{width:26px;height:38px;border-radius:4px;background:#34444f;flex:none}
+.row .sub{color:var(--phone-muted);font-size:.74rem}
+.row .next{margin-left:auto;font-size:.72rem;color:var(--phone-sel);white-space:nowrap}
+.acc{background:#26333d;border-radius:14px;padding:7px 12px;font-size:.76rem;display:flex;justify-content:space-between;gap:8px}
+.bar{display:flex;gap:6px;align-items:center}
+.tabs{flex:1;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:#26333d;border-radius:22px;padding:6px 4px}
+.tab{display:grid;justify-items:center;gap:2px;font-size:.62rem;color:var(--phone-muted)}
+.tab i{display:block;width:18px;height:18px;border-radius:5px;border:2px solid currentColor}
+.tab.on{color:var(--phone-sel)}
+.searchbtn{width:44px;height:44px;border-radius:50%;background:#26333d;display:grid;place-items:center;flex:none}
+.searchbtn i{width:14px;height:14px;border:2px solid var(--phone-muted);border-radius:50%}
+.list{display:grid;gap:4px;font-size:.84rem}
+.list .h{font-family:var(--mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--phone-muted);margin-top:6px}
+.list div:not(.h){background:#26333d;border-radius:8px;padding:6px 10px;display:flex;justify-content:space-between}
+.list .b{color:var(--phone-sel)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:grid;gap:8px;align-content:start}
+.card p{font-size:.92rem}
+.tag{display:inline-block;font-family:var(--mono);font-size:.7rem;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted);justify-self:start}
+ul.plain{margin:0;padding-left:1.1em;display:grid;gap:6px;max-width:68ch}
+code{font-family:var(--mono);font-size:.85em;background:var(--chip);padding:1px 5px;border-radius:5px}
+</style>
+
+<div class="wrap">
+
+<header style="display:grid;gap:14px">
+  <span class="eyebrow">Trawl · iPhone navigation · 21 Nov 2026</span>
+  <h1>Which tabs should the iPhone have?</h1>
+  <p class="lede">You asked whether Series and Movies should be separate tabs, what would take a freed slot, and whether Downloads should be first. Behind that sits a bigger worry: changing things forever without reaching a finished state. This page answers the three questions and sets a definition of finished you can hold the app to.</p>
+</header>
+
+<section class="verdict">
+  <span class="eyebrow">Recommendation</span>
+  <ol>
+    <li><strong>Merge Series and Movies into one Library tab on iPhone</strong>, with a Series | Movies switch at the top that remembers your last choice. Switching costs one tap, the same as switching tabs today, so nothing gets slower and a slot is freed.</li>
+    <li><strong>Give the freed slot to Calendar.</strong> It's the screen for your South Park habit (“has the new one aired, and did it arrive?”), and today it's a sheet hidden behind a toolbar button.</li>
+    <li><strong>Put Library first and Downloads third.</strong> Downloads is something you glance at, not where most jobs start any more. <em>Correction: an earlier version said the bar above the tabs shows download progress. It doesn't. It shows notifications, pending approvals and running imports. Only the tab badge counts downloads.</em></li>
+    <li><strong>Flatten More so it uses the same sections as the iPad sidebar.</strong> Requests and Health each lose a tap, and the app has one map on every device.</li>
+    <li><strong>iPad and Mac keep separate Series and Movies rows.</strong> The sidebar has room, and you already said that's fine.</li>
+  </ol>
+</section>
+
+<section>
+  <span class="eyebrow">Before and after</span>
+  <h2>The tab bar</h2>
+  <div class="phones">
+    <div class="phone">
+      <div class="cap">Today</div>
+      <div class="screen">
+        <div class="t">Downloads</div>
+        <div class="row"><div class="poster"></div><div>The.Office.S03E02.720p<div class="sub">Downloading · 42% · 3 min</div></div></div>
+        <div class="row"><div class="poster"></div><div>Happy.Feet.2006.720p<div class="sub">Seeding · 1.4 ratio</div></div></div>
+      </div>
+      <div class="acc"><span>Download Complete</span><span>Sonarr · 9:41</span></div>
+      <div class="bar">
+        <div class="tabs">
+          <div class="tab on"><i></i>Downloads</div>
+          <div class="tab"><i></i>Series</div>
+          <div class="tab"><i></i>Movies</div>
+          <div class="tab"><i></i>More</div>
+        </div>
+        <div class="searchbtn"><i></i></div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="cap">Proposed</div>
+      <div class="screen">
+        <div class="t">Library</div>
+        <div class="seg"><span class="on">Series</span><span>Movies</span></div>
+        <div class="row"><div class="poster"></div><div>South Park<div class="sub">27 seasons · Continuing</div></div><span class="next">Next Wed</span></div>
+        <div class="row"><div class="poster"></div><div>The Office (US)<div class="sub">1 season · Ended</div></div></div>
+      </div>
+      <div class="acc"><span>2 downloading</span><span>4.1 MB/s</span></div>
+      <div class="bar">
+        <div class="tabs">
+          <div class="tab on"><i></i>Library</div>
+          <div class="tab"><i></i>Calendar</div>
+          <div class="tab"><i></i>Downloads</div>
+          <div class="tab"><i></i>More</div>
+        </div>
+        <div class="searchbtn"><i></i></div>
+      </div>
+    </div>
+  </div>
+  <p>The Series | Movies switch works like the Discover | Library switch in Search, so it's a control the app already uses. The server picker (All servers, or one server) stays in the title menu, where it is now.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Measured from the code, counted from launch</span>
+  <h2>Taps for the jobs you actually do</h2>
+  <p>Typing doesn't count; every tap and long-press does. The proposed column assumes the changes above. iPad numbers don't change.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Job</th><th>Today</th><th>Proposed</th><th>Budget</th><th>Route today</th></tr></thead>
+      <tbody>
+        <tr><td>Grab the newest South Park episode</td><td class="n">3</td><td class="n better">2</td><td class="n">2</td><td class="route">Series › long-press row › Search Latest</td></tr>
+        <tr><td>See what aired or airs this week</td><td class="n">2</td><td class="n better">1</td><td class="n">1</td><td class="route">Series › Calendar button (opens a sheet)</td></tr>
+        <tr><td>Check what's downloading</td><td class="n">0</td><td class="n worse">0–1</td><td class="n">1</td><td class="route">Opens on Downloads; the tab badge shows how many are active</td></tr>
+        <tr><td>Open a movie you own</td><td class="n">2</td><td class="n same">1–2</td><td class="n">2</td><td class="route">Movies › row</td></tr>
+        <tr><td>Add a new show or movie</td><td class="n">3</td><td class="n same">3</td><td class="n">3</td><td class="route">Search › result › Add</td></tr>
+        <tr><td>Approve a request</td><td class="n">4</td><td class="n better">3</td><td class="n">3</td><td class="route">More › Requests &amp; Access › Requests › item</td></tr>
+        <tr><td>Fix missing episodes or subtitles</td><td class="n">2</td><td class="n same">2</td><td class="n">2</td><td class="route">More › Missing</td></tr>
+        <tr><td>Check server health</td><td class="n">3</td><td class="n better">2</td><td class="n">2</td><td class="route">More › System › Health</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The one job that gets worse is checking downloads, which moves from zero taps to one. Only the tab badge shows downloads from other screens today; the bar above the tabs shows notifications. You can still set Downloads as your startup tab in Settings.</p>
+</section>
+
+<section>
+  <span class="eyebrow">More, flattened</span>
+  <h2>One map on every device</h2>
+  <div class="phones">
+    <div class="phone">
+      <div class="cap">More today</div>
+      <div class="screen">
+        <div class="list">
+          <div><span>Missing</span></div>
+          <div><span>Library Management</span><span class="b">›</span></div>
+          <div class="h">Hubs</div>
+          <div><span>Requests &amp; Access</span><span class="b">›</span></div>
+          <div><span>Jellyfin</span><span class="b">›</span></div>
+          <div><span>Automation &amp; Clients</span><span class="b">›</span></div>
+          <div><span>System</span><span class="b">›</span></div>
+          <div><span>Settings</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="phone">
+      <div class="cap">Proposed: sidebar sections</div>
+      <div class="screen">
+        <div class="list">
+          <div class="h">Library</div>
+          <div><span>Missing</span><span class="b">3</span></div>
+          <div><span>Blocklist</span></div>
+          <div class="h">Requests &amp; Access</div>
+          <div><span>Requests</span><span class="b">2</span></div>
+          <div><span>Issues</span></div>
+          <div class="h">System</div>
+          <div><span>Setup Check</span></div>
+          <div><span>Health</span></div>
+          <div><span>Settings</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p>The sidebar already removed its hub screens. Its own code comment says a hub was “a click spent on nothing”, and that's just as true on a phone. More can draw <code>SidebarSection</code> directly, leaving out whatever is already a tab. The setup-and-configure groups (Integrations, Management, Media Server) can start collapsed, since you visit them rarely. Then there's one list of destinations, and iPhone and iPad can't drift apart.</p>
+</section>
+
+<section>
+  <span class="eyebrow">The worry</span>
+  <h2>How to know when it's finished</h2>
+  <p>Changing things forever usually means there's no target to hit. Here's a target:</p>
+  <ul class="plain">
+    <li><strong>The jobs table is the scope.</strong> A structural change is allowed only if it brings a job within its budget, or adds a job you really do every week.</li>
+    <li><strong>Every job has a journey test</strong> that walks its route from launch. Several already exist: Up Next, row long-press, Search long-press and Add Series.</li>
+    <li><strong>A week of real use.</strong> Once every job is within budget, use the app for a week and only write down a flow when it gets in your way. If the list is empty, navigation is done, and the remaining work is polish and bugs, which do come to an end.</li>
+  </ul>
+  <p>This proposal is the last structural change it suggests. Everything after it is in-screen polish, tested one job at a time against the table.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Considered and left out</span>
+  <h2>What I'd hold off on</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">no</span><h3>A Home or Today dashboard tab</h3><p>It's tempting, but it would be a new screen that copies Calendar, Downloads and Missing. That's exactly the change-for-its-own-sake you're worried about. Calendar already does most of this job.</p></div>
+    <div class="card"><span class="tag">later</span><h3>Choose your own fourth tab</h3><p>If Requests turns out to be your daily inbox rather than Calendar, a setting could pick which one takes the slot. Add it only after the week of use says you need it.</p></div>
+    <div class="card"><span class="tag">no</span><h3>Changing the iPad sidebar</h3><p>Its sections already work. The only change there is that More on iPhone starts using the same sections.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Cost</span>
+  <h2>What changing it involves</h2>
+  <ul class="plain">
+    <li>A compact-only <code>library</code> tab that shows the existing Series or Movies list. Each keeps its own navigation history, so switching doesn't lose your place. <code>RootTab.series</code> and <code>.movies</code> stay for the sidebar, deep links, Shortcuts and Spotlight.</li>
+    <li>Calendar becomes a tab root on compact screens. The toolbar button that opens it as a sheet goes away.</li>
+    <li>New tab order. The default startup tab becomes Library, but anyone who picked a startup tab in Settings keeps it.</li>
+    <li>More draws its list from <code>SidebarSection</code>, and the four hub screens are removed. More's search index stays the same.</li>
+    <li>UI tests that call <code>openDestination(.series)</code> or <code>(.movies)</code> get routed through the switch. That's one place in the helper, plus new journeys for the switch and the Calendar tab. Then the full test plan runs.</li>
+  </ul>
+</section>
+
+</div>
