@@ -197,7 +197,7 @@ struct ProwlarrIndexerStateTests {
 
             await viewModel.toggleIndexer(alpha)
 
-            let puts = server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }
+            let puts = server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }.filter { $0.method == "PUT" }
             #expect(puts.count == 1)
             let sent = try #require(puts.first)
             let body = try #require(sent.jsonObject())
@@ -232,7 +232,7 @@ struct ProwlarrIndexerStateTests {
             let alpha = try indexer(1, in: viewModel)
             await viewModel.toggleIndexer(alpha)
 
-            let putRequests = server.requests(path: "/api/v1/indexer/1")
+            let putRequests = server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }
             let sent = try #require(putRequests.first)
             #expect(sent.jsonObject()?["enable"] as? Bool == false)
 
@@ -306,9 +306,9 @@ struct ProwlarrIndexerStateTests {
             let viewModel = ProwlarrViewModel(serviceManager: manager)
             await viewModel.loadIndexers()
             let original = try indexer(1, in: viewModel)
-            #expect(server.requests(path: "/api/v1/indexer/1").isEmpty)
+            #expect(server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }.isEmpty)
             #expect(await viewModel.saveIndexerConfiguration(original, enabled: false, tagIDs: [7, 3]))
-            let requests = server.requests(path: "/api/v1/indexer/1")
+            let requests = server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }
             #expect(requests.count == 1)
             let body = try #require(requests.first?.jsonObject())
             #expect(body["enable"] as? Bool == false)
@@ -359,7 +359,7 @@ struct ProwlarrIndexerStateTests {
             let saved = await viewModel.updateIndexerTags(alpha, tagIDs: [9, 3, 7])
 
             #expect(saved == true)
-            let putRequests = server.requests(path: "/api/v1/indexer/1")
+            let putRequests = server.requests(path: "/api/v1/indexer/1").filter { $0.method == "PUT" }
             let sent = try #require(putRequests.first)
             let body = try #require(sent.jsonObject())
             #expect(body["tags"] as? [Int] == [3, 7, 9])

@@ -211,6 +211,11 @@ final class NotificationSettingsUIFixtureServer: @unchecked Sendable {
                 return .json(#"{"message":"Fixture notification configuration failed."}"#, status: 500)
             }
 
+        // Read before the save: Trawl lays its edit over the server's copy so the
+        // fields it does not model are kept.
+        case ("GET", "/api/v3/notification/91"):
+            return .json(currentNotificationJSON)
+
         // The save journey edits this existing notification, so it must use the
         // exact ID-bearing PUT endpoint rather than creating a duplicate webhook.
         case ("PUT", "/api/v3/notification/91"):

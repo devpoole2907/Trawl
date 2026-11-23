@@ -29,7 +29,7 @@ extension SharedArrClient {
     /// single resource, not a list, and its `id` is 0 until it is created.
     func getQualityProfileSchema() async throws -> ArrQualityProfile { try await base.get("\(apiPath)/qualityprofile/schema") }
     func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.postCodable("\(apiPath)/qualityprofile", body: profile) }
-    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.putCodable("\(apiPath)/qualityprofile/\(profile.id)", body: profile) }
+    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.putPreservingServerFields("\(apiPath)/qualityprofile/\(profile.id)", body: profile) }
     func deleteQualityProfile(id: Int) async throws { try await base.delete("\(apiPath)/qualityprofile/\(id)") }
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.get("\(apiPath)/rootfolder") }
     func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.postCodable("\(apiPath)/rootfolder", body: ["path": path]) }
@@ -43,7 +43,7 @@ extension SharedArrClient {
     func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.postCodable("\(apiPath)/notification", body: notification) }
     func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification {
         guard let id = notification.id else { throw ArrError.invalidResponse }
-        return try await base.putCodable("\(apiPath)/notification/\(id)", body: notification)
+        return try await base.putPreservingServerFields("\(apiPath)/notification/\(id)", body: notification)
     }
     func testNotification(_ notification: ArrNotification) async throws { try await base.postVoidCodable("\(apiPath)/notification/test", body: notification) }
 
@@ -124,7 +124,7 @@ extension SharedArrClient {
     func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
     func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }
     func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.postCodable("\(apiPath)/downloadclient", body: client) }
-    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.putCodable("\(apiPath)/downloadclient/\(client.id)", body: client) }
+    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.putPreservingServerFields("\(apiPath)/downloadclient/\(client.id)", body: client) }
     func deleteDownloadClient(id: Int) async throws { try await base.delete("\(apiPath)/downloadclient/\(id)") }
     func testDownloadClient(_ client: ArrDownloadClient) async throws { try await base.postVoidCodable("\(apiPath)/downloadclient/test", body: client) }
     func getRemotePathMappings() async throws -> [ArrRemotePathMapping] { try await base.get("\(apiPath)/remotepathmapping") }
@@ -225,7 +225,7 @@ extension SharedArrClient {
     }
 
     func updateIndexer<T: Codable & ArrAPIIdentifiable>(_ indexer: sending T) async throws -> sending T {
-        try await base.putCodable("\(apiPath)/indexer/\(indexer.id)", body: indexer)
+        try await base.putPreservingServerFields("\(apiPath)/indexer/\(indexer.id)", body: indexer)
     }
 
     func deleteIndexer(id: Int) async throws {
@@ -484,6 +484,20 @@ actor ArrAPIClient {
 
     func putCodable<T: Decodable, B: Encodable>(_ path: String, body: sending B, queryItems: [URLQueryItem] = []) async throws -> sending T {
         try await transport.putCodable(path, body: body, queryItems: queryItems)
+    }
+
+    /// A PUT of a whole resource that keeps the fields Trawl does not model: reads
+    /// the server's copy at `path` and sends `body` laid over it
+    /// (`JSONValue.mergingServerFields`). The *arr APIs replace the whole object, so
+    /// a body with only Trawl's fields reset everything else.
+    func putPreservingServerFields<T: Decodable, B: Encodable>(
+        _ path: String,
+        body: B,
+        queryItems: [URLQueryItem] = []
+    ) async throws -> sending T {
+        let current: JSONValue = try await get(path)
+        let merged = try JSONValue.mergingServerFields(body, onto: current)
+        return try await putCodable(path, body: merged, queryItems: queryItems)
     }
 
     func delete(_ path: String, queryItems: [URLQueryItem] = []) async throws {

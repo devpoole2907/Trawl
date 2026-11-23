@@ -1,0 +1,271 @@
+<title>Import Issues Triage</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; phone mockups sit in rows that wrap, and stack to one per row on narrow screens. Phones are always dark, like the app on the user's own device. */
+:root{
+  --bg:#f5f7f9; --surface:#ffffff; --fg:#14202b; --muted:#5b6b78; --line:#dbe2e8;
+  --accent:#1f7a8c; --accent-soft:#e1f0f3; --good:#2e7d4f; --warn:#b26a00; --bad:#b3261e;
+  --chip:#eef2f5;
+  /* phone palette: single dark look in both page themes */
+  --phone:#04070a; --sheet:#15181c; --card:#212529; --pfg:#eef2f5; --pmuted:#8d99a3; --psep:#30363c;
+  --p-orange:#f0a040; --p-green:#5cc08a; --p-red:#ef7b72; --p-blue:#5aa9f0; --p-purple:#a48af2; --p-teal:#4fc3d6; --p-sel:#4fc3d6;
+  --display:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --body:"Inter",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e151b; --surface:#151f27; --fg:#e4ebf0; --muted:#93a3af; --line:#26333d;
+  --accent:#5cc2d4; --accent-soft:#16313a; --good:#5cc08a; --warn:#e3a243; --bad:#ef7b72;
+  --chip:#1c2831; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e151b; --surface:#151f27; --fg:#e4ebf0; --muted:#93a3af; --line:#26333d;
+  --accent:#5cc2d4; --accent-soft:#16313a; --good:#5cc08a; --warn:#e3a243; --bad:#ef7b72;
+  --chip:#1c2831; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6}
+.wrap{max-width:960px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:48px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:2.1rem} h2{font-size:1.4rem} h3{font-size:1.05rem}
+p{margin:0;max-width:68ch}
+ul,ol{margin:0;padding-left:1.2em;display:grid;gap:6px;max-width:68ch}
+section{display:grid;gap:16px}
+.eyebrow{font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:1.08rem;color:var(--muted)}
+.verdict{background:var(--accent-soft);border-radius:14px;padding:20px 22px;display:grid;gap:10px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.92rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+code{font-family:var(--mono);font-size:.85em;background:var(--chip);padding:1px 5px;border-radius:5px}
+.pill{display:inline-block;font-family:var(--mono);font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.pill.pick{background:var(--accent);color:var(--bg)}
+.option{display:grid;gap:14px;border-top:1px solid var(--line);padding-top:24px}
+.option-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.proscons{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 28px}
+.proscons h3{font-size:.8rem;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:24px;align-items:start}
+figure{margin:0;display:grid;gap:10px;justify-items:center}
+figcaption{font-size:.85rem;color:var(--muted);max-width:300px;text-align:center}
+.note{font-size:.88rem;color:var(--muted)}
+
+/* ---------- phone mockup ---------- */
+.phone{width:100%;max-width:292px;aspect-ratio:292/600;background:var(--phone);border-radius:42px;padding:10px;box-shadow:0 1px 0 var(--line),0 18px 40px -22px rgba(0,0,0,.55);position:relative;display:flex;flex-direction:column}
+.phone::before{content:"";position:absolute;top:16px;left:50%;transform:translateX(-50%);width:78px;height:22px;border-radius:12px;background:#000}
+.behind{height:34px;flex:none}
+.sheet{flex:1;min-height:0;background:var(--sheet);border-radius:28px 28px 32px 32px;color:var(--pfg);font-family:var(--body);font-size:11.5px;line-height:1.35;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.grab{width:34px;height:4px;border-radius:3px;background:#4a5158;margin:7px auto 2px;flex:none}
+.bar{display:flex;align-items:flex-start;justify-content:space-between;padding:6px 14px 6px;flex:none;gap:8px}
+.ttl{font-family:var(--display);font-weight:700;font-size:19px;letter-spacing:-.01em}
+.sub{color:var(--pmuted);font-size:10.5px}
+.tbtns{display:flex;gap:6px}
+.gbtn{width:28px;height:28px;border-radius:50%;background:var(--card);display:grid;place-items:center;color:var(--pfg)}
+.gbtn svg{width:14px;height:14px}
+.scroll{flex:1;min-height:0;overflow:hidden;padding:2px 10px 70px;display:flex;flex-direction:column;gap:10px}
+.scroll>*{flex:none}
+.hdr{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--pmuted);font-weight:600;padding:0 6px;display:flex;justify-content:space-between}
+.hdr b{color:var(--p-sel);font-weight:600;text-transform:none;letter-spacing:0}
+.card{background:var(--card);border-radius:13px;overflow:hidden}
+.row{display:flex;gap:9px;align-items:flex-start;padding:8px 10px;position:relative}
+.row+.row::before{content:"";position:absolute;top:0;left:46px;right:0;height:1px;background:var(--psep)}
+.row.dense+.row.dense::before{left:30px}
+.ic{width:27px;height:27px;border-radius:8px;display:grid;place-items:center;flex:none}
+.ic svg{width:14px;height:14px}
+.ic.sm{width:16px;height:16px;border-radius:0;background:none!important;margin-top:1px}
+.ic.sm svg{width:13px;height:13px}
+.tx{flex:1;min-width:0;display:grid;gap:1px}
+.t1{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{color:var(--pmuted);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.trail{color:var(--pmuted);font-size:10px;white-space:nowrap;display:flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.trail svg{width:9px;height:9px;opacity:.6}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--p-sel);flex:none;margin-top:5px}
+.dot.off{background:transparent}
+.acts{display:flex;gap:6px;margin-top:6px}
+.btn{font-size:10.5px;font-weight:600;padding:4px 11px;border-radius:99px;background:#30363c;color:var(--pfg)}
+.btn.yes{background:var(--p-green);color:#06210f}
+.newline{display:flex;align-items:center;gap:8px;font-size:9.5px;color:var(--p-sel);font-weight:600;padding:0 6px}
+.newline::before,.newline::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--p-sel) 45%,transparent)}
+.newline::before{flex:0 0 10px}
+.chips{display:flex;gap:5px;padding:0 4px;flex-wrap:nowrap;overflow:hidden}
+.chip{font-size:10px;padding:4px 9px;border-radius:99px;background:var(--card);color:var(--pmuted);white-space:nowrap}
+.chip.on{background:var(--pfg);color:var(--sheet);font-weight:600}
+.calm{display:flex;gap:9px;align-items:center;padding:10px;background:var(--card);border-radius:13px}
+.calm .ic{background:color-mix(in srgb,var(--p-green) 18%,transparent);color:var(--p-green)}
+.empty{display:grid;justify-items:center;text-align:center;gap:6px;padding:46px 18px 0;color:var(--pmuted)}
+.empty .big{width:44px;height:44px;color:#5a646d}
+.empty .big svg{width:44px;height:44px}
+.empty b{color:var(--pfg);font-size:14px;font-family:var(--display)}
+.link{color:var(--p-sel);font-weight:600}
+.steps{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.step{font-size:9.5px;padding:2px 6px;border-radius:6px;background:#2c3237;color:var(--pmuted)}
+.step.done{color:var(--p-green)} .step.bad{color:var(--p-red)}
+.sep{color:#59626a;font-size:9px}
+.tabs{position:absolute;left:12px;right:12px;bottom:10px;height:50px;border-radius:26px;background:rgba(48,54,60,.82);backdrop-filter:blur(8px);display:flex;justify-content:space-around;align-items:center;padding:0 6px;box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)}
+.tab{display:grid;justify-items:center;gap:1px;font-size:9px;color:#c2cbd2;position:relative;padding:5px 12px;border-radius:20px}
+.tab svg{width:17px;height:17px}
+.tab.on{color:var(--p-sel);background:rgba(255,255,255,.08)}
+.badge{position:absolute;top:1px;right:4px;min-width:14px;height:14px;border-radius:7px;background:var(--p-red);color:#fff;font-size:8.5px;font-weight:700;display:grid;place-items:center;padding:0 3px}
+.badge.or{background:var(--p-orange);color:#2a1700}
+.tint-orange{background:color-mix(in srgb,var(--p-orange) 18%,transparent);color:var(--p-orange)}
+.tint-green{background:color-mix(in srgb,var(--p-green) 18%,transparent);color:var(--p-green)}
+.tint-red{background:color-mix(in srgb,var(--p-red) 18%,transparent);color:var(--p-red)}
+.tint-blue{background:color-mix(in srgb,var(--p-blue) 18%,transparent);color:var(--p-blue)}
+.tint-purple{background:color-mix(in srgb,var(--p-purple) 20%,transparent);color:var(--p-purple)}
+.tint-teal{background:color-mix(in srgb,var(--p-teal) 18%,transparent);color:var(--p-teal)}
+.c-green{color:var(--p-green)} .c-red{color:var(--p-red)} .c-blue{color:var(--p-blue)} .c-orange{color:var(--p-orange)} .c-purple{color:var(--p-purple)}
+.bar-prog{height:3px;border-radius:2px;background:#30363c;margin-top:5px;overflow:hidden}
+.bar-prog i{display:block;height:100%;background:var(--p-teal);border-radius:2px}
+@media (prefers-reduced-motion: no-preference){.bar-prog i{transition:width .3s}}
+</style>
+<style>
+.gtitle{font-weight:600;font-size:12px}
+.gwhy{color:var(--pmuted);font-size:10.5px}
+.gbtnrow{display:flex;gap:6px;flex-wrap:wrap;padding:0 10px 10px}
+.gaction{font-size:10.5px;font-weight:600;padding:5px 12px;border-radius:99px;background:var(--p-sel);color:#041a1f}
+.gaction.alt{background:#30363c;color:var(--pfg)}
+.gaction.red{background:var(--p-red);color:#2a0705}
+.count{font-family:var(--mono);font-size:10px;color:var(--pmuted);margin-left:auto}
+.items{color:var(--pmuted);font-size:10px;padding:0 10px 8px 46px;display:grid;gap:2px}
+.items s{opacity:.55}
+.stack{position:relative;height:250px;margin-top:6px}
+.scard{position:absolute;left:0;right:0;background:var(--card);border-radius:16px;padding:12px;display:grid;gap:8px}
+.scard.back1{top:16px;transform:scale(.94);opacity:.55}
+.scard.back2{top:30px;transform:scale(.88);opacity:.3}
+.quote{font-family:var(--mono);font-size:9.5px;color:var(--pmuted);background:#191c20;border-radius:8px;padding:6px 8px;line-height:1.4}
+.check{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--p-sel);display:grid;place-items:center;flex:none;margin-top:2px}
+.check.on{background:var(--p-sel)}
+.check.on::after{content:"";width:6px;height:3px;border-left:1.5px solid #041a1f;border-bottom:1.5px solid #041a1f;transform:rotate(-45deg) translateY(-1px)}
+.apply{position:absolute;left:12px;right:12px;bottom:14px;background:var(--p-sel);color:#041a1f;border-radius:14px;text-align:center;font-weight:700;padding:11px;font-size:12px}
+.toggle{width:28px;height:16px;border-radius:9px;background:#3a4147;position:relative;flex:none;margin-left:auto}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+.toggle.on{background:var(--p-green)}
+.toggle.on::after{left:14px}
+.navhead{display:flex;align-items:center;justify-content:space-between;padding:8px 14px 4px}
+.back{color:var(--p-sel);font-size:11px}
+.cause{display:grid;gap:4px}
+.cause b{font-family:var(--mono);font-size:.78rem;font-weight:600}
+td .pill{white-space:nowrap}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:grid;gap:8px;min-width:0}
+</style>
+<div class="wrap">
+<header style="display:grid;gap:12px">
+<div class="eyebrow">Trawl · Downloads · design options</div>
+<h1>Import issues, fixed by cause</h1>
+<p class="lede">Today a stuck import is one row per download. You open each one, read Sonarr’s or Radarr’s message, work out what it means, and pick an action. Most of those messages fall into five causes, and each cause has one fix. This page lays out four ways to use that.</p>
+</header>
+
+<section>
+<h2>Why it feels like a chore</h2>
+<ul>
+<li><b>The diagnosis is buried.</b> The reason lives in a status message inside the row’s detail, written in Sonarr’s words.</li>
+<li><b>The same fix is repeated.</b> Three downloads failing for one wrong path mapping look like three separate problems.</li>
+<li><b>The order is wrong.</b> Rows are sorted by download, not by how much one tap would clear. A path problem that causes half the list sits next to one bad release.</li>
+<li><b>Nothing says what to do.</b> The actions offered (Remove, Blocklist, Manual Import) are the same for every row, whether or not they fit.</li>
+</ul>
+</section>
+
+<section>
+<h2>The five causes</h2>
+<p>Every option below starts from the same step: read each queue item’s status messages and put it in one bucket. Unknown messages fall into “Something else”, which keeps today’s per-row view.</p>
+<div class="tablewrap"><table>
+<tr><th>Cause</th><th>What Sonarr / Radarr says</th><th>What it means</th><th>The fix</th><th>Needs you?</th></tr>
+<tr><td class="cause"><b>Path</b></td><td><code>Import failed, path does not exist or is not accessible by Sonarr</code>, <code>…does not appear to exist inside the container. Review your remote path mappings</code></td><td>The service can’t see the download client’s folder. Usually hits every download from that client at once.</td><td>Add or fix a remote path mapping (or permissions), then retry all.</td><td><span class="pill">One setting</span></td></tr>
+<tr><td class="cause"><b>Already have it</b></td><td><code>Not an upgrade for existing episode file(s)</code>, <code>Episode file already imported</code>, <code>Has the same filesize as existing file</code></td><td>The library already has this at the same or better quality.</td><td>Remove from the download client, with files.</td><td><span class="pill">Safe in bulk</span></td></tr>
+<tr><td class="cause"><b>Bad release</b></td><td><code>No files found are eligible for import</code>, <code>Unable to determine if file is a sample</code>, rar or executable only, wrong episode</td><td>The release itself is unusable.</td><td>Blocklist and search again.</td><td><span class="pill">Safe in bulk</span></td></tr>
+<tr><td class="cause"><b>Can’t match</b></td><td><code>Unknown Series</code>, <code>Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible</code></td><td>The service couldn’t tell what this is.</td><td>Manual Import: pick the title and episodes.</td><td><span class="pill pick">Yes, per item</span></td></tr>
+<tr><td class="cause"><b>Dead download</b></td><td>Stalled, <code>missing from download client</code>, failed in SABnzbd</td><td>The download never finished.</td><td>Blocklist and search again.</td><td><span class="pill">Safe in bulk</span></td></tr>
+</table></div>
+<p class="note">The exact strings vary between Sonarr and Radarr versions. Your test servers have empty queues, so before building this I’d create a few failing imports on them and capture the real messages, the same way we checked the APIs.</p>
+</section>
+
+<section class="option">
+<div class="option-head"><span class="pill pick">Recommended</span><h2>A · Grouped by cause</h2></div>
+<p>Issues becomes a short list of causes instead of a long list of downloads. Each group says what happened in plain words, how many downloads it covers, and offers the one fix as a single button. “Show 3” opens the items, where you can untick one before applying. Groups are ordered by how much one tap clears, so a path problem comes first.</p>
+<div class="phones"><figure><div class="phone"><div class="behind"></div><div class="sheet"><div class="grab"></div><div class="navhead"><span class="back">&lsaquo; Downloads</span><span class="sub">7 downloads · 4 causes</span></div><div class="bar"><div><div class="ttl">Needs Fixing</div></div></div>
+<div class="scroll">
+<div class="card"><div class="row"><div class="ic tint-red"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></div><div><div class="gtitle">Trawl can’t see the download folder</div><div class="gwhy">Sonarr looks in /downloads, qBittorrent saves to /data/torrents. One setting fixes all 3.</div></div><span class="count">3</span></div>
+<div class="gbtnrow"><span class="gaction">Fix Path Mapping</span><span class="gaction alt">Show 3</span></div></div>
+<div class="card"><div class="row"><div class="ic tint-green"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div><div class="gtitle">You already have these</div><div class="gwhy">Not an upgrade for the file in your library.</div></div><span class="count">2</span></div>
+<div class="gbtnrow"><span class="gaction">Remove Both</span><span class="gaction alt">Show 2</span></div></div>
+<div class="card"><div class="row"><div class="ic tint-orange"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div><div><div class="gtitle">Bad release</div><div class="gwhy">Only a sample file inside.</div></div><span class="count">1</span></div>
+<div class="gbtnrow"><span class="gaction">Blocklist &amp; Search</span></div></div>
+<div class="card"><div class="row"><div class="ic tint-purple"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.3 6.3a1.8 1.8 0 113 1.4c-.7.4-1.3.8-1.3 1.6M8 11.3v.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div><div><div class="gtitle">Couldn’t tell what this is</div><div class="gwhy">Severance.S02E04.1080p… matched no series.</div></div><span class="count">1</span></div>
+<div class="gbtnrow"><span class="gaction">Choose Title…</span></div></div>
+</div></div></div><figcaption>Seven downloads read as four decisions. The path group links straight to Remote Path Mappings for the right server.</figcaption></figure></div>
+<div class="proscons"><div><h3>Good</h3><ul><li>Biggest change in effort for the least new UI: it’s still the Issues filter.</li><li>Bulk where bulk is safe, per item where it isn’t.</li><li>Works the same on iPhone, iPad and Mac.</li></ul></div><div><h3>Watch out</h3><ul><li>A wrong bucket hides a real problem under a confident label. “Something else” has to stay visible.</li><li>Batch actions need the same undo window as Approve and Decline.</li></ul></div></div>
+</section>
+
+<section class="option">
+<div class="option-head"><h2>B · One at a time</h2></div>
+<p>A focused flow, like clearing an inbox. Each card shows one download, Sonarr’s message, a one-line plain explanation and the recommended action as the main button, with Skip beside it. Similar items are batched behind the card (“3 × path not found”).</p>
+<div class="phones"><figure><div class="phone"><div class="behind"></div><div class="sheet"><div class="grab"></div><div class="navhead"><span class="back">&lsaquo; Downloads</span><span class="sub">2 of 7</span></div><div class="bar"><div><div class="ttl">Fix Imports</div></div></div>
+<div class="scroll">
+<div class="stack">
+<div class="scard back2"><div class="gtitle">&nbsp;</div><div class="quote">&nbsp;</div></div>
+<div class="scard back1"><div class="gtitle">&nbsp;</div><div class="quote">&nbsp;</div></div>
+<div class="scard" style="top:0"><div style="display:flex;gap:9px"><div class="ic tint-green"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div><div class="gtitle">The Bear · S03E02</div><div class="gwhy">qBittorrent · 2.1 GB · finished 3h ago</div></div></div>
+<div class="quote">Not an upgrade for existing episode file(s). Existing quality: WEBDL-1080p.</div>
+<div style="font-size:11px">You already have this episode at the same quality.</div>
+<div class="acts"><span class="btn yes">Remove Download</span><span class="btn">Skip</span></div></div>
+</div>
+<div class="hdr"><span>Up next</span><b>5 more</b></div>
+<div class="card"><div class="row dense"><div class="ic sm tint-orange" style="width:16px;height:16px"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div><div class="gwhy">Dune: Part Two · bad release</div></div>
+<div class="row dense"><div class="ic sm tint-red" style="width:16px;height:16px"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h4l1.5 1.5H14v6.5H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></div><div class="gwhy">3 × path not found</div></div></div>
+</div></div></div><figcaption>The recommended action is the big button. Skip leaves the item for later.</figcaption></figure></div>
+<div class="proscons"><div><h3>Good</h3><ul><li>Very low effort per decision: read, tap, next.</li><li>Good for the “Can’t match” cases, which need attention anyway.</li></ul></div><div><h3>Watch out</h3><ul><li>Still one tap per download, so ten “already have it” items are ten taps.</li><li>A mode you enter and leave, rather than a view you glance at.</li></ul></div></div>
+</section>
+
+<section class="option">
+<div class="option-head"><h2>C · Fix plan</h2></div>
+<p>Trawl reads everything and proposes a plan: a checklist of fixes, each covering one or more downloads, all ticked except the ones that need you. One “Apply” runs them in order, path fixes first, then retries, removals and searches.</p>
+<div class="phones"><figure><div class="phone"><div class="behind"></div><div class="sheet"><div class="grab"></div><div class="navhead"><span class="back">&lsaquo; Downloads</span><span class="sub">7 downloads</span></div><div class="bar"><div><div class="ttl">Fix Plan</div></div></div>
+<div class="scroll">
+<div class="sub" style="padding:0 6px">Trawl suggests 4 changes. Untick anything you want to leave.</div>
+<div class="card">
+<div class="row"><span class="check on"></span><div><div class="gtitle">Add a path mapping</div><div class="gwhy">/data/torrents → /downloads on Sonarr-1. Then retry 3 imports.</div></div></div>
+<div class="row"><span class="check on"></span><div><div class="gtitle">Remove 2 downloads you already have</div><div class="gwhy">Files deleted from qBittorrent.</div></div></div>
+<div class="row"><span class="check on"></span><div><div class="gtitle">Blocklist 1 bad release and search again</div><div class="gwhy">Dune: Part Two</div></div></div>
+<div class="row"><span class="check"></span><div><div class="gtitle">Match 1 download by hand</div><div class="gwhy">Needs you: opens Manual Import.</div></div></div>
+</div>
+</div><div class="apply">Apply 3 Fixes</div></div></div><figcaption>Untick anything you want to leave. Items that need a person stay unticked.</figcaption></figure></div>
+<div class="proscons"><div><h3>Good</h3><ul><li>Fewest taps of any option: often one.</li><li>Order is handled for you, so the path fix happens before the retries that depend on it.</li></ul></div><div><h3>Watch out</h3><ul><li>Applying many changes at once needs a clear summary afterwards and a way to see what was done.</li><li>Trusting a plan you didn’t read is how files get deleted by mistake.</li></ul></div></div>
+</section>
+
+<section class="option">
+<div class="option-head"><h2>D · Handle it automatically</h2></div>
+<p>A small settings screen: per cause, choose “handle automatically” or “always ask me”. Safe causes are handled as they appear and logged in Alerts; only what needs a person reaches Issues. Cleanuparr does this server-side already, so if it’s connected, Trawl would point at it instead.</p>
+<div class="phones"><figure><div class="phone"><div class="behind"></div><div class="sheet"><div class="grab"></div><div class="navhead"><span class="back">&lsaquo; Downloads</span><span class="sub">Settings</span></div><div class="bar"><div><div class="ttl">Import Problems</div></div></div>
+<div class="scroll">
+<div class="hdr"><span>Handle automatically</span></div>
+<div class="card">
+<div class="row"><div><div class="gtitle">Already in library</div><div class="gwhy">Remove the download and its files</div></div><span class="toggle on"></span></div>
+<div class="row"><div><div class="gtitle">Bad or fake release</div><div class="gwhy">Blocklist and search again</div></div><span class="toggle on"></span></div>
+<div class="row"><div><div class="gtitle">Stalled over 24 hours</div><div class="gwhy">Blocklist and search again</div></div><span class="toggle"></span></div>
+</div>
+<div class="hdr"><span>Always ask me</span></div>
+<div class="card">
+<div class="row"><div><div class="gtitle">Couldn’t tell what it is</div><div class="gwhy">Needs a title picked</div></div></div>
+<div class="row"><div><div class="gtitle">Path or permission problems</div><div class="gwhy">A setting is wrong</div></div></div>
+</div>
+<div class="sub" style="padding:0 6px">Last 7 days: 9 handled automatically. See them in Alerts.</div>
+</div></div></div><figcaption>Removals and re-searches happen without you, and show up in Alerts afterwards.</figcaption></figure></div>
+<div class="proscons"><div><h3>Good</h3><ul><li>The best answer for the boring causes: you never see them.</li><li>Fits the Alerts log we just built.</li></ul></div><div><h3>Watch out</h3><ul><li>Only runs while Trawl is running, unless it’s a server-side job. On a phone that’s rarely.</li><li>Duplicates Cleanuparr for anyone who has it.</li></ul></div></div>
+</section>
+
+<section class="verdict">
+<h2>Recommendation</h2>
+<p><b>Build A now, with C’s ordering, and add D later as opt-in rules.</b> A is the everyday view and makes the common case a couple of taps. Ordering groups by how much they clear, path first, borrows the best idea from C without a separate “apply everything” step. B’s card fits “Can’t match” items, so the Choose Title button can open that focused flow. D waits until A has shown which causes are common enough to automate.</p>
+</section>
+
+<section>
+<h2>Open questions</h2>
+<div class="grid2">
+<div class="box"><h3>Where does it open from?</h3><p class="note">The bar’s “3 failing” currently opens Downloads on the Issues filter. With A it would open the grouped view directly. On iPad and Mac it would be the Downloads row’s Issues filter.</p></div>
+<div class="box"><h3>Undo for batch actions</h3><p class="note">Remove and Blocklist are destructive. The same four-second Undo as Approve and Decline, held by the manager, seems right.</p></div>
+<div class="box"><h3>Path fixes across servers</h3><p class="note">With two Sonarrs, a path group may belong to one of them. The group should say which and open that server’s mappings.</p></div>
+<div class="box"><h3>Retry after fixing</h3><p class="note">After a path mapping change, should Trawl retry the imports for you, or leave a “Retry 3” button?</p></div>
+</div>
+</section>
+</div>

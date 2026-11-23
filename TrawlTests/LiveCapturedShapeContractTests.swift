@@ -69,6 +69,66 @@ struct LiveCapturedShapeContractTests {
         #expect(arrived == SeerrDateFormatter.date(from: "2026-11-23T09:00:00.000Z"))
     }
 
+    // MARK: - Full-replacement writes keep what Trawl does not model
+
+    private struct EditedSeries: Encodable {
+        var id: Int
+        var monitored: Bool
+        var path: String?
+        var seasons: [EditedSeason]
+    }
+
+    private struct EditedSeason: Encodable {
+        var seasonNumber: Int
+        var monitored: Bool
+    }
+
+    private struct EditedOptions: Encodable {
+        let id: String
+        let libraryOptions: Options
+        struct Options: Encodable {
+            let enableRealtimeMonitor: Bool
+            enum CodingKeys: String, CodingKey { case enableRealtimeMonitor = "EnableRealtimeMonitor" }
+        }
+        enum CodingKeys: String, CodingKey { case id = "Id", libraryOptions = "LibraryOptions" }
+    }
+
+    @Test("An edit keeps server-only fields, takes its own values, and still clears a field set to nil")
+    func mergeKeepsUnmodelledFields() throws {
+        // Sonarr 4.0.20, captured: monitorNewItems reverted to "all" when a series
+        // was PUT with only Trawl's fields.
+        let server = try JSONDecoder().decode(JSONValue.self, from: Data(#"""
+        {"id":7,"monitored":false,"path":"/tv/Old","monitorNewItems":"none",
+         "seasons":[{"seasonNumber":1,"monitored":false,"images":[]}]}
+        """#.utf8))
+        let edit = EditedSeries(id: 7, monitored: true, path: nil, seasons: [.init(seasonNumber: 1, monitored: true)])
+
+        let merged = try JSONValue.mergingServerFields(edit, onto: server).rawValue as? [String: Any]
+
+        #expect(merged?["monitorNewItems"] as? String == "none")
+        #expect(merged?["monitored"] as? Bool == true)
+        #expect(merged?["path"] == nil, "A property Trawl models and set to nil is still left out.")
+        let season = (merged?["seasons"] as? [[String: Any]])?.first
+        #expect(season?["monitored"] as? Bool == true)
+    }
+
+    @Test("Jellyfin's PascalCase keys match their properties, at every level")
+    func mergeMatchesPascalCaseNested() throws {
+        // Jellyfin 10.11, captured: a library's Enabled flag and lyric fetchers were
+        // reset by an options update carrying only Trawl's fields.
+        let server = try JSONDecoder().decode(JSONValue.self, from: Data(#"""
+        {"Id":"lib","LibraryOptions":{"Enabled":false,"EnableRealtimeMonitor":false,"DisabledLyricFetchers":["x"]}}
+        """#.utf8))
+        let edit = EditedOptions(id: "lib", libraryOptions: .init(enableRealtimeMonitor: true))
+
+        let merged = try JSONValue.mergingServerFields(edit, onto: server).rawValue as? [String: Any]
+        let options = merged?["LibraryOptions"] as? [String: Any]
+
+        #expect(options?["EnableRealtimeMonitor"] as? Bool == true)
+        #expect(options?["Enabled"] as? Bool == false)
+        #expect(options?["DisabledLyricFetchers"] as? [String] == ["x"])
+    }
+
     // MARK: - qBittorrent v5 login
 
     /// Verbatim from qBittorrent v5.2.3. Note the cookie **name** carries the

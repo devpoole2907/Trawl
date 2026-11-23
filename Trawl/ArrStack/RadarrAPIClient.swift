@@ -48,7 +48,7 @@ actor RadarrAPIClient: SharedArrClient {
     /// Edit an existing movie (full replacement)
     func updateMovie(_ movie: RadarrMovie, moveFiles: Bool = false) async throws -> RadarrMovie {
         let params = moveFiles ? [URLQueryItem(name: "moveFiles", value: "true")] : []
-        return try await base.putCodable("/api/v3/movie/\(movie.id)", body: movie, queryItems: params)
+        return try await base.putPreservingServerFields("/api/v3/movie/\(movie.id)", body: movie, queryItems: params)
     }
 
     /// Delete a movie

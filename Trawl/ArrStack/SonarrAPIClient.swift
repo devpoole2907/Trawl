@@ -46,7 +46,7 @@ actor SonarrAPIClient: SharedArrClient {
     /// Edit an existing series (full replacement)
     func updateSeries(_ series: SonarrSeries, moveFiles: Bool = false) async throws -> SonarrSeries {
         let params = moveFiles ? [URLQueryItem(name: "moveFiles", value: "true")] : []
-        return try await base.putCodable("/api/v3/series/\(series.id)", body: series, queryItems: params)
+        return try await base.putPreservingServerFields("/api/v3/series/\(series.id)", body: series, queryItems: params)
     }
 
     /// Delete a series

@@ -545,6 +545,9 @@ nonisolated struct ProwlarrApplication: Codable, Identifiable, Sendable {
     var presets: [ProwlarrApplication]?
     var syncLevel: ProwlarrApplicationSyncLevel?
     var testCommand: String?
+    /// Whether the application syncs. The schema's templates carry `true`; leaving it
+    /// out of a create or update let the server default it.
+    var enable: Bool?
 
     init(
         id: Int,
@@ -558,8 +561,10 @@ nonisolated struct ProwlarrApplication: Codable, Identifiable, Sendable {
         tags: [Int]?,
         presets: [ProwlarrApplication]?,
         syncLevel: ProwlarrApplicationSyncLevel?,
-        testCommand: String?
+        testCommand: String?,
+        enable: Bool? = nil
     ) {
+        self.enable = enable
         self.id = id
         self.name = name
         self.fields = fields
@@ -588,11 +593,13 @@ nonisolated struct ProwlarrApplication: Codable, Identifiable, Sendable {
         presets = try container.decodeIfPresent([ProwlarrApplication].self, forKey: .presets)
         syncLevel = try container.decodeIfPresent(ProwlarrApplicationSyncLevel.self, forKey: .syncLevel)
         testCommand = try container.decodeIfPresent(String.self, forKey: .testCommand)
+        enable = try container.decodeIfPresent(Bool.self, forKey: .enable)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case name
+        case enable
         case fields
         case implementationName
         case implementation

@@ -336,8 +336,14 @@ struct ArrWebhookNotificationManagerTests {
 
             #expect(server.requests(method: "POST", path: "/api/v3/notification").isEmpty)
             let request = try #require(server.requests(method: "PUT", path: "/api/v3/notification/99").only)
+            #expect(
+                request.jsonObject()?["onManualInteractionRequired"] as? Bool == true,
+                "A field Trawl does not model survives the update instead of resetting."
+            )
             #expect(request.apiKey == "webhook-test-key")
-            let body = try notificationDictionary(from: request)
+            let merged = try notificationDictionary(from: request).mutableCopy() as! NSMutableDictionary
+            merged.removeObject(forKey: "onManualInteractionRequired")
+            let body = merged as NSDictionary
             #expect(body == expectedNotificationDictionary(
                 id: 99,
                 name: "Trawl (\(profileName))",
@@ -491,6 +497,11 @@ struct ArrWebhookNotificationManagerTests {
                 .json(listResponse)
             case ("POST", "/api/v3/notification"):
                 .json(request.body, status: 201)
+            case ("GET", let path) where path.hasPrefix("/api/v3/notification/"):
+                // The server's own copy, read before an update. It carries a Sonarr 4
+                // event flag Trawl does not model, which the update must keep.
+                Self.serverCopy(of: path, in: listResponse).map { .json($0) }
+                    ?? ArrWebhookNotificationFixtureServer.unexpected(request)
             case ("PUT", let path) where path.hasPrefix("/api/v3/notification/"):
                 .json(request.body)
             case ("POST", "/api/v3/notification/test"):
@@ -500,6 +511,17 @@ struct ArrWebhookNotificationManagerTests {
             }
             return ArrWebhookNotificationFixtureServer.connectedServiceResponse(for: request, otherwise: response)
         }
+    }
+
+    nonisolated private static func serverCopy(of path: String, in listResponse: String) -> String? {
+        guard let id = Int(path.split(separator: "/").last ?? "") else { return nil }
+        let list = (try? JSONSerialization.jsonObject(with: Data(listResponse.utf8)) as? [[String: Any]]) ?? []
+        // A draft saved straight to its id has no list entry; the server still has
+        // a copy, reduced here to its id and the field under test.
+        var entry = list.first(where: { $0["id"] as? Int == id }) ?? ["id": id]
+        // Only on 99, so the other updates' exact-wire comparisons stay exact.
+        if id == 99 { entry["onManualInteractionRequired"] = true }
+        return (try? JSONSerialization.data(withJSONObject: entry)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
     // MARK: - Remote JSON fixtures and exact-wire expectations

@@ -543,7 +543,9 @@ struct RadarrAPIClientContractTests {
 
     @Test("Editing a movie PUTs the full record and only sends moveFiles when it is requested")
     func updateMovieSendsMoveFilesOnlyWhenRequested() async throws {
-        let stored = #"{"id":12,"title":"Dune","year":2021,"monitored":true,"qualityProfileId":4}"#
+        // `zzServerOnly` stands for fields Trawl does not
+        // model: a full-replacement PUT must carry them back, not reset them.
+        let stored = #"{"id":12,"title":"Dune","year":2021,"monitored":true,"qualityProfileId":4,"zzServerOnly":{"keep":true}}"#
         let server = try await ArrContractTestServer.routed(
             label: "radarr-update",
             routes: ["/api/v3/movie/12": .json(stored)]
@@ -558,7 +560,9 @@ struct RadarrAPIClientContractTests {
         #expect(moved.id == 12)
         #expect(inPlace.id == 12)
 
-        let requests = server.requests
+        // Each update reads the server's copy first, then writes over it.
+        #expect(server.requests.map(\.method) == ["GET", "PUT", "GET", "PUT"])
+        let requests = server.requests.filter { $0.method == "PUT" }
         #expect(requests.count == 2)
         let movedRequest = try #require(requests.first)
         #expect(movedRequest.method == "PUT")
@@ -570,6 +574,7 @@ struct RadarrAPIClientContractTests {
         #expect(sentBody["title"] as? String == "Dune")
         #expect(sentBody["qualityProfileId"] as? Int == 4)
         #expect(sentBody["year"] as? Int == 2021)
+        #expect((sentBody["zzServerOnly"] as? [String: Any])?["keep"] as? Bool == true)
 
         let inPlaceRequest = try #require(requests.last)
         #expect(inPlaceRequest.method == "PUT")

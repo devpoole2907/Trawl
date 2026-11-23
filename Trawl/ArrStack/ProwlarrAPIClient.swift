@@ -73,7 +73,7 @@ actor ProwlarrAPIClient: SharedArrClient {
     }
 
     func updateApplication(_ application: ProwlarrApplication) async throws -> ProwlarrApplication {
-        try await base.putCodable("/api/v1/applications/\(application.id)", body: application)
+        try await base.putPreservingServerFields("/api/v1/applications/\(application.id)", body: application)
     }
 
     func deleteApplication(id: Int) async throws {
@@ -99,7 +99,7 @@ actor ProwlarrAPIClient: SharedArrClient {
     }
 
     func updateIndexerProxy(_ proxy: ProwlarrIndexerProxy) async throws -> ProwlarrIndexerProxy {
-        try await base.putCodable("/api/v1/indexerProxy/\(proxy.id)", body: proxy)
+        try await base.putPreservingServerFields("/api/v1/indexerProxy/\(proxy.id)", body: proxy)
     }
 
     func deleteIndexerProxy(id: Int) async throws {

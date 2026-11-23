@@ -95,12 +95,29 @@ actor JellyfinAPIClient {
         try await get("/Users/\(id)")
     }
 
+    // Jellyfin replaces the whole policy, configuration or library options on these
+    // POSTs, so each is sent laid over the server's current copy
+    // (`JSONValue.mergingServerFields`): checked against a live server, the bare
+    // model reset `PlayDefaultAudioTrack`, cleared `GroupedFolders` and the
+    // exclusion lists, and re-enabled a disabled library.
+
     func updateUserPolicy(id: String, policy: JellyfinUserPolicy) async throws {
-        try await postVoid("/Users/\(id)/Policy", body: policy)
+        let current = try await currentUserSection(id: id, key: "Policy")
+        try await postVoid("/Users/\(id)/Policy", body: try JSONValue.mergingServerFields(policy, onto: current))
     }
 
     func updateUserConfiguration(id: String, configuration: JellyfinUserConfiguration) async throws {
-        try await postVoid("/Users/\(id)/Configuration", body: configuration)
+        let current = try await currentUserSection(id: id, key: "Configuration")
+        try await postVoid(
+            "/Users/\(id)/Configuration",
+            body: try JSONValue.mergingServerFields(configuration, onto: current)
+        )
+    }
+
+    private func currentUserSection(id: String, key: String) async throws -> JSONValue {
+        let user: JSONValue = try await get("/Users/\(id)")
+        guard case .object(let fields) = user, let section = fields[key] else { return .object([:]) }
+        return section
     }
 
     func updateUserPassword(
@@ -152,7 +169,20 @@ actor JellyfinAPIClient {
     /// so callers should mutate a freshly-fetched `JellyfinLibraryOptions`.
     func updateLibraryOptions(id: String, options: JellyfinLibraryOptions) async throws {
         let body = JellyfinUpdateLibraryOptionsBody(id: id, libraryOptions: options)
-        try await postVoid("/Library/VirtualFolders/LibraryOptions", body: body)
+        let folders: JSONValue = try await get("/Library/VirtualFolders")
+        var currentOptions = JSONValue.object([:])
+        if case .array(let list) = folders {
+            for case .object(let folder) in list {
+                if case .string(id) = folder["ItemId"], let options = folder["LibraryOptions"] {
+                    currentOptions = options
+                }
+            }
+        }
+        let current = JSONValue.object(["Id": .string(id), "LibraryOptions": currentOptions])
+        try await postVoid(
+            "/Library/VirtualFolders/LibraryOptions",
+            body: try JSONValue.mergingServerFields(body, onto: current)
+        )
     }
 
     func getLibraryItems(
