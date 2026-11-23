@@ -379,9 +379,10 @@ struct SABnzbdAPIClientContractTests {
                 item("value", "nzo_a"),
                 item("value2", "-1")
             ]),
+            // `change_cat` is a mode of its own on SABnzbd 5.1; as a queue name it
+            // is ignored.
             signature(query: common() + [
-                item("mode", "queue"),
-                item("name", "change_cat"),
+                item("mode", "change_cat"),
                 item("value", "nzo_a"),
                 item("value2", "tv")
             ]),

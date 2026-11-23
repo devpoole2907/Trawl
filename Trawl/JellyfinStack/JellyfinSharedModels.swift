@@ -187,6 +187,8 @@ nonisolated struct JellyfinDeviceInfo: Decodable, Identifiable, Sendable {
 // MaxParentalRating; nil Score means the rating has no numeric rank (e.g. "Unrated").
 nonisolated struct JellyfinParentalRating: Decodable, Identifiable, Sendable {
     let name: String?
+    /// The rating's numeric level, which `MaxParentalRating` is compared against.
+    /// Jellyfin sends it as `Value`; "Unrated" has none.
     let score: Int?
 
     var id: String { name ?? "" }
@@ -194,7 +196,7 @@ nonisolated struct JellyfinParentalRating: Decodable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case name = "Name"
-        case score = "Score"
+        case score = "Value"
     }
 }
 
@@ -469,11 +471,23 @@ nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {
     let name: String
     let locations: [String]
     let collectionType: String?
+    /// Missing on a library added without a refresh until its first scan, so the
+    /// name stands in: a missing id used to fail the whole list's decode.
     let itemId: String
     let refreshStatus: String?
     let libraryOptions: JellyfinLibraryOptions?
 
     var id: String { itemId }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        locations = try container.decodeIfPresent([String].self, forKey: .locations) ?? []
+        collectionType = try container.decodeIfPresent(String.self, forKey: .collectionType)
+        itemId = try container.decodeIfPresent(String.self, forKey: .itemId) ?? "name:\(name)"
+        refreshStatus = try container.decodeIfPresent(String.self, forKey: .refreshStatus)
+        libraryOptions = try container.decodeIfPresent(JellyfinLibraryOptions.self, forKey: .libraryOptions)
+    }
 
     var collectionIcon: String {
         switch collectionType {
@@ -553,17 +567,26 @@ nonisolated struct JellyfinFileSystemEntryInfo: Decodable, Identifiable, Sendabl
     }
 }
 
+/// `POST /Library/VirtualFolders` body: only the library options. Everything that
+/// names the library goes in the query - see `queryItems`.
 nonisolated struct JellyfinVirtualFolderBody: Encodable, Sendable {
-    let name: String
-    let collectionType: String
-    let paths: [String]
-    let refreshLibrary: Bool
+    let libraryOptions: [String: String] = [:]
 
     enum CodingKeys: String, CodingKey {
-        case name = "Name"
-        case collectionType = "CollectionType"
-        case paths = "Paths"
-        case refreshLibrary = "RefreshLibrary"
+        case libraryOptions = "LibraryOptions"
+    }
+
+    static func queryItems(
+        name: String,
+        collectionType: String,
+        paths: [String],
+        refreshLibrary: Bool
+    ) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "collectionType", value: collectionType),
+            URLQueryItem(name: "refreshLibrary", value: String(refreshLibrary))
+        ] + paths.map { URLQueryItem(name: "paths", value: $0) }
     }
 }
 

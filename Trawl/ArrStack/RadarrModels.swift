@@ -429,9 +429,15 @@ struct RadarrMediaInfo: Codable, Sendable {
 // MARK: - Collection
 
 struct RadarrCollection: Codable, Sendable {
+    /// Radarr sends the collection's name as `title`.
     let name: String?
     let tmdbId: Int?
     let images: [ArrImage]?
+
+    enum CodingKeys: String, CodingKey {
+        case name = "title"
+        case tmdbId, images
+    }
 }
 
 // MARK: - Add Movie Body
@@ -459,7 +465,9 @@ enum RadarrCommand: String, Sendable {
     case refreshMovie = "RefreshMovie"
     case rescanMovie = "RescanMovie"
     case moviesSearch = "MoviesSearch"
-    case renameFiles = "RenameFiles"
+    /// `RenameMovie`, not `RenameFiles`: Radarr 7 runs `RenameFiles` against movie
+    /// id 0 (it ignores `movieIds`) and fails with "Movie with ID 0 does not exist".
+    case renameFiles = "RenameMovie"
     case missingMoviesSearch = "MissingMoviesSearch"
     case rssSync = "RssSync"
     case backup = "Backup"

@@ -504,7 +504,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         let seasonNumbers = series
             .first(where: { $0.id == seriesId })?
             .seasons?
-            .filter { ($0.statistics?.episodeCount ?? 0) > 0 }
+            // Every season with episodes, monitored or not. Sonarr's `episodeCount`
+            // counts only monitored ones, so filtering on it skipped unmonitored
+            // seasons - and on an all-unmonitored series found nothing to search.
+            .filter { ($0.statistics?.totalEpisodeCount ?? $0.statistics?.episodeCount ?? 0) > 0 }
             .map(\.seasonNumber)
             .sorted() ?? []
 

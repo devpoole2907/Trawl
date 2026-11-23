@@ -186,7 +186,8 @@ final class SyncService {
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    let data = try await self.apiClient.syncMainData(rid: self.rid)
+                    let requestedRID = self.rid
+                    let data = try await self.apiClient.syncMainData(rid: requestedRID)
                     guard !Task.isCancelled, generation == self.pollingGeneration else { break }
                     // Recorded before the staleness check, not after: a response
                     // that arrives out of order is still proof the server is
@@ -195,7 +196,7 @@ final class SyncService {
                     // An out-of-order response is dropped rather than applied, but
                     // it used to `continue` straight past the sleep below, so a
                     // server stuck behind our rid was polled in a tight loop.
-                    if data.rid >= self.rid {
+                    if Self.shouldApply(data, requestedRID: requestedRID, currentRID: self.rid) {
                         self.applyDelta(data)
                         self.rid = data.rid
                     }
@@ -229,9 +230,10 @@ final class SyncService {
             if !hasRefreshedOnce { hasRefreshedOnce = true }
         }
         do {
-            let data = try await apiClient.syncMainData(rid: rid)
+            let requestedRID = rid
+            let data = try await apiClient.syncMainData(rid: requestedRID)
             backoff.recordSuccess()
-            guard data.rid >= rid else { return }
+            guard Self.shouldApply(data, requestedRID: requestedRID, currentRID: rid) else { return }
             applyDelta(data)
             rid = data.rid
             lastError = nil
@@ -239,6 +241,20 @@ final class SyncService {
             lastError = error as? QBError ?? .networkError(error.localizedDescription)
             backoff.recordFailure()
         }
+    }
+
+    /// Whether a sync response should replace what we hold.
+    ///
+    /// A response older than our rid arrived out of order and is dropped - unless it
+    /// is a full update answering the rid we still hold. qBittorrent's rid restarts
+    /// with the server, so after a restart it answers our high rid with
+    /// `full_update` and a lower rid (measured on qBittorrent 5.3: `rid=9999` came
+    /// back as a full update at rid 8). Dropping that kept the old torrent list until
+    /// the new rid caught up. A lower-rid full update to a request we have since
+    /// moved past is just late, and stays dropped.
+    nonisolated static func shouldApply(_ data: SyncMainData, requestedRID: Int, currentRID: Int) -> Bool {
+        if data.rid >= currentRID { return true }
+        return data.fullUpdate == true && requestedRID == currentRID
     }
 
     // MARK: - Delta Application
@@ -288,8 +304,10 @@ final class SyncService {
         }
 
         // --- Categories ---
-        if isFullUpdate, let newCategories = data.categories {
-            categories = newCategories
+        // A full update omits `categories` and `tags` when there are none (seen on
+        // qBittorrent 5.3), so on a full update absence means empty, not unchanged.
+        if isFullUpdate {
+            categories = data.categories ?? [:]
         } else if let updatedCategories = data.categories {
             for (name, cat) in updatedCategories {
                 categories[name] = cat
@@ -303,14 +321,11 @@ final class SyncService {
         }
 
         // --- Tags ---
-        if let newTags = data.tags {
-            if isFullUpdate {
-                tags = newTags
-            } else {
-                let existing = Set(tags)
-                let additions = newTags.filter { !existing.contains($0) }
-                tags.append(contentsOf: additions)
-            }
+        if isFullUpdate {
+            tags = data.tags ?? []
+        } else if let newTags = data.tags {
+            let existing = Set(tags)
+            tags.append(contentsOf: newTags.filter { !existing.contains($0) })
         }
 
         if let removedTags = data.tagsRemoved {

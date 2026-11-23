@@ -14,10 +14,20 @@ actor CleanuparrAPIClient {
                 return CleanuparrAPIError.transport(URLError(.unknown))
             },
             unauthorized: { CleanuparrAPIError.unauthorized },
-            http: { status, body in CleanuparrAPIError.http(status: status, body: body) },
+            // 403 is either a refused key or, on a server that hasn't finished its own
+            // setup, `{"error":"Setup required"}` for every /api path whatever the
+            // key - which is not the user's key to fix.
+            http: { status, body in
+                if status == 403 {
+                    return CleanuparrAPIError.isSetupRequired(body)
+                        ? CleanuparrAPIError.setupRequired
+                        : CleanuparrAPIError.unauthorized
+                }
+                return CleanuparrAPIError.http(status: status, body: body)
+            },
             decode: { error in CleanuparrAPIError.decode(reason: String(describing: error)) },
             invalidResponse: { CleanuparrAPIError.invalidResponse },
-            unauthorizedStatusCodes: [401, 403]
+            unauthorizedStatusCodes: [401]
         )
 
         transport = HTTPTransport(

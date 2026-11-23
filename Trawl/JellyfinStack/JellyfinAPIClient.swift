@@ -276,8 +276,10 @@ actor JellyfinAPIClient {
         return response.items
     }
 
+    /// Under `/Localization`; `/Library/ParentalRatings` is a 404 on Jellyfin 10.11
+    /// (server 12.4), and the editor fell back to a bare number field.
     func getParentalRatings() async throws -> [JellyfinParentalRating] {
-        try await get("/Library/ParentalRatings")
+        try await get("/Localization/ParentalRatings")
     }
 
     func refreshAllLibraries() async throws {
@@ -325,8 +327,10 @@ actor JellyfinAPIClient {
         try await get("/Environment/ParentPath", params: ["Path": path])
     }
 
-    func validatePath(path: String) async throws -> Bool {
-        try await get("/Environment/ValidatePath", params: ["Path": path])
+    /// Succeeds when the server can see `path`. A POST with a body answered 204 -
+    /// the GET this used to send is a 405.
+    func validatePath(path: String) async throws {
+        try await postVoid("/Environment/ValidatePath", body: ["Path": path])
     }
 
     nonisolated static func directoryContentsParams(
@@ -349,13 +353,21 @@ actor JellyfinAPIClient {
         paths: [String],
         refreshLibrary: Bool = true
     ) async throws {
-        let body = JellyfinVirtualFolderBody(
+        // Name, type and paths are query parameters, one `paths` per folder; the body
+        // carries only `LibraryOptions`. A JSON body with them in it is rejected 400
+        // "The name field is required." (checked against the server).
+        let queryItems = JellyfinVirtualFolderBody.queryItems(
             name: name,
             collectionType: collectionType,
             paths: paths,
             refreshLibrary: refreshLibrary
         )
-        try await postVoid("/Library/VirtualFolders", body: body)
+        try await transport.postVoidCodable(
+            "/Library/VirtualFolders",
+            body: JellyfinVirtualFolderBody(),
+            queryItems: queryItems,
+            timeoutInterval: nil
+        )
     }
 
     func removeVirtualFolder(name: String, refreshLibrary: Bool = true) async throws {

@@ -33,8 +33,9 @@ actor RadarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/movie/lookup/tmdb", queryItems: params)
     }
 
-    /// Search by IMDb ID
-    func lookupMovieByImdb(imdbId: String) async throws -> [RadarrMovie] {
+    /// Search by IMDb ID. One object, like the TMDb lookup - Radarr 7 does not wrap
+    /// it in an array.
+    func lookupMovieByImdb(imdbId: String) async throws -> RadarrMovie {
         let params = [URLQueryItem(name: "imdbId", value: imdbId)]
         return try await base.get("/api/v3/movie/lookup/imdb", queryItems: params)
     }
@@ -133,7 +134,9 @@ actor RadarrAPIClient: SharedArrClient {
 
     func refreshMovie(movieId: Int? = nil) async throws -> ArrCommand {
         var params: [String: Any] = ["name": RadarrCommand.refreshMovie.rawValue]
-        if let movieId { params["movieId"] = movieId }
+        // Plural: Radarr 7 ignores a singular `movieId` here and refreshes every
+        // movie (it reads back `"movieIds":[]`).
+        if let movieId { params["movieIds"] = [movieId] }
         return try await base.post("/api/v3/command", jsonBody: params)
     }
 

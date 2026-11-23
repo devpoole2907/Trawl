@@ -52,8 +52,8 @@ struct DownloadsBatchSelectionTests {
           "added_on": 0,
           "completion_on": 0,
           "save_path": "/downloads",
-          "dl_session": 0,
-          "up_session": 0,
+          "downloaded_session": 0,
+          "uploaded_session": 0,
           "amount_left": 500,
           "total_size": 1000,
           "seq_dl": false,
@@ -653,7 +653,7 @@ struct DownloadsSectionClassificationTests {
           "dlspeed": 0, "upspeed": 0, "priority": 1, "num_seeds": 2, "num_leechs": 1,
           "ratio": 0.5, "eta": 600, "state": "\(state)", "category": "", "tags": "",
           "added_on": 0, "completion_on": 0, "save_path": "/downloads",
-          "dl_session": 0, "up_session": 0, "amount_left": 500, "total_size": 1000,
+          "downloaded_session": 0, "uploaded_session": 0, "amount_left": 500, "total_size": 1000,
           "seq_dl": false, "f_l_piece_prio": false
         }
         """

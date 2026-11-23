@@ -101,7 +101,7 @@ struct SABnzbdSettingsView: View {
                     // otherwise a change made in SABnzbd's own UI leaves it stale.
                     .onChange(of: serviceManager.queue?.speedLimit) { _, serverValue in
                         guard let serverValue, didLoadSpeedLimit, !isUpdatingSpeedLimit else { return }
-                        speedLimitPercent = serverValue
+                        speedLimitPercent = Self.pickerPercent(serverValue)
                     }
                 } header: {
                     Text("Speed Limit")
@@ -189,7 +189,7 @@ struct SABnzbdSettingsView: View {
         }
         .task(id: serviceManager.isConnected) {
             guard serviceManager.isConnected else { return }
-            speedLimitPercent = serviceManager.queue?.speedLimit ?? 0
+            speedLimitPercent = Self.pickerPercent(serviceManager.queue?.speedLimit ?? 0)
             // Defer setting didLoadSpeedLimit to avoid triggering onChange handlers.
             await Task.yield()
             didLoadSpeedLimit = true
@@ -224,8 +224,15 @@ struct SABnzbdSettingsView: View {
         return "\(base) Currently about \(ByteFormatter.format(bytes: Int64(absolute * 1024)))/s."
     }
 
+    /// SABnzbd reports no cap as `0` on a fresh server but as `100` once a limit has
+    /// been cleared (seen on 5.1.3: setting 0 reads back as "100"). Both mean
+    /// Unlimited, so the picker shows one option for them, not two.
+    nonisolated static func pickerPercent(_ serverPercent: Int) -> Int {
+        serverPercent >= 100 ? 0 : serverPercent
+    }
+
     private func speedLimitOptions(including current: Int) -> [Int] {
-        var options = [0, 25, 50, 75, 100]
+        var options = [0, 25, 50, 75]
         if !options.contains(current) {
             options.append(current)
             options.sort()
@@ -246,7 +253,7 @@ struct SABnzbdSettingsView: View {
             try await serviceManager.setSpeedLimit(String(percent))
             settingsErrorAlert = nil
         } catch {
-            speedLimitPercent = serviceManager.queue?.speedLimit ?? speedLimitPercent
+            speedLimitPercent = (serviceManager.queue?.speedLimit).map(Self.pickerPercent) ?? speedLimitPercent
             settingsErrorAlert = ErrorAlertItem(
                 title: "Couldn't Set Speed Limit",
                 message: error.localizedDescription

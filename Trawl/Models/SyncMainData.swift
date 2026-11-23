@@ -71,8 +71,8 @@ struct SyncTorrentData: Codable, Sendable {
         case addedOn = "added_on"
         case completionOn = "completion_on"
         case savePath = "save_path"
-        case downloadedSession = "dl_session"
-        case uploadedSession = "up_session"
+        case downloadedSession = "downloaded_session"
+        case uploadedSession = "uploaded_session"
         case amountLeft = "amount_left"
         case totalSize = "total_size"
         case comment

@@ -317,7 +317,16 @@ actor SABnzbdAPIClient {
     }
 
     func setCategory(id: String, category: String) async throws {
-        try await performQueueCommand(name: "change_cat", id: id, value2: category)
+        // A mode of its own, not a `mode=queue` name: SABnzbd 5.1 answers
+        // `mode=queue&name=change_cat` with the whole queue and changes nothing,
+        // which decoded as a success. `mode=change_cat` returns `{"status":true}`.
+        try await performCommand(
+            mode: "change_cat",
+            extra: [
+                URLQueryItem(name: "value", value: try validatedID(id)),
+                URLQueryItem(name: "value2", value: category)
+            ]
+        )
     }
 
     /// Moves a queued job to `position` (0-based) within the queue.

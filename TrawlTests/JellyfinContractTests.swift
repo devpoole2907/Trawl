@@ -263,6 +263,51 @@ struct JellyfinContractTests {
         #expect(pathInfo["Path"] as? String == "/mnt/media/movies")
     }
 
+    @Test("Adding a library sends name, type and every path in the query, and only LibraryOptions in the body")
+    func addVirtualFolderUsesQueryParameters() async throws {
+        // Checked against a live server: the same fields in a JSON body are refused
+        // 400 "The name field is required."
+        let server = try await JellyfinContractServer(label: "add-folder") { _ in
+            JellyfinCannedResponse(status: 204, body: Data(), contentType: "application/json")
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+
+        try await client.addVirtualFolder(name: "4K Movies", collectionType: "movies", paths: ["/a", "/b"])
+
+        let request = try #require(server.requests.first)
+        #expect(request.method == "POST")
+        #expect(request.path == "/Library/VirtualFolders")
+        #expect(Set(request.sortedQueryItems) == [
+            URLQueryItem(name: "collectionType", value: "movies"),
+            URLQueryItem(name: "name", value: "4K Movies"),
+            URLQueryItem(name: "paths", value: "/a"),
+            URLQueryItem(name: "paths", value: "/b"),
+            URLQueryItem(name: "refreshLibrary", value: "true")
+        ])
+        #expect(request.sortedQueryItems.count == 5)
+        let body = try #require(request.jsonDictionary())
+        #expect(Array(body.keys) == ["LibraryOptions"])
+    }
+
+    @Test("Parental ratings come from /Localization and carry their level as Value")
+    func parentalRatingsPathAndValue() async throws {
+        let server = try await JellyfinContractServer(label: "ratings") { _ in
+            JellyfinCannedResponse(
+                status: 200,
+                body: Data(#"[{"Name":"Unrated"},{"Name":"PG-13","Value":13,"RatingScore":{"score":13,"subScore":0}}]"#.utf8),
+                contentType: "application/json"
+            )
+        }
+        defer { server.stop() }
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+
+        let ratings = try await client.getParentalRatings()
+
+        #expect(server.requests.first?.path == "/Localization/ParentalRatings")
+        #expect(ratings.map(\.score) == [nil, 13])
+    }
+
     @Test("Removing a virtual folder sends a DELETE with the library name percent-encoded in the query")
     func removeVirtualFolderSendsDelete() async throws {
         let server = try await JellyfinContractServer(label: "remove-folder") { _ in

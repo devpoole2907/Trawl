@@ -4,6 +4,8 @@ enum CleanuparrAPIError: Error, LocalizedError, Sendable {
     case badURL
     case transport(URLError)
     case unauthorized
+    /// Cleanuparr is reachable but its own first-run setup isn't finished.
+    case setupRequired
     case http(status: Int, body: String?)
     case decode(reason: String)
     case invalidResponse
@@ -16,6 +18,8 @@ enum CleanuparrAPIError: Error, LocalizedError, Sendable {
             "Couldn't reach Cleanuparr: \(error.localizedDescription)"
         case .unauthorized:
             "The Cleanuparr API key is missing or no longer valid."
+        case .setupRequired:
+            "Cleanuparr hasn't finished setting up. Complete setup in Cleanuparr's web interface, then try again."
         case .http(let status, let body):
             if let message = Self.message(from: body), !message.isEmpty {
                 "Cleanuparr returned \(status): \(message)"
@@ -27,6 +31,10 @@ enum CleanuparrAPIError: Error, LocalizedError, Sendable {
         case .invalidResponse:
             "Cleanuparr returned an unexpected response."
         }
+    }
+
+    static func isSetupRequired(_ body: String?) -> Bool {
+        message(from: body)?.localizedCaseInsensitiveContains("setup required") == true
     }
 
     private static func message(from body: String?) -> String? {

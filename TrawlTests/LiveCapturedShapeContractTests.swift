@@ -18,6 +18,57 @@ import Testing
 @Suite("Captured live response shapes", .serialized)
 struct LiveCapturedShapeContractTests {
 
+    // MARK: - 23 November 2026: qBittorrent 5.3, SABnzbd 5.1.3, Seerr 3.5.2, Cleanuparr
+
+    @Test("qBittorrent 5.3: a restarted server's lower-rid full update replaces state; a late one does not")
+    func qbFullUpdateAfterRestart() throws {
+        // Captured: GET sync/maindata?rid=9999 after a reset answered rid 8.
+        let full = try JSONDecoder().decode(SyncMainData.self, from: Data(#"{"rid":8,"full_update":true}"#.utf8))
+        let staleDelta = try JSONDecoder().decode(SyncMainData.self, from: Data(#"{"rid":8}"#.utf8))
+        #expect(SyncService.shouldApply(full, requestedRID: 9_999, currentRID: 9_999))
+        #expect(!SyncService.shouldApply(staleDelta, requestedRID: 9_999, currentRID: 9_999))
+        // Sent at rid 10, but a newer response moved us to 20 before it landed.
+        #expect(!SyncService.shouldApply(full, requestedRID: 10, currentRID: 20))
+    }
+
+    @Test("qBittorrent 5.3 names the session counters downloaded_session and uploaded_session")
+    @MainActor
+    func qbSessionCounterKeys() throws {
+        let json = #"{"rid":3,"torrents":{"abc":{"downloaded_session":512,"uploaded_session":64}}}"#
+        let data = try JSONDecoder().decode(SyncMainData.self, from: Data(json.utf8))
+        #expect(data.torrents?["abc"]?.downloadedSession == 512)
+        #expect(data.torrents?["abc"]?.uploadedSession == 64)
+    }
+
+    @Test("SABnzbd 5.1.3 reads back a cleared speed limit as 100, which is Unlimited")
+    func sabClearedSpeedLimitIsUnlimited() {
+        #expect(SABnzbdSettingsView.pickerPercent(100) == 0)
+        #expect(SABnzbdSettingsView.pickerPercent(0) == 0)
+        #expect(SABnzbdSettingsView.pickerPercent(50) == 50)
+    }
+
+    @Test("Cleanuparr before its own setup answers every /api path 403 Setup required")
+    func cleanuparrSetupRequiredIsNotABadKey() {
+        #expect(CleanuparrAPIError.isSetupRequired(#"{"error":"Setup required"}"#))
+        #expect(!CleanuparrAPIError.isSetupRequired(#"{"error":"Unauthorized"}"#))
+        #expect(!CleanuparrAPIError.isSetupRequired(nil))
+    }
+
+    @Test("Seerr 3.5.2 stamps mediaAddedAt at request time, so arrival is the later media date")
+    func seerrArrivalIsTheLaterMediaDate() throws {
+        // Captured shape: mediaAddedAt equal to the request's createdAt while the
+        // media was still processing; updatedAt moves when it becomes available.
+        let json = #"""
+        {"id":9,"status":2,"createdAt":"2026-11-20T03:57:49.000Z","updatedAt":"2026-11-20T03:57:49.000Z",
+         "media":{"id":9,"tmdbId":157336,"mediaType":"movie","status":5,
+                  "mediaAddedAt":"2026-11-20T03:57:49.000Z","updatedAt":"2026-11-23T09:00:00.000Z",
+                  "downloadStatus":[],"downloadStatus4k":[]}}
+        """#
+        let request = try JSONDecoder().decode(SeerrMediaRequest.self, from: Data(json.utf8))
+        let arrived = try #require(SeerrServiceManager.availableDate(of: request))
+        #expect(arrived == SeerrDateFormatter.date(from: "2026-11-23T09:00:00.000Z"))
+    }
+
     // MARK: - qBittorrent v5 login
 
     /// Verbatim from qBittorrent v5.2.3. Note the cookie **name** carries the
