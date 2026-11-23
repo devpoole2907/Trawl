@@ -396,6 +396,108 @@ final class DownloadsViewModel {
         return nil
     }
 
+    // MARK: - Fixing issues by cause
+
+    /// A group fix the user asked for, waiting out `issueFixUndoWindow`. Held here,
+    /// not in the view, so it survives the Downloads screen being rebuilt.
+    private(set) var scheduledIssueFix: ScheduledImportIssueFix?
+    /// Causes whose fix is being sent right now.
+    private(set) var workingIssueCauses: Set<ImportIssueCause> = []
+    @ObservationIgnored private var issueFixTask: Task<Void, Never>?
+    @ObservationIgnored var issueFixUndoWindow: Duration = .seconds(4)
+
+    /// Applies a cause's fix to every *arr queue row in the group. A destructive fix
+    /// waits for Undo first; "Check Again" goes straight out.
+    ///
+    /// `onFinish` gets how many rows were fixed and the first error, if any.
+    @discardableResult
+    func applyFix(
+        to group: ImportIssueGroup,
+        serviceManager: ArrServiceManager,
+        onFinish: @escaping @MainActor (_ fixed: Int, _ firstError: String?) -> Void
+    ) -> Task<Void, Never>? {
+        let targets = group.fixableQueueItems
+        guard !targets.isEmpty, scheduledIssueFix == nil, !workingIssueCauses.contains(group.cause) else { return nil }
+        let cause = group.cause
+
+        if cause.fix == .checkAgain {
+            workingIssueCauses.insert(cause)
+            return Task { [weak self] in
+                guard let self else { return }
+                let error = await self.checkImportsAgain(targets.map { ($0.source, $0.instance) }, serviceManager: serviceManager)
+                self.workingIssueCauses.remove(cause)
+                onFinish(error == nil ? targets.count : 0, error)
+            }
+        }
+
+        guard cause.fix.isDestructive else { return nil }
+        scheduledIssueFix = ScheduledImportIssueFix(cause: cause, count: targets.count)
+        let window = issueFixUndoWindow
+        let task = Task { [weak self] in
+            try? await Task.sleep(for: window)
+            guard let self, !Task.isCancelled, self.scheduledIssueFix?.cause == cause else { return }
+            self.scheduledIssueFix = nil
+            self.workingIssueCauses.insert(cause)
+            var fixed = 0
+            var firstError: String?
+            for target in targets {
+                let search = cause.fix == .blocklistAndSearch
+                    && DownloadsViewModel.canSearchAgain(target.item, source: target.source)
+                let error = await self.removeQueueItem(
+                    target.item,
+                    source: target.source,
+                    instance: target.instance,
+                    blocklist: cause.fix == .blocklistAndSearch,
+                    searchAgain: search,
+                    serviceManager: serviceManager
+                )
+                if let error { firstError = firstError ?? error } else { fixed += 1 }
+            }
+            self.workingIssueCauses.remove(cause)
+            onFinish(fixed, firstError)
+        }
+        issueFixTask = task
+        return task
+    }
+
+    func undoIssueFix() {
+        issueFixTask?.cancel()
+        issueFixTask = nil
+        scheduledIssueFix = nil
+    }
+
+    /// Asks each server holding these rows to look at its finished downloads again
+    /// (`RefreshMonitoredDownloads`), which retries their imports - what fixing a
+    /// path mapping or permission needs to take effect.
+    private func checkImportsAgain(
+        _ targets: [(source: ArrServiceType, instance: ArrInstanceRef?)],
+        serviceManager: ArrServiceManager
+    ) async -> String? {
+        var seen = Set<String>()
+        do {
+            for target in targets {
+                let key = target.instance?.id.uuidString ?? target.source.rawValue
+                guard seen.insert(key).inserted else { continue }
+                switch target.source {
+                case .sonarr:
+                    guard let client = target.instance.flatMap({ serviceManager.sonarrClient(for: $0.id) })
+                            ?? serviceManager.sonarrClient else { continue }
+                    _ = try await client.postCommand(name: "RefreshMonitoredDownloads")
+                case .radarr:
+                    guard let client = target.instance.flatMap({ serviceManager.radarrClient(for: $0.id) })
+                            ?? serviceManager.radarrClient else { continue }
+                    _ = try await client.postCommand(name: "RefreshMonitoredDownloads")
+                default:
+                    continue
+                }
+            }
+        } catch {
+            return error.localizedDescription
+        }
+        await refresh(serviceManager: serviceManager)
+        return nil
+    }
+
     // MARK: - Composition
 
     /// The Arr queue as Downloads sees it: the shared cache minus anything this view

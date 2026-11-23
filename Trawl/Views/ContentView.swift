@@ -105,6 +105,14 @@ struct ContentView: View {
     /// it. It still yields automatically when the window gets narrow enough to turn
     /// the size class compact, which is the case where hiding it is correct.
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+    /// The visibility as last set while the app was in front.
+    ///
+    /// Leaving for the app switcher, iOS snapshots the backgrounded app at several
+    /// multitasking sizes. At the narrow ones the split view hides its sidebar and
+    /// writes `.detailOnly` into `sidebarVisibility`, so the app came back showing a
+    /// full-width detail (seen on the Duo). Writes made off-screen don't count, and
+    /// returning to the foreground puts this back.
+    @State private var chosenSidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarSearch = ""
     @State private var navigationSession = RootNavigationSession()
     /// Which title the library split views have open. Owned here rather than inside
@@ -292,6 +300,9 @@ struct ContentView: View {
         // re-present the sheet with a different set of tabs, it closes, and the
         // badges on the chrome that appears take over.
         .onChange(of: hSizeClass) { _, _ in
+            // Only a change the user can see. The app switcher's off-screen snapshots
+            // flip the size class too, and used to close the sheet behind them.
+            guard scenePhase == .active else { return }
             inAppNotificationCenter.isPresentingRecentNotifications = false
         }
         #endif
@@ -481,6 +492,9 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             appLockController.handleScenePhase(newPhase, old: oldPhase)
+            if newPhase == .active, sidebarVisibility != chosenSidebarVisibility {
+                sidebarVisibility = chosenSidebarVisibility
+            }
             if newPhase == .background {
                 servicesTask?.cancel()
                 appServices?.syncService.stopPolling()
@@ -791,7 +805,13 @@ struct ContentView: View {
 
     /// Three columns, for the destinations that are a list of things you open.
     private func threeColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { sidebarVisibility },
+            set: { newValue in
+                sidebarVisibility = newValue
+                if scenePhase == .active { chosenSidebarVisibility = newValue }
+            }
+        )) {
             sidebarColumn(services: services, downloadBadge: downloadBadge)
         } content: {
             contentColumn(for: selectedTab, services: services)

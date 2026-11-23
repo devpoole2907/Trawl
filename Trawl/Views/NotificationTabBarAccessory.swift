@@ -714,7 +714,10 @@ struct RecentNotificationsSheet: View {
     /// left off, grouped by day.
     @ViewBuilder
     private var alertsContent: some View {
-        let failures = downloadsContent == nil ? attentionItems : []
+        // On every chrome now: Alerts is "what's going on", and failing downloads
+        // are the part of that most worth a tap. On the phone it switches to the
+        // Downloads tab's Issues; elsewhere it opens the sidebar's Downloads.
+        let failures = attentionItems
         let sections = NotificationTimeline.sections(
             inAppNotificationCenter.recentNotifications,
             lastRead: effectiveUnreadSinceDate
@@ -830,17 +833,22 @@ struct RecentNotificationsSheet: View {
 
                 if !failures.isEmpty {
                     Button {
-                        dismiss()
                         // These are the Issues filter's contents, so land there rather
                         // than on the default segment.
                         downloadsNavigator?.show(.issues)
-                        navigateToDownloadsTab()
+                        if placesLiveInSheet {
+                            selectedTab = .downloads
+                        } else {
+                            dismiss()
+                            navigateToDownloadsTab()
+                        }
                     } label: {
+                        let causes = ImportIssueGroup.groups(failures)
                         attentionLabel(
                             systemImage: "exclamationmark.arrow.triangle.2.circlepath",
                             tint: .red,
-                            title: failures.count == 1 ? "1 download failing" : "\(failures.count) downloads failing",
-                            detail: failures.first?.attentionTitle ?? ""
+                            title: failures.count == 1 ? "1 download needs fixing" : "\(failures.count) downloads need fixing",
+                            detail: causes.map(\.cause.title).joined(separator: " · ")
                         )
                     }
                     .buttonStyle(.plain)

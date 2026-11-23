@@ -113,6 +113,58 @@ final class DownloadsImportIssueJourneyUITests: XCTestCase {
         )
     }
 
+    /// Issues reads as causes, not rows: the stuck pack's two failures become two
+    /// groups, each with its one fix. The "already have it" removal waits for Undo.
+    ///
+    /// Undo is proven by ordering, not by waiting: the removal is undone, then the
+    /// other group's fix is applied. That one is sent a full undo window later, so
+    /// by the time it reaches the fixture an undone removal that still ran would
+    /// already be there too.
+    @MainActor
+    func testIssuesGroupByCauseAndAFixCanBeUndone() async throws {
+        let app = try await launchWithStuckPack()
+        let server = try XCTUnwrap(sonarr)
+
+        XCTAssertTrue(openDestination(.downloads, in: app), "The Downloads tab should be reachable.")
+        selectSegment("Issues", app: app)
+
+        let alreadyHave = app.descendants(matching: .any)["issue-group-alreadyHave"]
+        let badRelease = app.descendants(matching: .any)["issue-group-badRelease"]
+        XCTAssertTrue(alreadyHave.waitForExistence(in: app, timeout: 20), "A file that already exists reads as already in the library.")
+        XCTAssertTrue(badRelease.exists, "Missing episodes in the release read as a bad release.")
+        XCTAssertLessThan(alreadyHave.frame.minY, badRelease.frame.minY, "Causes run in fix order.")
+        capture(app, "issues-grouped-by-cause")
+
+        let remove = app.buttons["issue-fix-alreadyHave"]
+        XCTAssertTrue(waitUntilHittable(remove, app: app, timeout: 10))
+        remove.tap()
+        let undo = app.buttons["issue-fix-undo-alreadyHave"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "A removal shows Undo before anything is sent.")
+        capture(app, "issues-fix-undo-window")
+        undo.tap()
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "Undo puts the fix back.")
+
+        let blocklist = app.buttons["issue-fix-badRelease"]
+        XCTAssertTrue(waitUntilHittable(blocklist, app: app, timeout: 10))
+        blocklist.tap()
+        let sent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/101")
+        }, object: nil)
+        await fulfillment(of: [sent], timeout: 20)
+        XCTAssertFalse(
+            server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/105"),
+            "An undone removal must never reach Sonarr."
+        )
+    }
+
+    @MainActor
+    private func capture(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Regressions this catches: the import-issue branch in
     /// `DownloadListItem.detailDestination` / `DownloadsView.arrQueueRow` being
     /// reordered behind the client links, so the row dead-ends in the download's

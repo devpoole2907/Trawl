@@ -89,6 +89,9 @@ struct DownloadsView: View {
     /// The screen's width, which decides the title menu's slot - see `titleMenuPlacement`.
     @State private var titleBarWidth: CGFloat = 0
     @State private var showAddTorrent = false
+    /// Issues groups showing every row rather than the first few.
+    @State private var expandedIssueCauses: Set<ImportIssueCause> = []
+    @State private var showPathMappings = false
     @State private var torrentPendingDeletion: Torrent?
     @State private var sabJobPendingDeletion: SABnzbdJob?
     @State private var backgroundMonitor = SABnzbdBackgroundMonitor.shared
@@ -607,6 +610,21 @@ struct DownloadsView: View {
                     .environment(torrentService)
                     .environment(sabnzbdServiceManager)
             }
+            .sheet(isPresented: $showPathMappings) {
+                NavigationStack {
+                    ArrRemotePathMappingListView()
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showPathMappings = false }
+                            }
+                        }
+                }
+                .environment(arrServiceManager)
+                .environment(notificationCenter)
+                // Fixing a mapping is what the path group is waiting on, so coming
+                // back asks the servers to try those imports again.
+                .onDisappear { retryPathGroupAfterMappingChange() }
+            }
             .task(id: reloadKey) {
                 await viewModel.refresh(serviceManager: arrServiceManager)
             }
@@ -909,8 +927,12 @@ struct DownloadsView: View {
         // selecting never fights with pushing and there is no second tap handler to
         // keep in step.
         selectableList {
-            ForEach(items) { item in
-                listRow(for: item)
+            if selectedSection == .issues {
+                issueGroups
+            } else {
+                ForEach(items) { item in
+                    listRow(for: item)
+                }
             }
         }
         .listStyle(.plain)
@@ -921,6 +943,71 @@ struct DownloadsView: View {
         .animation(.default, value: items.map(\.id))
         .animation(.snappy, value: editMode.isEditing)
         .onChange(of: items.map(\.id)) { _, _ in reconcileDetailSelection() }
+    }
+
+    /// Issues grouped by cause, each headed by what happened and its one fix.
+    @ViewBuilder
+    private var issueGroups: some View {
+        ForEach(ImportIssueGroup.groups(items)) { group in
+            Section {
+                ImportIssueGroupHeader(
+                    group: group,
+                    scheduled: viewModel.scheduledIssueFix?.cause == group.cause ? viewModel.scheduledIssueFix : nil,
+                    isWorking: viewModel.workingIssueCauses.contains(group.cause),
+                    onFix: { applyFix(to: group) },
+                    onUndo: { viewModel.undoIssueFix() },
+                    onOpenPathMappings: { showPathMappings = true }
+                )
+                .selectionDisabled(true)
+                .listRowBackground(Color.clear)
+
+                let isExpanded = expandedIssueCauses.contains(group.cause)
+                let shown = isExpanded ? group.items : Array(group.items.prefix(Self.collapsedIssueRowCount))
+                ForEach(shown) { item in
+                    listRow(for: item)
+                }
+                if group.items.count > Self.collapsedIssueRowCount {
+                    Button(isExpanded ? "Show Fewer" : "Show All \(group.items.count)") {
+                        withAnimation(.snappy) {
+                            if isExpanded {
+                                expandedIssueCauses.remove(group.cause)
+                            } else {
+                                expandedIssueCauses.insert(group.cause)
+                            }
+                        }
+                    }
+                    .font(.subheadline)
+                    .selectionDisabled(true)
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+    }
+
+    private static let collapsedIssueRowCount = 3
+
+    private func applyFix(to group: ImportIssueGroup) {
+        let center = notificationCenter
+        let cause = group.cause
+        viewModel.applyFix(to: group, serviceManager: arrServiceManager) { fixed, firstError in
+            if let firstError {
+                center.showError(title: "Couldn’t Fix All", message: firstError)
+            } else if fixed > 0 {
+                let noun = fixed == 1 ? "download" : "downloads"
+                let message: String = switch cause.fix {
+                case .checkAgain: "Asked Sonarr and Radarr to retry \(fixed) \(noun)."
+                case .remove: "Removed \(fixed) \(noun) you already have."
+                case .blocklistAndSearch: "Blocklisted \(fixed) \(noun) and searched again."
+                case .none: ""
+                }
+                center.showSuccess(title: "Issues Fixed", message: message, isOutcome: true)
+            }
+        }
+    }
+
+    private func retryPathGroupAfterMappingChange() {
+        guard let group = ImportIssueGroup.groups(items).first(where: { $0.cause == .path }) else { return }
+        applyFix(to: group)
     }
 
     /// Drops the detail column's selection once the download it names has left the
