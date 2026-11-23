@@ -24,6 +24,12 @@ struct NotificationRequestsTab: View {
 
     private var isEmpty: Bool { pending.isEmpty && inFlight.isEmpty && recentlyAvailable.isEmpty }
 
+    /// Which request sits in which section. Animating on this, rather than wrapping
+    /// each mutation in `withAnimation`, also covers changes that arrive from Seerr:
+    /// an approval sliding from Waiting on You to On the Way, a decline leaving, or a
+    /// refresh landing. Titles and progress are left out so they don't re-animate rows.
+    private var queueLayout: [[Int]] { [pending.map(\.id), inFlight.map(\.id), recentlyAvailable.map(\.id)] }
+
     var body: some View {
         Group {
             if isEmpty {
@@ -75,6 +81,7 @@ struct NotificationRequestsTab: View {
                 #endif
             }
         }
+        .animation(.snappy, value: queueLayout)
         .navigationDestination(item: $detailRoute) { route in
             if let request = (pending + inFlight + recentlyAvailable).first(where: { $0.id == route.id }) {
                 SeerrRequestDetailView(
@@ -94,8 +101,6 @@ struct NotificationRequestsTab: View {
 
     // MARK: - Rows
 
-    /// Approve and Decline sit on the row: a pending request has exactly two answers,
-    /// and leaving the sheet to give one defeats the point of surfacing it here.
     /// Approve and Decline sit on the row: a pending request has exactly two answers,
     /// and leaving the sheet to give one defeats the point of surfacing it here. They
     /// are two small round buttons at the row's trailing edge, in line with the title,
@@ -268,6 +273,8 @@ struct NotificationRequestsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                    // "Approving…" fades in over the request's details instead of snapping.
+                    .contentTransition(.opacity)
             }
             Spacer(minLength: 0)
             if showsChevron {
