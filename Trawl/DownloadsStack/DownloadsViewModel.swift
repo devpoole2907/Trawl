@@ -181,23 +181,69 @@ final class DownloadsViewModel {
         return result
     }
 
+    @ObservationIgnored private var cachedNonEmptyKey: ItemsCacheKey?
+    @ObservationIgnored private var cachedNonEmpty: Set<DownloadSection> = []
+
+    /// Which of `candidates` hold at least one download in `scope`, ignoring the
+    /// search field - a search narrows the list, it doesn't remove segments.
+    ///
+    /// Drives hiding empty segments. Cached on the same revisions as `items`, so the
+    /// per-section pass runs when the data changes, not on every body pass.
+    func nonEmptySections(
+        _ candidates: [DownloadSection],
+        scope: DownloadScope,
+        serviceManager: ArrServiceManager,
+        torrents: [String: Torrent],
+        sabActiveJobs: [SABnzbdJob],
+        sabHistoryJobs: [SABnzbdJob],
+        sabRevision: Int,
+        torrentsRevision: Int
+    ) -> Set<DownloadSection> {
+        let key = ItemsCacheKey(
+            section: candidates.first ?? .active,
+            scope: scope,
+            searchText: candidates.map(\.rawValue).joined(separator: ","),
+            queueRevision: serviceManager.queueRevision,
+            sabRevision: sabRevision,
+            torrentsRevision: torrentsRevision,
+            suppressedKeys: removedQueueItemKeys.count
+        )
+        if cachedNonEmptyKey == key { return cachedNonEmpty }
+        let result = Set(candidates.filter { section in
+            !computeItems(
+                for: section,
+                scope: scope,
+                serviceManager: serviceManager,
+                torrents: torrents,
+                sabActiveJobs: sabActiveJobs,
+                sabHistoryJobs: sabHistoryJobs,
+                applyingSearch: false
+            ).isEmpty
+        })
+        cachedNonEmptyKey = key
+        cachedNonEmpty = result
+        return result
+    }
+
     private func computeItems(
         for section: DownloadSection,
         scope: DownloadScope,
         serviceManager: ArrServiceManager,
         torrents: [String: Torrent],
         sabActiveJobs: [SABnzbdJob],
-        sabHistoryJobs: [SABnzbdJob]
+        sabHistoryJobs: [SABnzbdJob],
+        applyingSearch: Bool = true
     ) -> [DownloadListItem] {
+        let finish: ([DownloadListItem]) -> [DownloadListItem] = { applyingSearch ? self.searchFiltered($0) : $0 }
         switch scope {
         case .all:
             break
         case .torrents:
-            return searchFiltered(
+            return finish(
                 Self.torrentItems(for: section, torrents: Array(torrents.values))
             )
         case .sab:
-            return searchFiltered(
+            return finish(
                 Self.sabItems(
                     for: section,
                     activeJobs: sabActiveJobs,
@@ -298,7 +344,7 @@ final class DownloadsViewModel {
             result = Self.issueItems(matched)
         }
 
-        return searchFiltered(result)
+        return finish(result)
     }
 
     // MARK: - App-wide failures

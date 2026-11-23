@@ -627,6 +627,7 @@ struct DownloadsView: View {
             }
             .task(id: reloadKey) {
                 await viewModel.refresh(serviceManager: arrServiceManager)
+                landOnANonEmptySection()
             }
             // One view, one lifecycle. Polling starts when the tab appears and stops
             // when it goes, and changing scope touches neither - the earlier design
@@ -2050,6 +2051,38 @@ struct DownloadsView: View {
     /// view model: this runs on every body pass, and the full match/sort pipeline is
     /// far too expensive to drive a segment bar with.
     private var visibleSections: [DownloadSection] {
+        // Segments with nothing in them are hidden too - an empty Queue or History
+        // is a tap that only says "nothing here". The one the user is on stays.
+        let available = availableSections
+        let nonEmpty = nonEmptySections(available)
+        return available.filter { $0 == selectedSection || nonEmpty.contains($0) }
+    }
+
+    private func nonEmptySections(_ candidates: [DownloadSection]) -> Set<DownloadSection> {
+        viewModel.nonEmptySections(
+            candidates,
+            scope: titleDestination.scope,
+            serviceManager: arrServiceManager,
+            torrents: syncService.torrents,
+            sabActiveJobs: sabnzbdServiceManager.activeJobs,
+            sabHistoryJobs: sabnzbdServiceManager.historyJobs,
+            sabRevision: sabnzbdServiceManager.queueRevision,
+            torrentsRevision: syncService.torrentsRevision
+        )
+    }
+
+    /// Opening on an empty segment while another has something in it lands on the
+    /// first one that does. Only on arrival: once the user is on a segment it stays.
+    private func landOnANonEmptySection() {
+        let available = availableSections
+        let nonEmpty = nonEmptySections(available)
+        guard !nonEmpty.isEmpty, !nonEmpty.contains(selectedSection),
+              let first = available.first(where: nonEmpty.contains) else { return }
+        selectedSection = first
+    }
+
+    /// The segments this client and configuration can offer, before hiding empties.
+    private var availableSections: [DownloadSection] {
         DownloadSection.allCases.filter { section in
             guard titleDestination.supports(section) else { return false }
 
