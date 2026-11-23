@@ -228,9 +228,11 @@ struct NotificationTabBarAccessory: View {
         .accessibilityLabel(lead == .downloading ? "Downloads" : "Notifications")
         .accessibilityValue(lead == .downloading ? downloads.map { "\($0.leadName), \($0.detail)" } ?? "" : notificationAccessibilityValue)
         .accessibilityIdentifier("notification-accessory")
-        .task {
+        // Restarted when Seerr connects, for the same reason as the bell's loop.
+        .task(id: seerrServiceManager.isConnected) {
             // Slow cadence on purpose. Approvals arrive by push, and this is only
             // here so the count is right when the app has been sitting open.
+            guard seerrServiceManager.isConnected else { return }
             while !Task.isCancelled {
                 await seerrServiceManager.refreshRequestQueue()
                 try? await Task.sleep(for: .seconds(60))
@@ -443,6 +445,69 @@ extension NotificationLogEntry {
 
 // MARK: - Recent Notifications Sheet
 
+/// The sidebar chrome's way into notifications: a bell in the sidebar's toolbar
+/// that opens Alerts and Actions in a popover.
+///
+/// On the tab chrome the notification bar leads with whatever needs you. Here the
+/// rows do that - Requests and Downloads carry their own badges - so the bell only
+/// counts what has no row: news since the last look, and setup problems.
+struct NotificationBellButton<Panel: View>: View {
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(ConfigurationAuditStore.self) private var configurationAuditStore: ConfigurationAuditStore?
+
+    @ViewBuilder let panel: () -> Panel
+
+    private var unreadCount: Int {
+        inAppNotificationCenter.recentNotifications.filter {
+            $0.timestamp > inAppNotificationCenter.lastReadDate
+        }.count
+    }
+
+    private var setupProblemCount: Int {
+        configurationAuditStore?.problems.count ?? 0
+    }
+
+    private var badgeCount: Int { unreadCount + setupProblemCount }
+
+    var body: some View {
+        @Bindable var center = inAppNotificationCenter
+        Button {
+            inAppNotificationCenter.showRecentNotifications(on: nil)
+        } label: {
+            Label("Notifications", systemImage: badgeCount > 0 ? "bell.badge" : "bell")
+        }
+        .badge(badgeCount)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityIdentifier("notification-bell")
+        .popover(isPresented: $center.isPresentingRecentNotifications, arrowEdge: .bottom) {
+            panel()
+                .frame(idealWidth: 420, idealHeight: 620)
+                .presentationSizing(.fitted)
+        }
+        // Restarted when Seerr connects: a pass before the connection exists reads
+        // nothing, and the next one would be a minute away.
+        .task(id: seerrServiceManager.isConnected) {
+            // The sidebar's Requests badge reads this queue, and nothing else in this
+            // chrome refreshes it. Slow on purpose: approvals arrive by push.
+            guard seerrServiceManager.isConnected else { return }
+            while !Task.isCancelled {
+                await seerrServiceManager.refreshRequestQueue()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    private var accessibilityValue: String {
+        var parts: [String] = []
+        if unreadCount > 0 { parts.append("\(unreadCount) new") }
+        if setupProblemCount > 0 {
+            parts.append(setupProblemCount == 1 ? "1 setup problem" : "\(setupProblemCount) setup problems")
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
 /// The notification sheet: the stack's work in progress.
 ///
 /// Anything moving between "I want this" and "it's in my library" belongs here, in
@@ -498,8 +563,15 @@ struct RecentNotificationsSheet: View {
         seerrServiceManager.hasConfiguredProfile || seerrServiceManager.isConnected
     }
 
+    /// Whether this is the tab chrome's sheet. There, Requests and Downloads have no
+    /// row of their own to carry a badge, so they live here. In the sidebar chrome
+    /// they are sidebar rows, badged there, and the sheet holds only what has no
+    /// place: Alerts and Actions. The root hands Downloads in only on the tab chrome,
+    /// so its presence is the signal.
+    private var placesLiveInSheet: Bool { downloadsContent != nil }
+
     private var availableTabs: [NotificationSheetTab] {
-        NotificationSheetTabs.available(hasSeerr: hasSeerr, hasDownloads: downloadsContent != nil)
+        NotificationSheetTabs.available(hasSeerr: hasSeerr && placesLiveInSheet, hasDownloads: placesLiveInSheet)
     }
 
     /// Running imports only. A finished one has already become a log entry - its
@@ -884,7 +956,7 @@ struct RecentNotificationsSheet: View {
     @ViewBuilder
     private var sectionTabs: some View {
         TabView(selection: $selectedTab) {
-            if hasSeerr {
+            if availableTabs.contains(.requests) {
                 Tab(NotificationSheetTab.requests.rawValue, systemImage: NotificationSheetTab.requests.systemImage, value: NotificationSheetTab.requests) {
                     sectionShell(.requests)
                 }

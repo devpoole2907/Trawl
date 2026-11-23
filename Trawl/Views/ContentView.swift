@@ -252,8 +252,10 @@ struct ContentView: View {
             case .progress: return nil
             }
         }
+        // A sheet on the tab chrome only. The sidebar chrome opens the same content
+        // as a popover from its bell - see `NotificationBellButton`.
         .sheet(isPresented: Binding(
-            get: { inAppNotificationCenter.isPresentingRecentNotifications },
+            get: { inAppNotificationCenter.isPresentingRecentNotifications && usesNotificationSheet },
             set: { inAppNotificationCenter.isPresentingRecentNotifications = $0 }
         )) {
             // The sheet is presented at root, so the services its Needs Attention
@@ -282,18 +284,17 @@ struct ContentView: View {
                     .zoomEdgePanToDismiss,
                     .zoomPinchToDismiss,
                 ])
-            #else
-            RecentNotificationsSheet()
-                .environment(inAppNotificationCenter)
-                .environment((appServices ?? disconnectedServices).syncService)
-                .environment(downloadsNavigator)
-                .environment(\.navigateToSeriesTab) { go(to: .series) }
-                .environment(\.navigateToMoviesTab) { go(to: .movies) }
-                .environment(\.navigateToDownloadsTab) { go(to: .downloads) }
-                // Always available here: macOS has only the sidebar chrome.
-                .environment(\.navigateToSetupCheck) { selectedTab = .setupCheck }
             #endif
         }
+        #if os(iOS)
+        // Crossing between the chromes changes where things live: Requests and
+        // Downloads are sheet tabs on one and sidebar rows on the other. Rather than
+        // re-present the sheet with a different set of tabs, it closes, and the
+        // badges on the chrome that appears take over.
+        .onChange(of: hSizeClass) { _, _ in
+            inAppNotificationCenter.isPresentingRecentNotifications = false
+        }
+        #endif
         .sheet(item: $setupTarget) { target in
             switch target {
             case .qbittorrent:
@@ -805,66 +806,24 @@ struct ContentView: View {
         .environment(\.selectDownload, selectDownload)
     }
 
-    /// The sidebar column, with the notification bar pinned beneath it.
+    /// The sidebar column, with the notification bell in its toolbar.
     ///
-    /// UIKit needs safe-area insets so the list scrolls clear of the floating chrome.
-    /// AppKit does not: wrapping a macOS `List` in those insets makes its hosting view
-    /// advertise the height of every sidebar row as the window's minimum. A vertical
-    /// stack gives the native list the flexible middle slot it expects, so it scrolls
-    /// at short window heights instead of stretching or clipping the whole split view.
-    @ViewBuilder
+    /// The bell replaced a notification bar pinned beneath the list. That bar's job -
+    /// saying what needs you - is done here by the badges on the rows themselves, so
+    /// what was left for it was the log and the actions, which a popover holds better
+    /// than a strip squeezed under thirty rows.
     private func sidebarColumn(services: AppServices, downloadBadge: Int) -> some View {
-        #if os(macOS)
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                sidebarList(downloadBadge: downloadBadge)
-                sidebarNotificationBar(services: services)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .refreshesConfigurationAudit(forContextualBanner: true)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
-        #else
         sidebarList(downloadBadge: downloadBadge)
-            .safeAreaInset(edge: .bottom) {
-                sidebarNotificationBar(services: services)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    NotificationBellButton {
+                        notificationPanel(services: services)
+                    }
+                    .environment(services.syncService)
+                }
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
-        #endif
-    }
-
-    /// The notification bar, as the sidebar's own footer.
-    ///
-    /// The tab bar's bottom accessory has no equivalent in this chrome, and the
-    /// notification bar is how the app surfaces failures app-wide - dropping it on
-    /// iPad or Mac would quietly remove that.
-    @ViewBuilder
-    private func sidebarNotificationBar(services: AppServices) -> some View {
-        if !isTabChromeHidden {
-            #if os(macOS)
-            NotificationTabBarAccessory()
-                .environment(services.syncService)
-                .environment(downloadsNavigator)
-                .padding(.horizontal, 2)
-                .padding(.vertical, 2)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
-            #else
-            NotificationTabBarAccessory(prefersCompactLayout: true)
-                .environment(services.syncService)
-                .environment(downloadsNavigator)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                // Glass, because here the bar floats over a column rather than
-                // sitting in a tab bar that already has a material behind it - what
-                // `tabViewBottomAccessory` gives the compact chrome for free.
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .padding(.horizontal, 6)
-                .padding(.bottom, 6)
-            #endif
-        }
     }
 
     /// The sidebar's own list. Searchable, which is the point: it replaces More's
@@ -899,7 +858,7 @@ struct ContentView: View {
                 ForEach(SidebarSection.allCases) { section in
                     Section(isExpanded: expansionBinding(for: section)) {
                         ForEach(section.rows, id: \.self) { row in
-                            sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
+                            sidebarRow(row, badge: sidebarBadge(for: row, downloadBadge: downloadBadge))
                         }
                     } header: {
                         Text(section.title)
@@ -1010,12 +969,33 @@ struct ContentView: View {
         pathBinding(for: owner).wrappedValue = []
     }
 
+    /// The count a sidebar row carries. In this chrome a place that needs you says so
+    /// on its own row - on the tab chrome the notification bar says it instead.
+    private func sidebarBadge(for row: RootTab, downloadBadge: Int) -> Int {
+        switch row {
+        case .downloads: downloadBadge
+        case .requests: seerrServiceManager.pendingRequests.count
+        default: 0
+        }
+    }
+
+    private func sidebarBadgeDescription(for row: RootTab, count: Int) -> String {
+        guard count > 0 else { return "" }
+        switch row {
+        case .requests: return "\(count) waiting"
+        case .downloads: return "\(count) active"
+        default: return "\(count)"
+        }
+    }
+
     /// A sidebar row, or nothing when the search field excludes it.
     @ViewBuilder
     private func sidebarRow(_ destination: RootTab, badge: Int = 0) -> some View {
         if sidebarSearchMatches(destination) {
             Label(destination.displayName, systemImage: destination.systemImage)
                 .badge(badge)
+                // The badge is drawn but not read out, so VoiceOver gets the count here.
+                .accessibilityValue(sidebarBadgeDescription(for: destination, count: badge))
                 .tag(destination)
                 .id(destination)
                 .accessibilityIdentifier(destination.navigationIdentifier)
@@ -1319,6 +1299,29 @@ struct ContentView: View {
         destination == .more ? $morePath : sidebarPath(for: destination)
     }
 
+    /// Whether the notification sheet is presented as a sheet: the tab chrome only.
+    private var usesNotificationSheet: Bool {
+        #if os(iOS)
+        hSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    /// The notification panel as the sidebar chrome shows it: a popover from the
+    /// sidebar's bell, holding only Alerts and Actions.
+    private func notificationPanel(services: AppServices) -> some View {
+        RecentNotificationsSheet()
+            .environment(inAppNotificationCenter)
+            .environment(services.syncService)
+            .environment(downloadsNavigator)
+            .environment(\.navigateToSeriesTab) { go(to: .series) }
+            .environment(\.navigateToMoviesTab) { go(to: .movies) }
+            .environment(\.navigateToDownloadsTab) { go(to: .downloads) }
+            // Always available here: the sidebar has Setup Check to select.
+            .environment(\.navigateToSetupCheck) { selectedTab = .setupCheck }
+    }
+
     /// Downloads as the notification sheet's section on the tab chrome, which has no
     /// Downloads tab. The same view and session the tab used, so the list keeps its
     /// filter and scroll between openings.
@@ -1575,7 +1578,10 @@ struct ContentView: View {
             // notification sheet's Requests tab rather than the management list.
             // Browsing every request is a different intent and is a destination of
             // its own.
-            if host == "seerr-requests", !shouldShowWelcomeScreen {
+            //
+            // In the sidebar chrome, Requests is a row with its waiting requests at the
+            // top, so the push opens that instead.
+            if host == "seerr-requests", !shouldShowWelcomeScreen, usesNotificationSheet {
                 inAppNotificationCenter.showRecentNotifications(on: .requests)
                 return
             }

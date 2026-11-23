@@ -24,6 +24,9 @@ final class NotificationRequestsJourneyUITests: XCTestCase {
     /// A waiting request leads the bar, and a tap on it opens Requests. Approve and
     /// Decline are on the row and wait out an undo window before anything is sent.
     ///
+    /// In the sidebar chrome there is no bar: Requests is a sidebar row, badged with
+    /// the waiting count, and its list carries the same row buttons and undo window.
+    ///
     /// The undo is proven by ordering, not by waiting: the series is declined and
     /// undone, then the movie is approved. The approval is sent a full undo window
     /// after the decline would have been, so when the approval reaches the fixture,
@@ -39,19 +42,42 @@ final class NotificationRequestsJourneyUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(ensureRootChromeIsReady(in: app))
 
-        let bar = app.buttons["Notifications"]
-        XCTAssertTrue(bar.waitForExistence(timeout: 15))
-        let leadsWithRequests = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value CONTAINS[c] %@", "awaiting approval"),
-            object: bar
-        )
-        await fulfillment(of: [leadsWithRequests], timeout: 20)
-        XCTAssertTrue(tapWhenHittable(bar, in: app, timeout: 5))
+        if TrawlChrome.isSidebar {
+            let readPending = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                server.requests.contains {
+                    $0.method == "GET" && $0.path == "/api/v1/request"
+                        && SeerrUIFixtureServer.queryValue("filter", in: $0.query) == "pending"
+                }
+            }, object: nil)
+            await fulfillment(of: [readPending], timeout: 20)
+            capture(app, "sidebar-requests-badge")
+            let row = try XCTUnwrap(sidebarRow(for: .requests, in: app, timeout: 15))
+            let badged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                row.descendants(matching: .any)
+                    .matching(NSPredicate(format: "value == %@", "2 waiting"))
+                    .count > 0
+            }, object: nil)
+            await fulfillment(of: [badged], timeout: 20)
+            XCTAssertTrue(openDestination(.requests, in: app))
+            XCTAssertFalse(
+                app.tabBars.buttons["Requests"].exists,
+                "Where Requests has a sidebar row, it is not also a sheet tab."
+            )
+        } else {
+            let bar = app.buttons["Notifications"]
+            XCTAssertTrue(bar.waitForExistence(timeout: 15))
+            let leadsWithRequests = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value CONTAINS[c] %@", "awaiting approval"),
+                object: bar
+            )
+            await fulfillment(of: [leadsWithRequests], timeout: 20)
+            XCTAssertTrue(tapWhenHittable(bar, in: app, timeout: 5))
 
-        let requestsTab = app.tabBars.buttons["Requests"]
-        XCTAssertTrue(requestsTab.waitForExistence(timeout: 10), "With Seerr set up, the sheet has a Requests tab.")
-        XCTAssertTrue(requestsTab.isSelected, "A tap on a waiting request opens the sheet on Requests.")
-        XCTAssertTrue(app.navigationBars["Requests"].waitForExistence(timeout: 5))
+            let requestsTab = app.tabBars.buttons["Requests"]
+            XCTAssertTrue(requestsTab.waitForExistence(timeout: 10), "With Seerr set up, the sheet has a Requests tab.")
+            XCTAssertTrue(requestsTab.isSelected, "A tap on a waiting request opens the sheet on Requests.")
+            XCTAssertTrue(app.navigationBars["Requests"].waitForExistence(timeout: 5))
+        }
         XCTAssertTrue(app.staticTexts["Fixture Requested Movie"].waitForExistence(in: app, timeout: 15))
         XCTAssertTrue(app.staticTexts["Fixture Requested Series"].exists)
         capture(app, "requests-waiting")
@@ -81,10 +107,14 @@ final class NotificationRequestsJourneyUITests: XCTestCase {
             app.buttons["request-approve-801"].waitForNonExistence(timeout: 10),
             "An approved request stops waiting on the user."
         )
-        XCTAssertTrue(
-            app.staticTexts["Fixture Requested Movie"].waitForExistence(in: app, timeout: 10),
-            "An approved request moves to On the Way rather than vanishing."
-        )
+        if !TrawlChrome.isSidebar {
+            // The sheet's queue keeps it, under On the Way. The sidebar's list is on
+            // its Pending filter, which it rightly leaves.
+            XCTAssertTrue(
+                app.staticTexts["Fixture Requested Movie"].waitForExistence(in: app, timeout: 10),
+                "An approved request moves to On the Way rather than vanishing."
+            )
+        }
 
         XCTAssertTrue(tapWhenHittable(app.buttons["request-decline-802"], in: app, timeout: 5))
         let declined = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in

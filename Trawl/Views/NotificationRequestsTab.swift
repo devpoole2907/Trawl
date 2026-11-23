@@ -8,14 +8,7 @@ import SwiftUI
 /// filters) is a place, and stays under More; the footer links there.
 struct NotificationRequestsTab: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
 
-    /// A decision the user made that has not been sent yet. It waits
-    /// `RequestDecision.undoWindow` so a mis-tap can be taken back; the row shows
-    /// what will happen and an Undo until then.
-    @State private var scheduledDecisions: [Int: RequestDecision] = [:]
-    /// Decisions on their way to Seerr, so the row can't be acted on twice.
-    @State private var sendingIDs: Set<Int> = []
     @State private var detailRoute: RequestRoute?
 
     private var pending: [SeerrMediaRequest] { seerrServiceManager.pendingRequests }
@@ -48,7 +41,9 @@ struct NotificationRequestsTab: View {
                     if !pending.isEmpty {
                         Section("Waiting on You") {
                             ForEach(pending) { request in
-                                pendingRow(request)
+                                SeerrPendingRequestRow(request: request) {
+                                    detailRoute = RequestRoute(id: request.id)
+                                }
                             }
                         }
                     }
@@ -86,8 +81,10 @@ struct NotificationRequestsTab: View {
             if let request = (pending + inFlight + recentlyAvailable).first(where: { $0.id == route.id }) {
                 SeerrRequestDetailView(
                     request: request,
-                    onApprove: request.requestStatus == .pending ? { await decideNow(request, approve: true) } : nil,
-                    onDecline: request.requestStatus == .pending ? { await decideNow(request, approve: false) } : nil
+                    // Deciding on the detail screen is already deliberate, and it shows
+                    // its own error in place, so it sends straight away.
+                    onApprove: request.requestStatus == .pending ? { await seerrServiceManager.sendDecision(for: request.id, approve: true) } : nil,
+                    onDecline: request.requestStatus == .pending ? { await seerrServiceManager.sendDecision(for: request.id, approve: false) } : nil
                 )
             }
         }
@@ -101,104 +98,6 @@ struct NotificationRequestsTab: View {
 
     // MARK: - Rows
 
-    /// Approve and Decline sit on the row: a pending request has exactly two answers,
-    /// and leaving the sheet to give one defeats the point of surfacing it here. They
-    /// are two small round buttons at the row's trailing edge, in line with the title,
-    /// rather than a second row of pills under it.
-    @ViewBuilder
-    private func pendingRow(_ request: SeerrMediaRequest) -> some View {
-        let scheduled = scheduledDecisions[request.id]
-        let isSending = sendingIDs.contains(request.id)
-
-        HStack(alignment: .center, spacing: 10) {
-            Button {
-                detailRoute = RequestRoute(id: request.id)
-            } label: {
-                rowHeader(
-                    request,
-                    detail: scheduled.map { $0.approve ? "Approving…" : "Declining…" } ?? pendingDetail(request),
-                    tint: ServiceIdentity.seerr.brandColor
-                )
-            }
-            .buttonStyle(.plain)
-
-            Group {
-                if scheduled != nil {
-                    Button("Undo") { undo(request) }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("request-undo-\(request.id)")
-                } else if isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 30, height: 30)
-                } else {
-                    HStack(spacing: 8) {
-                        decisionButton(
-                            "Decline",
-                            systemImage: "xmark",
-                            tint: nil,
-                            identifier: "request-decline-\(request.id)"
-                        ) { schedule(request, approve: false) }
-                        decisionButton(
-                            "Approve",
-                            systemImage: "checkmark",
-                            tint: .green,
-                            identifier: "request-approve-\(request.id)"
-                        ) { schedule(request, approve: true) }
-                    }
-                }
-            }
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        }
-        .padding(.vertical, 2)
-        .animation(.snappy, value: scheduled?.approve)
-        .animation(.snappy, value: isSending)
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if scheduled == nil && !isSending {
-                Button { schedule(request, approve: true) } label: {
-                    Label("Approve", systemImage: "checkmark.circle")
-                }
-                .tint(.green)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if scheduled == nil && !isSending {
-                Button { schedule(request, approve: false) } label: {
-                    Label("Decline", systemImage: "xmark.circle")
-                }
-                .tint(.orange)
-            }
-        }
-    }
-
-    private func decisionButton(
-        _ title: String,
-        systemImage: String,
-        tint: Color?,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        // Decline is neutral, Approve is green: one answer is the expected one.
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
-                .frame(width: 30, height: 30)
-                .background(
-                    tint.map { AnyShapeStyle($0.opacity(0.18)) } ?? AnyShapeStyle(.quaternary),
-                    in: Circle()
-                )
-                .contentShape(Circle())
-        }
-        // Plain, not borderless: borderless tints its label with the accent colour,
-        // which turned Decline's grey blue.
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
-    }
-
     @ViewBuilder
     private func inFlightRow(_ request: SeerrMediaRequest) -> some View {
         let is4k = request.is4k == true
@@ -208,7 +107,7 @@ struct NotificationRequestsTab: View {
             detailRoute = RequestRoute(id: request.id)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                rowHeader(request, detail: inFlightDetail(request), tint: .teal, showsChevron: true)
+                RequestRowHeader(request: request, detail: inFlightDetail(request), tint: .teal, showsChevron: true)
                 if let progress {
                     ProgressView(value: progress)
                         .tint(.teal)
@@ -249,12 +148,109 @@ struct NotificationRequestsTab: View {
         .buttonStyle(.plain)
     }
 
-    private func rowHeader(
-        _ request: SeerrMediaRequest,
-        detail: String,
-        tint: Color,
-        showsChevron: Bool = false
-    ) -> some View {
+    private func inFlightDetail(_ request: SeerrMediaRequest) -> String {
+        let is4k = request.is4k == true
+        if let progress = request.media?.downloadProgress(is4k: is4k) {
+            let count = request.media?.downloadingCount(is4k: is4k) ?? 0
+            let percent = Int((progress * 100).rounded())
+            return count > 1 ? "Downloading \(count) items · \(percent)%" : "Downloading · \(percent)%"
+        }
+        if request.badgeStatus == .partiallyAvailable {
+            return requesterLine(request, prefix: "Partly available")
+        }
+        return requesterLine(request, prefix: "Approved · waiting for a release")
+    }
+
+    private func requesterLine(_ request: SeerrMediaRequest, prefix: String) -> String {
+        guard let requester = request.requestedBy?.displayName, !requester.isEmpty else { return prefix }
+        return "\(prefix) · \(requester)"
+    }
+}
+
+private struct RequestRoute: Hashable, Identifiable {
+    let id: Int
+}
+
+/// A pending request with its two answers on the row.
+///
+/// Approve and Decline sit on the row: a pending request has exactly two answers,
+/// and leaving the list to give one defeats the point of surfacing it. They are two
+/// small round buttons at the trailing edge, in line with the title. A tap waits out
+/// `SeerrServiceManager.decisionUndoWindow` before anything is sent; the decision
+/// lives in the manager, so its Undo shows wherever this request does.
+struct SeerrPendingRequestRow: View {
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+
+    let request: SeerrMediaRequest
+    let onOpen: () -> Void
+
+    var body: some View {
+        let scheduled = seerrServiceManager.scheduledDecisions[request.id]
+        let isSending = seerrServiceManager.sendingDecisionIDs.contains(request.id)
+
+        HStack(alignment: .center, spacing: 10) {
+            Button(action: onOpen) {
+                RequestRowHeader(
+                    request: request,
+                    detail: scheduled.map { $0 ? "Approving…" : "Declining…" } ?? Self.pendingDetail(request),
+                    tint: ServiceIdentity.seerr.brandColor
+                )
+            }
+            .buttonStyle(.plain)
+
+            SeerrRequestDecisionControls(request: request)
+        }
+        .padding(.vertical, 2)
+        // Carries the subtitle's fade to "Approving…" and back.
+        .animation(.snappy, value: scheduled)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if scheduled == nil && !isSending {
+                Button { schedule(approve: true) } label: {
+                    Label("Approve", systemImage: "checkmark.circle")
+                }
+                .tint(.green)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if scheduled == nil && !isSending {
+                Button { schedule(approve: false) } label: {
+                    Label("Decline", systemImage: "xmark.circle")
+                }
+                .tint(.orange)
+            }
+        }
+    }
+
+    private func schedule(approve: Bool) {
+        SeerrRequestDecisionControls.schedule(
+            request, approve: approve, in: seerrServiceManager, reportingTo: inAppNotificationCenter
+        )
+    }
+
+    static func pendingDetail(_ request: SeerrMediaRequest) -> String {
+        var parts = [request.media?.typeLabel ?? "Media"]
+        if request.is4k == true { parts.append("4K") }
+        if let requester = request.requestedBy?.displayName, !requester.isEmpty {
+            parts.append("requested by \(requester)")
+        }
+        if let date = SeerrDateFormatter.date(from: request.createdAt) {
+            parts.append(NotificationTimeline.timeText(for: date, now: .now))
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// A request's icon, title and one line of detail.
+struct RequestRowHeader: View {
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+
+    let request: SeerrMediaRequest
+    let detail: String
+    let tint: Color
+    var showsChevron = false
+
+    var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
@@ -285,86 +281,95 @@ struct NotificationRequestsTab: View {
         }
         .contentShape(Rectangle())
     }
+}
 
-    private func pendingDetail(_ request: SeerrMediaRequest) -> String {
-        var parts = [request.media?.typeLabel ?? "Media"]
-        if request.is4k == true { parts.append("4K") }
-        if let requester = request.requestedBy?.displayName, !requester.isEmpty {
-            parts.append("requested by \(requester)")
-        }
-        if let date = SeerrDateFormatter.date(from: request.createdAt) {
-            parts.append(NotificationTimeline.timeText(for: date, now: .now))
-        }
-        return parts.joined(separator: " · ")
-    }
+/// A pending request's two answers, or its Undo while a decision waits, or a spinner
+/// while it is sent. Everything it shows is read from `SeerrServiceManager`, so the
+/// same request answered in one place shows its Undo in every other.
+struct SeerrRequestDecisionControls: View {
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
 
-    private func inFlightDetail(_ request: SeerrMediaRequest) -> String {
-        let is4k = request.is4k == true
-        if let progress = request.media?.downloadProgress(is4k: is4k) {
-            let count = request.media?.downloadingCount(is4k: is4k) ?? 0
-            let percent = Int((progress * 100).rounded())
-            return count > 1 ? "Downloading \(count) items · \(percent)%" : "Downloading · \(percent)%"
-        }
-        if request.badgeStatus == .partiallyAvailable {
-            return requesterLine(request, prefix: "Partly available")
-        }
-        return requesterLine(request, prefix: "Approved · waiting for a release")
-    }
+    let request: SeerrMediaRequest
 
-    private func requesterLine(_ request: SeerrMediaRequest, prefix: String) -> String {
-        guard let requester = request.requestedBy?.displayName, !requester.isEmpty else { return prefix }
-        return "\(prefix) · \(requester)"
-    }
+    var body: some View {
+        let scheduled = seerrServiceManager.scheduledDecisions[request.id]
+        let isSending = seerrServiceManager.sendingDecisionIDs.contains(request.id)
+        let title = seerrServiceManager.displayTitle(for: request)
 
-    // MARK: - Decisions
-
-    private func schedule(_ request: SeerrMediaRequest, approve: Bool) {
-        guard scheduledDecisions[request.id] == nil, !sendingIDs.contains(request.id) else { return }
-        let task = Task { @MainActor in
-            try? await Task.sleep(for: RequestDecision.undoWindow)
-            guard !Task.isCancelled, scheduledDecisions[request.id] != nil else { return }
-            scheduledDecisions[request.id] = nil
-            await send(request, approve: approve)
-        }
-        scheduledDecisions[request.id] = RequestDecision(approve: approve, task: task)
-    }
-
-    private func undo(_ request: SeerrMediaRequest) {
-        scheduledDecisions[request.id]?.task.cancel()
-        scheduledDecisions[request.id] = nil
-    }
-
-    private func send(_ request: SeerrMediaRequest, approve: Bool) async {
-        sendingIDs.insert(request.id)
-        defer { sendingIDs.remove(request.id) }
-        if let message = await decideNow(request, approve: approve) {
-            inAppNotificationCenter.showError(title: approve ? "Approve Failed" : "Decline Failed", message: message)
-        }
-    }
-
-    /// Sends a decision straight away. The detail screen uses this: deciding there is
-    /// already a deliberate act, and it shows its own error in place.
-    private func decideNow(_ request: SeerrMediaRequest, approve: Bool) async -> String? {
-        do {
-            if approve {
-                try await seerrServiceManager.approveRequest(id: request.id)
+        Group {
+            if scheduled != nil {
+                Button("Undo") { seerrServiceManager.undoDecision(for: request.id) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel(scheduled == true ? "Undo approving \(title)" : "Undo declining \(title)")
+                    .accessibilityIdentifier("request-undo-\(request.id)")
+            } else if isSending {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 30, height: 30)
             } else {
-                try await seerrServiceManager.declineRequest(id: request.id)
+                HStack(spacing: 8) {
+                    decisionButton(
+                        "Decline \(title)",
+                        systemImage: "xmark",
+                        tint: nil,
+                        identifier: "request-decline-\(request.id)"
+                    ) { schedule(approve: false) }
+                    decisionButton(
+                        "Approve \(title)",
+                        systemImage: "checkmark",
+                        tint: .green,
+                        identifier: "request-approve-\(request.id)"
+                    ) { schedule(approve: true) }
+                }
             }
-            return nil
-        } catch {
-            return error.localizedDescription
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        .animation(.snappy, value: scheduled)
+        .animation(.snappy, value: isSending)
+    }
+
+    private func schedule(approve: Bool) {
+        Self.schedule(request, approve: approve, in: seerrServiceManager, reportingTo: inAppNotificationCenter)
+    }
+
+    /// Schedules a decision and says so if Seerr refuses it. Shared with swipe actions.
+    static func schedule(
+        _ request: SeerrMediaRequest,
+        approve: Bool,
+        in manager: SeerrServiceManager,
+        reportingTo center: InAppNotificationCenter
+    ) {
+        manager.scheduleDecision(for: request.id, approve: approve) { message in
+            center.showError(title: approve ? "Approve Failed" : "Decline Failed", message: message)
         }
     }
-}
 
-private struct RequestRoute: Hashable, Identifiable {
-    let id: Int
-}
-
-private struct RequestDecision {
-    static let undoWindow: Duration = .seconds(4)
-
-    let approve: Bool
-    let task: Task<Void, Never>
+    private func decisionButton(
+        _ title: String,
+        systemImage: String,
+        tint: Color?,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        // Decline is neutral, Approve is green: one answer is the expected one.
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
+                .frame(width: 30, height: 30)
+                .background(
+                    tint.map { AnyShapeStyle($0.opacity(0.18)) } ?? AnyShapeStyle(.quaternary),
+                    in: Circle()
+                )
+                .contentShape(Circle())
+        }
+        // Plain, not borderless: borderless tints its label with the accent colour,
+        // which turned Decline's grey blue.
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
+    }
 }

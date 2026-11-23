@@ -268,6 +268,52 @@ struct SeerrServiceManagerTests {
         }
     }
 
+    @Test("A scheduled decision waits for its undo window, and an undone one is never sent")
+    func scheduledDecisionsWaitAndUndo() async throws {
+        let server = try await SeerrManagerLoopbackServer(label: "scheduled-decisions")
+        defer { server.stop() }
+        server.route("GET /api/v1/auth/me", SeerrManagerFakeResponse(body: Data(#"{"id":1}"#.utf8)))
+        server.route("GET /api/v1/user", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":1,"results":1,"page":1},"results":[{"id":1}]}"#.utf8)
+        ))
+        server.route("GET /api/v1/request", SeerrManagerFakeResponse(
+            body: Data(#"{"pageInfo":{"pages":1,"pageSize":20,"results":2,"page":1},"results":[{"id":1},{"id":2}]}"#.utf8)
+        ))
+        server.route("POST /api/v1/request/1/approve", SeerrManagerFakeResponse(body: Data(#"{"id":1}"#.utf8)))
+        server.route("POST /api/v1/request/2/decline", SeerrManagerFakeResponse(body: Data(#"{"id":2}"#.utf8)))
+
+        let profile = SeerrServiceProfile(displayName: "Test Seerr", hostURL: server.baseURL)
+        let manager = SeerrServiceManager()
+
+        try await withSavedSessionCookie(for: profile, cookie: "test-session") {
+            await manager.connectService(profile)
+            await manager.refreshPendingRequests()
+
+            // Held: a window that cannot run out during the test, then Undo.
+            manager.decisionUndoWindow = .seconds(3_600)
+            let declined = manager.scheduleDecision(for: 2, approve: false) { _ in }
+            #expect(manager.scheduledDecisions[2] == false)
+            #expect(manager.scheduleDecision(for: 2, approve: true) { _ in } == nil, "A request is answered once.")
+            manager.undoDecision(for: 2)
+            await declined?.value
+            #expect(manager.scheduledDecisions[2] == nil)
+
+            // Sent: a window that has already run out.
+            manager.decisionUndoWindow = .zero
+            var failure: String?
+            let approved = manager.scheduleDecision(for: 1, approve: true) { failure = $0 }
+            await approved?.value
+
+            #expect(failure == nil)
+            #expect(server.requests.contains("POST /api/v1/request/1/approve"))
+            #expect(!server.requests.contains("POST /api/v1/request/2/decline"), "An undone decision must never reach Seerr.")
+            #expect(manager.pendingRequests.map(\.id) == [2])
+            #expect(manager.inFlightRequests.map(\.id) == [1])
+            #expect(manager.scheduledDecisions.isEmpty)
+            #expect(manager.sendingDecisionIDs.isEmpty)
+        }
+    }
+
     @Test("approveRequest and declineRequest are no-ops when there is no active client")
     func approveAndDeclineAreNoOpsWithoutClient() async throws {
         let manager = SeerrServiceManager()

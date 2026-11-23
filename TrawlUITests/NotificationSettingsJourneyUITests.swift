@@ -242,7 +242,11 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
 
     @MainActor
     private func firstButton(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+        // Not the Actions tab's "Sonarr Actions" group: in the sidebar chrome's
+        // popover the unselected tab stays in the tree, ahead of the pushed hub.
+        app.buttons.matching(NSPredicate(
+            format: "label CONTAINS[c] %@ AND NOT (label ENDSWITH[c] %@)", text, " Actions"
+        )).firstMatch
     }
 
     @MainActor

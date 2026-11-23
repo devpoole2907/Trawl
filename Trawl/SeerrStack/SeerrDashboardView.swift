@@ -3,6 +3,7 @@ import Observation
 
 struct SeerrDashboardView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.sidebarNavigationColumn) private var sidebarColumn
     @Environment(SeerrRequestBrowserState.self) private var sharedBrowser: SeerrRequestBrowserState?
     @State private var localBrowser = SeerrRequestBrowserState()
@@ -46,6 +47,18 @@ struct SeerrDashboardView: View {
             }
             await viewModel?.loadIfNeeded()
         }
+        // A decision answered from a row, here or in the notification sheet, is sent
+        // by the manager; the list reloads to show the request's new status.
+        .onChange(of: seerrServiceManager.sendingDecisionIDs) { old, new in
+            guard sidebarColumn != .detail, !old.subtracting(new).isEmpty else { return }
+            Task { await viewModel?.loadRequests() }
+        }
+    }
+
+    private func scheduleDecision(_ item: SeerrRequestDisplayItem, approve: Bool) {
+        SeerrRequestDecisionControls.schedule(
+            item.request, approve: approve, in: seerrServiceManager, reportingTo: inAppNotificationCenter
+        )
     }
 
     /// A row that selects beside a detail pane, and pushes without one.
@@ -55,14 +68,30 @@ struct SeerrDashboardView: View {
         viewModel: SeerrRequestManagementViewModel
     ) -> some View {
         if showsDetailPane {
-            SeerrRequestRow(item: item)
+            rowContent(item)
                 .tag(item.id)
         } else {
             NavigationLink {
                 requestDetail(item, viewModel: viewModel)
             } label: {
-                SeerrRequestRow(item: item)
+                rowContent(item)
             }
+        }
+    }
+
+    /// A pending request answers from its row, with the same round buttons and undo
+    /// window as the notification sheet's Requests tab. In the sidebar chrome this
+    /// list is where waiting requests live - the row's badge leads here - so they
+    /// should be as quick to answer here as there.
+    @ViewBuilder
+    private func rowContent(_ item: SeerrRequestDisplayItem) -> some View {
+        if item.request.requestStatus == .pending {
+            HStack(spacing: 10) {
+                SeerrRequestRow(item: item)
+                SeerrRequestDecisionControls(request: item.request)
+            }
+        } else {
+            SeerrRequestRow(item: item)
         }
     }
 
@@ -88,8 +117,18 @@ struct SeerrDashboardView: View {
         SeerrRequestDetailView(
             request: item.request,
             dismissAfterSuccessfulAction: !showsDetailPane,
-            onApprove: { await viewModel.approve(item) },
-            onDecline: { await viewModel.decline(item) },
+            // The sidebar's Requests badge counts the manager's queue, so a decision
+            // made here refreshes it.
+            onApprove: {
+                let error = await viewModel.approve(item)
+                await seerrServiceManager.refreshPendingRequests()
+                return error
+            },
+            onDecline: {
+                let error = await viewModel.decline(item)
+                await seerrServiceManager.refreshPendingRequests()
+                return error
+            },
             onDelete: { await viewModel.delete(item) }
         )
     }
@@ -139,14 +178,14 @@ struct SeerrDashboardView: View {
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
                                     Button {
-                                        Task { _ = await viewModel.approve(item) }
+                                        scheduleDecision(item, approve: true)
                                     } label: {
                                         Label("Approve", systemImage: "checkmark.circle")
                                     }
                                     .tint(.green)
 
                                     Button {
-                                        Task { _ = await viewModel.decline(item) }
+                                        scheduleDecision(item, approve: false)
                                     } label: {
                                         Label("Decline", systemImage: "xmark.circle")
                                     }

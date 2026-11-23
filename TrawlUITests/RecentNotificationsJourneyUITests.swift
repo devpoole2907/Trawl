@@ -171,6 +171,13 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
 
     @MainActor
     private func dismissSheet(_ navigationBar: XCUIElement, in app: XCUIApplication) {
+        // The sidebar chrome shows the panel as a popover from its bell, which closes
+        // on a tap outside rather than a drag.
+        let dismissRegion = app.otherElements["PopoverDismissRegion"]
+        if dismissRegion.exists {
+            dismissRegion.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)).tap()
+            return
+        }
         let start = navigationBar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
         start.press(forDuration: 0.05, thenDragTo: end)

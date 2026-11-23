@@ -89,6 +89,7 @@ final class SeerrServiceManager {
         inFlightRequests = []
         recentlyAvailableRequests = []
         requestSummaries = [:]
+        cancelScheduledDecisions()
     }
 
     func updateCachedUserCount(_ count: Int) {
@@ -161,8 +162,8 @@ final class SeerrServiceManager {
 
     /// The ones that became available inside the window, newest first.
     ///
-    /// The media's own `mediaAddedAt` is the moment it landed; `updatedAt` on the
-    /// media and then on the request are fallbacks for servers that leave it out.
+    /// Dated by the media's later of `mediaAddedAt` and `updatedAt` (see
+    /// `availableDate(of:)`), then the request's `updatedAt`.
     /// A request with no date at all is dropped: "recently" is a claim about time,
     /// and an undated row would sit there forever.
     nonisolated static func recentlyAvailable(_ requests: [SeerrMediaRequest], now: Date) -> [SeerrMediaRequest] {
@@ -178,9 +179,13 @@ final class SeerrServiceManager {
     }
 
     nonisolated static func availableDate(of request: SeerrMediaRequest) -> Date? {
-        SeerrDateFormatter.date(from: request.media?.mediaAddedAt)
-            ?? SeerrDateFormatter.date(from: request.media?.updatedAt)
-            ?? SeerrDateFormatter.date(from: request.updatedAt)
+        // The later of the two media dates. Seerr 3.5 sets `mediaAddedAt` when the
+        // media row is created - at request time, while still processing - so on
+        // its own it can date an arrival days early and drop it out of the window.
+        // `updatedAt` moves when the status changes to available.
+        let mediaDates = [request.media?.mediaAddedAt, request.media?.updatedAt]
+            .compactMap { SeerrDateFormatter.date(from: $0) }
+        return mediaDates.max() ?? SeerrDateFormatter.date(from: request.updatedAt)
     }
 
     nonisolated static func titleKey(for request: SeerrMediaRequest) -> String? {
@@ -241,6 +246,76 @@ final class SeerrServiceManager {
         guard let client = activeClient else { return }
         _ = try await client.declineRequest(id: id)
         pendingRequests.removeAll { $0.id == id }
+    }
+
+    // MARK: - Decisions with an undo window
+
+    /// Decisions made from a row's Approve or Decline, not sent yet: request id to
+    /// whether it was an approval. Held here, not by the row, so the decision and its
+    /// Undo outlive the view that took it - the sheet closing as the window widens,
+    /// or the same request showing in the sidebar's Requests at the same time.
+    private(set) var scheduledDecisions: [Int: Bool] = [:]
+    /// Decisions on their way to Seerr, so a row can't be answered twice.
+    private(set) var sendingDecisionIDs: Set<Int> = []
+    @ObservationIgnored private var decisionTasks: [Int: Task<Void, Never>] = [:]
+
+    /// How long a decision waits for an Undo before it is sent.
+    @ObservationIgnored var decisionUndoWindow: Duration = .seconds(4)
+
+    /// Answers a pending request after the undo window. `onFailure` gets Seerr's
+    /// error if the send fails; the caller decides how to say so. Returns the task
+    /// that waits and sends - `nil` if the request is already decided or sending -
+    /// so a caller that needs to know when it has finished can await it.
+    @discardableResult
+    func scheduleDecision(
+        for id: Int,
+        approve: Bool,
+        onFailure: @escaping @MainActor (String) -> Void
+    ) -> Task<Void, Never>? {
+        guard scheduledDecisions[id] == nil, !sendingDecisionIDs.contains(id) else { return nil }
+        let window = decisionUndoWindow
+        scheduledDecisions[id] = approve
+        let task = Task { [weak self] in
+            try? await Task.sleep(for: window)
+            guard !Task.isCancelled, let self, self.scheduledDecisions[id] != nil else { return }
+            self.scheduledDecisions[id] = nil
+            self.decisionTasks[id] = nil
+            if let message = await self.sendDecision(for: id, approve: approve) {
+                onFailure(message)
+            }
+        }
+        decisionTasks[id] = task
+        return task
+    }
+
+    /// Takes a scheduled decision back. Nothing has been sent, so nothing is undone
+    /// on the server.
+    func undoDecision(for id: Int) {
+        decisionTasks[id]?.cancel()
+        decisionTasks[id] = nil
+        scheduledDecisions[id] = nil
+    }
+
+    /// Sends a decision now, returning Seerr's error message if it failed.
+    func sendDecision(for id: Int, approve: Bool) async -> String? {
+        sendingDecisionIDs.insert(id)
+        defer { sendingDecisionIDs.remove(id) }
+        do {
+            if approve {
+                try await approveRequest(id: id)
+            } else {
+                try await declineRequest(id: id)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func cancelScheduledDecisions() {
+        decisionTasks.values.forEach { $0.cancel() }
+        decisionTasks = [:]
+        scheduledDecisions = [:]
     }
 
     private func prefetchUserCount(using client: SeerrAPIClient) async {
