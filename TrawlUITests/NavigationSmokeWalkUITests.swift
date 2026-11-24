@@ -247,9 +247,11 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
             "N-02 regression: SABnzbdManagerView should render the seeded job (proving SyncService/TorrentService/SABnzbdServiceManager all resolved) instead of trapping on a missing @Environment value."
         )
-        XCTAssertTrue(
-            app.buttons["History"].waitForExistence(timeout: 5),
-            "SABnzbd scope should retain History as its terminal-job ledger."
+        // The fixture's SABnzbd history is empty, and empty segments are hidden, so
+        // History isn't offered here; `DownloadsEmptySegmentTests` owns that rule.
+        XCTAssertFalse(
+            app.buttons["History"].exists,
+            "An empty SABnzbd history is hidden like any other empty segment."
         )
         XCTAssertFalse(
             app.buttons["Seeding"].exists,

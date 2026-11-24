@@ -126,7 +126,7 @@ nonisolated enum ImportIssueTriage {
         if mentions([
             "not an upgrade", "not a quality revision upgrade", "already imported", "already been imported",
             "same filesize", "same file size", "existing file", "file on disk contains more",
-            "destination already exists", "not a custom format upgrade"
+            "already exists", "not a custom format upgrade"
         ]) {
             return .alreadyHave
         }
