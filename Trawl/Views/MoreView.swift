@@ -64,13 +64,6 @@ enum MoreDestination: Hashable {
     case qualityDefinitions
     case setupCheck
     case newsServers
-    /// Downloads and Blocklist as More pushes them on the phone. They are the same
-    /// screens the notification sheet's Downloads tab holds, but a row in More pushes
-    /// its screen like every other row there: routing them into the sheet instead
-    /// cost them their chevron, and left the sheet's Downloads sitting on whatever
-    /// More last asked for, so the accessory reopened on Blocked & Excluded.
-    case downloads
-    case blocklist
 }
 
 /// User-facing breadcrumbs for destinations referenced outside the More hierarchy.
@@ -200,11 +193,6 @@ struct MoreView: View {
     /// visible band of empty space above the middle column, where the inner split's
     /// own bar had been.
     var presentation: Presentation = .stack
-    /// Browsing state for Downloads when More pushes it. Deliberately not the
-    /// session the notification sheet's Downloads tab uses: sharing one let a push
-    /// made here (Blocklist, say) reappear on top of the sheet. Owned by the root,
-    /// so it outlives this view; `nil` in previews, where Downloads makes its own.
-    var downloadsSession: DownloadsViewSession? = nil
 
     enum Presentation {
         /// A self-contained `NavigationStack`. The compact arrangement.
@@ -702,17 +690,6 @@ struct MoreView: View {
         case .newsServers:
             SABnzbdNewsServersView()
                 .moreDestinationTitleStyle()
-        case .downloads:
-            DownloadsView(session: downloadsSession)
-                .arrMediaNavigationDestinations()
-                // Not the shared navigator. Its requests are addressed to the sheet's
-                // Downloads, and a copy mounted here would consume them first - a
-                // request for Issues would land in More, and the sheet would open on
-                // whatever it had before.
-                .environment(DownloadsNavigator?.none)
-        case .blocklist:
-            ArrBlocklistView()
-                .environment(arrServiceManager)
         case .prowlarrLinkedApplications:
             prowlarrLinkedApplicationsDestination
                 .moreDestinationTitleStyle()
@@ -973,7 +950,7 @@ struct MoreView: View {
         } else {
             Section("Search Results") {
                 ForEach(filteredMoreSearchEntries) { entry in
-                    if let destination = Self.pushedDestination(for: entry) {
+                    if let destination = entry.destination {
                         NavigationLink(value: destination) {
                             MoreSearchResultRow(entry: entry)
                         }
@@ -1302,11 +1279,15 @@ struct MoreView: View {
         NavigationMenuRow(icon: icon, color: color, title: title, subtitle: subtitle)
     }
 
-    /// The rows More lists for one sidebar section: everything the tab bar does not
-    /// already have a tab for. Series and Movies are the Library tab.
+    /// The rows More lists for one sidebar section: everything the phone doesn't
+    /// already have a door to. Series and Movies are the Library tab; Downloads is
+    /// the bar above the tabs and its sheet, and Blocklist is one of its screens.
+    /// More's search still finds both, and opens the sheet on them.
     static func moreRows(in section: SidebarSection) -> [RootTab] {
-        section.rows.filter { !RootTab.compactTabs.contains($0) && $0 != .series && $0 != .movies }
+        section.rows.filter { !RootTab.compactTabs.contains($0) && !Self.reachedFromTheBar.contains($0) }
     }
+
+    private static let reachedFromTheBar: Set<RootTab> = [.series, .movies, .downloads, .blocklist]
 
     /// Collapsed by default: the sections you set up once and rarely visit.
     static let defaultCollapsedMoreSections: Set<SidebarSection> = [.integrations, .management]
@@ -1347,14 +1328,6 @@ struct MoreView: View {
                 SetupCheckMoreRow()
             }
             .accessibilityIdentifier("more-setup-check")
-        } else if let destination = Self.pushedDestination(for: tab) {
-            // Pushed like every other row. These used to be buttons that opened the
-            // notification sheet on Downloads, which drew no chevron and left the
-            // sheet holding More's destination for the accessory's next tap.
-            NavigationLink(value: destination) {
-                fallbackMoreRow(tab)
-            }
-            .accessibilityIdentifier(tab.navigationIdentifier)
         } else if let root = tab.moreRoot {
             NavigationLink(value: root) {
                 if MoreSearchIndex.entry(for: root) != nil {
@@ -1367,30 +1340,12 @@ struct MoreView: View {
         }
     }
 
-    /// The screen More pushes for a row with no `moreRoot` of its own: Downloads and
-    /// Blocklist, which the sidebar shows as columns rather than More screens.
-    static func pushedDestination(for tab: RootTab) -> MoreDestination? {
-        switch tab {
-        case .downloads: .downloads
-        case .blocklist: .blocklist
-        default: nil
-        }
-    }
-
-    /// The same for a search result that has no destination of its own.
-    static func pushedDestination(for entry: MoreSearchIndexEntry) -> MoreDestination? {
-        if let destination = entry.destination { return destination }
-        if entry.downloadsRoute == .blocklist { return .blocklist }
-        if entry.id == "downloads" { return .downloads }
-        return nil
-    }
-
     private func fallbackMoreRow(_ tab: RootTab) -> some View {
         NavigationMenuRow(
             icon: tab.systemImage,
             color: .accentColor,
             title: tab.displayName,
-            subtitle: tab == .downloads ? "Active downloads, queue, and history" : (tab == .blocklist ? "Releases you've blocked" : "")
+            subtitle: ""
         )
     }
 

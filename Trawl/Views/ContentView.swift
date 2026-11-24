@@ -265,7 +265,12 @@ struct ContentView: View {
         .sheet(isPresented: Binding(
             get: { inAppNotificationCenter.isPresentingRecentNotifications && usesNotificationSheet },
             set: { inAppNotificationCenter.isPresentingRecentNotifications = $0 }
-        )) {
+        ), onDismiss: {
+            // The sheet's Downloads session outlives the sheet. A screen left open in
+            // it - Blocklist, Client Management, one reached from More's search - would
+            // otherwise be what the bar's next tap reopens on, instead of the list.
+            navigationSession.downloads.managementRoute = nil
+        }) {
             // The sheet is presented at root, so the services its Needs Attention
             // section reads have to be handed to it explicitly.
             #if os(iOS)
@@ -1423,8 +1428,7 @@ struct ContentView: View {
             isQBittorrentConnecting: isConnecting,
             onRetryQBittorrent: { initializeServices() },
             root: root,
-            presentation: presentation,
-            downloadsSession: navigationSession.moreDownloads
+            presentation: presentation
         )
             // `AppServices` itself, not just the services hanging off it. The
             // qBittorrent RSS screens read it out of the environment, and reaching

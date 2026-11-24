@@ -211,8 +211,6 @@ struct DownloadsView: View {
             selectedSection = isSectionAvailable(requested, in: titleDestination) ? requested : .active
         }
         // A section is a request to see the list, so nothing stays pushed over it.
-        // The session outlives the sheet, and a screen left open there - Blocklist,
-        // say - was what the accessory's "need fixing" tap used to reopen on.
         managementRoute = nil
         downloadsNavigator?.requestedSection = nil
     }
