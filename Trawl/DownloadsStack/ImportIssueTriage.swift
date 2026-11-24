@@ -32,7 +32,7 @@ nonisolated enum ImportIssueCause: String, CaseIterable, Identifiable, Sendable 
     var explanation: String {
         switch self {
         case .path:
-            "Sonarr or Radarr can’t open the folder the download client saved to. Usually a remote path mapping or a permission."
+            "Sonarr or Radarr can’t find the files where the download client says it saved them. Usually a remote path mapping or a permission."
         case .alreadyHave:
             "Not an upgrade on what you already have. Removing deletes the download, not your library."
         case .badRelease:
@@ -97,42 +97,59 @@ nonisolated enum ImportIssueTriage {
     /// The cause behind a queue record's messages.
     ///
     /// Keyword matching rather than exact strings: Sonarr and Radarr word these
-    /// differently and change the wording between versions. The phrases come from
-    /// their import and tracked-download messages; anything unmatched falls to
-    /// `.other`, which keeps the per-row view rather than guessing.
+    /// differently and change the wording between versions. The phrases are taken
+    /// from their source (Sonarr 4.0.16, Radarr develop, November 2026) and checked
+    /// against a live Sonarr 4.0.20 and Radarr 7.0.3; anything unmatched falls to
+    /// `.other`, which keeps the per-row view rather than guessing. Order matters:
+    /// several messages say "failed" or "existing" about a problem that isn't
+    /// a dead download or a duplicate.
     static func cause(messages: [String], trackedDownloadState: String?) -> ImportIssueCause {
         let text = messages.joined(separator: " ").lowercased()
         func mentions(_ phrases: [String]) -> Bool { phrases.contains { text.contains($0) } }
 
+        // Waiting on something that clears by itself: not a cause with a fix.
+        if mentions(["still being unpacked", "locked file", "recently aired", "thexem"]) {
+            return .other
+        }
+        // "No files found are eligible for import in <path>" is what a live Sonarr
+        // and Radarr report when they can't see the client's folder - the usual
+        // Docker path mismatch - not just when a release holds no video. It reads
+        // as a path problem so its fix is Check Again, never a blocklist.
         if mentions([
-            "path does not exist", "not accessible", "remote path", "does not appear to exist inside the container",
-            "access to the path", "permission", "unauthorizedaccess", "directory does not exist"
+            "path does not exist", "not accessible", "not a valid local path", "remote path",
+            "does not appear to exist inside the container", "no files found are eligible",
+            "access to the path", "permission", "unauthorizedaccess", "directory does not exist",
+            "root folder missing", "recycle bin"
         ]) {
             return .path
         }
         if mentions([
-            "not an upgrade", "already imported", "same filesize", "same file size",
-            "existing file", "not a custom format upgrade", "already exists"
+            "not an upgrade", "not a quality revision upgrade", "already imported", "already been imported",
+            "same filesize", "same file size", "existing file", "file on disk contains more",
+            "destination already exists", "not a custom format upgrade"
         ]) {
             return .alreadyHave
         }
         if mentions([
             "unknown series", "unknown movie", "unable to parse", "matched to series by id",
-            "matched to movie by id", "automatic import is not possible", "unable to identify",
-            "was unexpected considering", "manual import required", "not found in the release"
+            "matched to movie by id", "automatic import is not possible", "manual import required",
+            "manually import", "unable to identify", "unexpected considering", "title mismatch",
+            "unable to find series", "unable to match movie", "found multiple", "not linked to any"
         ]) {
             return .cantMatch
         }
         if mentions([
-            "no files found are eligible", "sample", "no video files", ".rar", "rar archive", "unpack",
-            "executable", "dangerous", "not a video", "invalid season or episode", "missing episodes",
-            "expected in this release"
+            "sample", "no video files", "rar file", "rar archive", ".rar", "executable", "dangerous",
+            "invalid video file", "no audio tracks", "not found in the grabbed release",
+            "expected in this release", "missing episodes", "partial season", "split into multiple files",
+            "multi-part"
         ]) {
             return .badRelease
         }
         let state = trackedDownloadState?.lowercased() ?? ""
+        // Not bare "failed": "Failed to import episode" is an import problem.
         if state == "failedpending" || mentions([
-            "download failed", "missing from download client", "stalled", "no connections", "failed"
+            "download failed", "download has failed", "missing from download client", "stalled", "no connections"
         ]) {
             return .deadDownload
         }
@@ -140,12 +157,15 @@ nonisolated enum ImportIssueTriage {
     }
 
     /// The messages only, not their titles: a title is usually the file being
-    /// imported, and a release name like "…rarbg…" would read as a cause.
+    /// imported, and a release name like "…rarbg…" would read as a cause. The
+    /// client's own error rides along: Sonarr and Radarr leave `statusMessages`
+    /// empty for a stalled or errored download.
     static func messages(of item: ArrQueueItem) -> [String] {
         var result: [String] = []
         for statusMessage in item.statusMessages ?? [] {
             result.append(contentsOf: statusMessage.messages ?? [])
         }
+        if let errorMessage = item.errorMessage { result.append(errorMessage) }
         return result
     }
 }

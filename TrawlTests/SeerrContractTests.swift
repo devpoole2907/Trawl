@@ -410,6 +410,34 @@ struct SeerrContractTests {
         #expect(json["is4k"] as? Bool == true)
     }
 
+    @Test("Updating a linked server keeps fields Trawl doesn't model and never sends its read-only id")
+    func updateLinkedServerKeepsUnmodelledFields() async throws {
+        // `animeTags` as a live Seerr 3.5 returns it on a Sonarr link; a bare PUT reset it.
+        SeerrContractURLProtocol.stub(sequence: [
+            .init(body: Data(#"[{"id":3,"name":"Primary","hostname":"dvr.local","port":8989,"apiKey":"dvr-key","activeProfileId":4,"activeDirectory":"/tv","animeTags":[7],"isDefault":true}]"#.utf8)),
+            .init(body: Data(SeerrFixture.dvrSettingsItem.utf8))
+        ])
+        let client = makeClient()
+        let edit = SeerrDVRSettingsPayload(
+            name: "Renamed", hostname: "dvr.local", port: 8989, apiKey: "dvr-key", useSsl: false, baseUrl: nil,
+            activeProfileId: 4, activeProfileName: "HD-1080p", activeDirectory: "/tv", is4k: false, isDefault: true,
+            externalUrl: nil, syncEnabled: false, preventSearch: false, tagRequests: false, tags: [],
+            minimumAvailability: nil, activeAnimeProfileId: nil, activeAnimeDirectory: nil,
+            activeLanguageProfileId: nil, activeAnimeLanguageProfileId: nil, enableSeasonFolders: true
+        )
+
+        _ = try await client.updateDVRSettings(.sonarr, id: 3, body: edit)
+
+        let requests = SeerrContractURLProtocol.recordedRequests
+        #expect(requests.map(\.method) == ["GET", "PUT"])
+        #expect(requests.last?.path == "/api/v1/settings/sonarr/3")
+        let body = try #require(requests.last?.body)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["name"] as? String == "Renamed")
+        #expect(json["animeTags"] as? [Int] == [7])
+        #expect(json["id"] == nil, "Seerr refuses a body carrying its read-only id.")
+    }
+
     // MARK: - Mixed and missing response fields
 
     @Test("Request list decodes missing, null, and mixed-shape fields without failing")
@@ -653,9 +681,15 @@ struct SeerrContractTests {
         ])
     }
 
-    @Test("Webhook notification settings serialize enabled, types, and only the populated options")
+    @Test("Webhook notification settings serialize enabled, types, and only the populated options, keeping Seerr's other fields")
     func webhookNotificationSettingsSerializeExactly() async throws {
-        SeerrContractURLProtocol.stub(statusCode: 204, body: Data(), headerFields: [:])
+        // Seerr's own copy, shaped as a live Seerr 3.5 returns it: `embedPoster` is
+        // a field Trawl doesn't model and a save must not turn off.
+        SeerrContractURLProtocol.stub(sequence: [
+            .init(body: Data(#"{"enabled":false,"embedPoster":true,"types":0,"options":{"webhookUrl":"","jsonPayload":"e30=","supportVariables":false}}"#.utf8)),
+            .init(statusCode: 204, body: Data()),
+            .init(statusCode: 204, body: Data())
+        ])
         let client = makeClient()
         let settings = SeerrWebhookNotificationSettings(
             enabled: true,
@@ -672,18 +706,30 @@ struct SeerrContractTests {
         try await client.updateWebhookNotificationSettings(settings)
         try await client.testWebhookNotificationSettings(settings)
 
-        // JSONEncoder escapes forward slashes and omits nil optionals.
+        // A modelled option left nil (`jsonPayload`) stays out, as before; only
+        // fields Trawl doesn't model are carried over from Seerr's copy.
         let expectedBody = Data(
             #"{"enabled":true,"types":132,"options":{"webhookUrl":"https:\/\/hooks.example.test\/trawl","supportVariables":true}}"#.utf8
         )
+        let savedBody = Data(
+            #"{"enabled":true,"embedPoster":true,"types":132,"options":{"webhookUrl":"https:\/\/hooks.example.test\/trawl","supportVariables":true}}"#.utf8
+        )
         #expect(SeerrContractURLProtocol.recordedRequests == [
+            SeerrRecordedRequest(
+                method: "GET",
+                path: "/api/v1/settings/notifications/webhook",
+                queryPairs: [],
+                cookie: "connect.sid=session-token-1",
+                contentType: nil,
+                body: nil
+            ),
             SeerrRecordedRequest(
                 method: "POST",
                 path: "/api/v1/settings/notifications/webhook",
                 queryPairs: [],
                 cookie: "connect.sid=session-token-1",
                 contentType: "application/json",
-                body: expectedBody
+                body: savedBody
             ),
             SeerrRecordedRequest(
                 method: "POST",

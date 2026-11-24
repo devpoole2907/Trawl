@@ -496,6 +496,28 @@ struct SonarrAPIClientContractTests {
             URLQueryItem(name: "pageSize", value: "20")
         ])
     }
+
+    @Test("Saving naming keeps the custom colon replacement Trawl doesn't edit")
+    func namingSaveKeepsCustomColonReplacement() async throws {
+        // Shaped as a live Sonarr 4.0.20 returns it; a bare PUT reset
+        // `customColonReplacementFormat` to empty.
+        let stored = #"{"id":1,"renameEpisodes":true,"replaceIllegalCharacters":true,"colonReplacementFormat":5,"customColonReplacementFormat":" -","multiEpisodeStyle":5,"standardEpisodeFormat":"{Series Title} - S{season:00}E{episode:00}"}"#
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-naming",
+            routes: ["/api/v3/config/naming/1": .json(stored)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+        var config = try JSONDecoder().decode(SonarrNamingConfig.self, from: Data(stored.utf8))
+        config.renameEpisodes = false
+
+        let _: SonarrNamingConfig = try await client.updateNamingConfig(config)
+
+        #expect(server.requests.map(\.method) == ["GET", "PUT"])
+        let sent = try #require(server.requests.last?.jsonObjectBody)
+        #expect(sent["renameEpisodes"] as? Bool == false)
+        #expect(sent["customColonReplacementFormat"] as? String == " -")
+    }
 }
 
 // MARK: - Radarr

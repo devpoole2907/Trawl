@@ -2054,8 +2054,9 @@ struct DownloadsView: View {
         // Segments with nothing in them are hidden too - an empty Queue or History
         // is a tap that only says "nothing here". The one the user is on stays.
         let available = availableSections
-        let nonEmpty = nonEmptySections(available)
-        return available.filter { $0 == selectedSection || nonEmpty.contains($0) }
+        return DownloadsViewModel.visibleSections(
+            available, nonEmpty: nonEmptySections(available), selected: selectedSection
+        )
     }
 
     private func nonEmptySections(_ candidates: [DownloadSection]) -> Set<DownloadSection> {
@@ -2075,10 +2076,11 @@ struct DownloadsView: View {
     /// first one that does. Only on arrival: once the user is on a segment it stays.
     private func landOnANonEmptySection() {
         let available = availableSections
-        let nonEmpty = nonEmptySections(available)
-        guard !nonEmpty.isEmpty, !nonEmpty.contains(selectedSection),
-              let first = available.first(where: nonEmpty.contains) else { return }
-        selectedSection = first
+        if let landing = DownloadsViewModel.landingSection(
+            available, nonEmpty: nonEmptySections(available), selected: selectedSection
+        ) {
+            selectedSection = landing
+        }
     }
 
     /// The segments this client and configuration can offer, before hiding empties.

@@ -181,6 +181,28 @@ final class DownloadsViewModel {
         return result
     }
 
+    /// The segments to show: those with something in them, plus the one the user
+    /// is on - leaving it would yank the screen away mid-use.
+    static func visibleSections(
+        _ available: [DownloadSection],
+        nonEmpty: Set<DownloadSection>,
+        selected: DownloadSection
+    ) -> [DownloadSection] {
+        available.filter { $0 == selected || nonEmpty.contains($0) }
+    }
+
+    /// Where to land when Downloads opens on an empty segment: the first one with
+    /// something in it, or nil to stay - when the current one has downloads, or
+    /// when every segment is empty.
+    static func landingSection(
+        _ available: [DownloadSection],
+        nonEmpty: Set<DownloadSection>,
+        selected: DownloadSection
+    ) -> DownloadSection? {
+        guard !nonEmpty.isEmpty, !nonEmpty.contains(selected) else { return nil }
+        return available.first(where: nonEmpty.contains)
+    }
+
     @ObservationIgnored private var cachedNonEmptyKey: ItemsCacheKey?
     @ObservationIgnored private var cachedNonEmpty: Set<DownloadSection> = []
 
@@ -269,7 +291,7 @@ final class DownloadsViewModel {
             let activeQueue = queueItems.filter { item in
                 guard case .arrQueue(let record, _, let torrent, let job, _) = item else { return false }
                 return Self.activity(of: record, linkedTorrent: torrent, linkedSABJob: job) == .active
-                    && !record.isImportIssueQueueItem
+                    && !Self.needsAttention(record, linkedTorrent: torrent, linkedSABJob: job)
             }
             let activeTorrents = unmatchedTorrents
                 .filter { Self.isActive($0) }
@@ -284,7 +306,7 @@ final class DownloadsViewModel {
             let waitingQueue = queueItems.filter { item in
                 guard case .arrQueue(let record, _, let torrent, let job, _) = item else { return false }
                 return Self.activity(of: record, linkedTorrent: torrent, linkedSABJob: job) == .waiting
-                    && !record.isImportIssueQueueItem
+                    && !Self.needsAttention(record, linkedTorrent: torrent, linkedSABJob: job)
             }
             let waitingTorrents = unmatchedTorrents
                 .filter { Self.isWaiting($0) }
@@ -661,8 +683,8 @@ final class DownloadsViewModel {
     private static func issueItems(_ matched: MatchedDownloads) -> [DownloadListItem] {
         let queueIssues = Self.oneRowPerIssue(
             matched.queueItems.filter { item in
-                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
-                return record.isImportIssueQueueItem
+                guard case .arrQueue(let record, _, let torrent, let job, _) = item else { return false }
+                return Self.needsAttention(record, linkedTorrent: torrent, linkedSABJob: job)
             }
         )
         let torrentIssues = matched.unmatchedTorrents
@@ -757,6 +779,20 @@ final class DownloadsViewModel {
     /// left is the Arr's import, so its state decides. That also keeps this total:
     /// every non-issue queue row lands in exactly one section, as it did when this
     /// was a plain `isActive` / `!isActive` split.
+    /// An *arr record belongs in Issues when the import is stuck, or when the
+    /// download client reports a problem and the download isn't moving. A torrent
+    /// that is stalled for a moment stays where it is rather than flickering into
+    /// Issues; one the client has errored on (a folder it can't write, missing
+    /// files) has nowhere else to show, because a torrent matched to a record is
+    /// never listed on its own.
+    static func needsAttention(_ item: ArrQueueItem, linkedTorrent: Torrent?, linkedSABJob: SABnzbdJob?) -> Bool {
+        if item.isImportIssueQueueItem { return true }
+        guard item.reportsDownloadClientProblem else { return false }
+        if let linkedSABJob { return !isActive(linkedSABJob) && !isWaiting(linkedSABJob) }
+        if let linkedTorrent { return !isActive(linkedTorrent) && !isWaiting(linkedTorrent) }
+        return true
+    }
+
     static func activity(
         of item: ArrQueueItem,
         linkedTorrent: Torrent?,

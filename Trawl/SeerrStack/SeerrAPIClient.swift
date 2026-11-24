@@ -148,7 +148,24 @@ actor SeerrAPIClient {
     }
 
     func updateDVRSettings(_ kind: SeerrDVRKind, id: Int, body: SeerrDVRSettingsPayload) async throws -> SeerrDVRSettings {
-        try await put(kind.settingsItemPath(id: id), body: body)
+        // Seerr replaces the server entry with the body, so fields Trawl doesn't
+        // model - `animeTags` on a Sonarr link, checked live on Seerr 3.5 - were
+        // reset. Lay the edit over Seerr's own copy; `id` is read-only and refused.
+        let servers: [JSONValue] = try await get(kind.settingsPath)
+        let current = servers.first { server in
+            if case .object(let fields) = server, case .number(let serverID) = fields["id"] {
+                return Int(serverID) == id
+            }
+            return false
+        }
+        guard let current else { return try await put(kind.settingsItemPath(id: id), body: body) }
+        return try await put(kind.settingsItemPath(id: id), body: Self.withoutID(try JSONValue.mergingServerFields(body, onto: current)))
+    }
+
+    private static func withoutID(_ value: JSONValue) -> JSONValue {
+        guard case .object(var fields) = value else { return value }
+        fields["id"] = nil
+        return .object(fields)
     }
 
     func deleteDVRSettings(_ kind: SeerrDVRKind, id: Int) async throws {
@@ -277,7 +294,14 @@ actor SeerrAPIClient {
     }
 
     func updateWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {
-        try await postVoid("/api/v1/settings/notifications/webhook", jsonBody: settings)
+        // Seerr replaces the webhook agent's settings with the body: `embedPoster`,
+        // which Trawl doesn't model, was turned off by every save (checked live on
+        // Seerr 3.5). Lay the edit over Seerr's own copy.
+        let current: JSONValue = try await get("/api/v1/settings/notifications/webhook")
+        try await postVoid(
+            "/api/v1/settings/notifications/webhook",
+            jsonBody: try JSONValue.mergingServerFields(settings, onto: current)
+        )
     }
 
     func testWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {

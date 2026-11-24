@@ -205,7 +205,9 @@ extension SharedArrClient {
 
     func updateNamingConfig<T: Codable & ArrAPIOptionalIdentifiable>(_ config: sending T) async throws -> sending T {
         guard let id = config.id else { throw ArrError.invalidResponse }
-        return try await base.putCodable("\(apiPath)/config/naming/\(id)", body: config)
+        // Sonarr's naming carries `customColonReplacementFormat`, which Trawl doesn't
+        // edit; a bare PUT reset it to empty (checked live on Sonarr 4.0.20).
+        return try await base.putPreservingServerFields("\(apiPath)/config/naming/\(id)", body: config)
     }
 
     func getIndexers<T: Decodable>() async throws -> sending [T] {

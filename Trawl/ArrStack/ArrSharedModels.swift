@@ -849,6 +849,10 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
     let trackedDownloadStatus: String?  // "ok", "warning", "error"
     let trackedDownloadState: String?   // "downloading", "importPending", "importing", "failedPending"
     let statusMessages: [ArrStatusMessage]?
+    /// What the download client reported, when it reported a problem: "The
+    /// download is stalled with no connections", "qBittorrent is reporting an
+    /// error". Sonarr and Radarr leave `statusMessages` empty for these.
+    let errorMessage: String?
     let downloadId: String?
     let protocol_: String?
     let downloadClient: String?
@@ -869,7 +873,7 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, trackedDownloadStatus, trackedDownloadState
-        case statusMessages, downloadId
+        case statusMessages, errorMessage, downloadId
         case protocol_ = "protocol"
         case downloadClient, outputPath, size, sizeleft, timeleft
         case estimatedCompletionTime, quality
@@ -908,6 +912,16 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
         return normalizedStatus == "warning" || normalizedStatus == "error"
     }
 
+    /// The download client reports a problem with the download itself. These
+    /// arrive with `trackedDownloadStatus` "ok" - only `status` and `errorMessage`
+    /// say so (captured from Sonarr 4.0.20 and Radarr 7.0.3 against qBittorrent
+    /// 5.3). A torrent that is merely stalled reports this too, which is why
+    /// Downloads weighs it against the client's own state.
+    var reportsDownloadClientProblem: Bool {
+        let clientStatus = status?.lowercased()
+        return clientStatus == "warning" || clientStatus == "failed"
+    }
+
     var canBeBlocklisted: Bool {
         movieId != nil || seriesId != nil || episodeId != nil
     }
@@ -917,6 +931,7 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
             .compactMap(\.messages)
             .flatMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            ?? errorMessage.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
     }
 
     /// What makes two queue records the *same* import issue, for collapsing the
@@ -938,8 +953,7 @@ nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
     /// individual file being imported, which differs per episode and would make every
     /// record of one pack look distinct - defeating the collapse entirely.
     var importIssueSignature: String {
-        let reasons = (statusMessages ?? [])
-            .flatMap { $0.messages ?? [] }
+        let reasons = ((statusMessages ?? []).flatMap { $0.messages ?? [] } + [errorMessage].compactMap { $0 })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }
             .sorted()
