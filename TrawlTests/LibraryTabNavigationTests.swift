@@ -77,7 +77,9 @@ struct LibraryTabNavigationTests {
         #expect(!rows.contains(.series))
         #expect(!rows.contains(.movies))
         #expect(!rows.contains(.downloads), "Downloads is the bar above the tabs.")
-        #expect(!rows.contains(.blocklist), "Blocklist is one of Downloads' screens.")
+        #expect(rows.contains(.blocklist), "Blocklist is a place: it fails every test for the sheet.")
+        #expect(RootTab.sidebarDestination(forMoreRoot: .blocklist) == .blocklist,
+                "Unfolding a Duo on Blocklist keeps its sidebar row.")
         #expect(rows.contains(.requests))
         #expect(rows.contains(.health))
         #expect(rows.contains(.settings))

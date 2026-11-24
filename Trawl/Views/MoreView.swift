@@ -64,6 +64,10 @@ enum MoreDestination: Hashable {
     case qualityDefinitions
     case setupCheck
     case newsServers
+    /// Blocklist as More pushes it on the phone. A place, not work in progress: it
+    /// never comes to you, never drains and never finishes, so its home is here
+    /// rather than the notification sheet (Downloads' menu keeps a shortcut).
+    case blocklist
 }
 
 /// User-facing breadcrumbs for destinations referenced outside the More hierarchy.
@@ -690,6 +694,9 @@ struct MoreView: View {
         case .newsServers:
             SABnzbdNewsServersView()
                 .moreDestinationTitleStyle()
+        case .blocklist:
+            ArrBlocklistView()
+                .environment(arrServiceManager)
         case .prowlarrLinkedApplications:
             prowlarrLinkedApplicationsDestination
                 .moreDestinationTitleStyle()
@@ -950,7 +957,7 @@ struct MoreView: View {
         } else {
             Section("Search Results") {
                 ForEach(filteredMoreSearchEntries) { entry in
-                    if let destination = entry.destination {
+                    if let destination = entry.destination ?? (entry.downloadsRoute == .blocklist ? .blocklist : nil) {
                         NavigationLink(value: destination) {
                             MoreSearchResultRow(entry: entry)
                         }
@@ -1281,13 +1288,12 @@ struct MoreView: View {
 
     /// The rows More lists for one sidebar section: everything the phone doesn't
     /// already have a door to. Series and Movies are the Library tab; Downloads is
-    /// the bar above the tabs and its sheet, and Blocklist is one of its screens.
-    /// More's search still finds both, and opens the sheet on them.
+    /// the bar above the tabs and its sheet. More's search still finds it.
     static func moreRows(in section: SidebarSection) -> [RootTab] {
         section.rows.filter { !RootTab.compactTabs.contains($0) && !Self.reachedFromTheBar.contains($0) }
     }
 
-    private static let reachedFromTheBar: Set<RootTab> = [.series, .movies, .downloads, .blocklist]
+    private static let reachedFromTheBar: Set<RootTab> = [.series, .movies, .downloads]
 
     /// Collapsed by default: the sections you set up once and rarely visit.
     static let defaultCollapsedMoreSections: Set<SidebarSection> = [.integrations, .management]
@@ -1328,6 +1334,11 @@ struct MoreView: View {
                 SetupCheckMoreRow()
             }
             .accessibilityIdentifier("more-setup-check")
+        } else if tab == .blocklist {
+            NavigationLink(value: MoreDestination.blocklist) {
+                fallbackMoreRow(tab)
+            }
+            .accessibilityIdentifier(tab.navigationIdentifier)
         } else if let root = tab.moreRoot {
             NavigationLink(value: root) {
                 if MoreSearchIndex.entry(for: root) != nil {
@@ -1345,7 +1356,7 @@ struct MoreView: View {
             icon: tab.systemImage,
             color: .accentColor,
             title: tab.displayName,
-            subtitle: ""
+            subtitle: tab == .blocklist ? "Releases you've blocked" : ""
         )
     }
 

@@ -338,7 +338,9 @@ enum RootTab: Hashable, CaseIterable {
 
     /// The sidebar row for a screen More pushes as its first level, if there is one.
     static func sidebarDestination(forMoreRoot root: MoreDestination) -> RootTab? {
-        sidebarDestinations.first { $0.moreRoot == root }
+        // Blocklist is a sidebar row without a `moreRoot`: the sidebar shows it as a
+        // column, More pushes it.
+        root == .blocklist ? .blocklist : sidebarDestinations.first { $0.moreRoot == root }
     }
 
     /// Every sidebar row, in section order.
