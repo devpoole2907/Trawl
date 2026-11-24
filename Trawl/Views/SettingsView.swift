@@ -894,7 +894,7 @@ struct QBittorrentSettingsView: View {
         }
 
         switch lastError {
-        case .authFailed, .networkError, .noServerConfigured, .connectionTestFailed:
+        case .authFailed, .networkError, .noServerConfigured, .connectionTestFailed, .webPage:
             return true
         case .invalidResponse, .decodingError, .serverError:
             return false

@@ -32,6 +32,55 @@ struct HTTPErrorMapper: Sendable {
     let unauthorizedStatusCodes: Set<Int>
 }
 
+/// What each service's `decode` mapping is handed instead of a raw `DecodingError`.
+///
+/// Every service message is built from this (`String(describing:)` or
+/// `localizedDescription`), and a raw `DecodingError` reads as a paragraph of
+/// Foundation internals. The commonest cause of all is not a changed API but a
+/// web page where the API should be - a sign-in proxy, a missing URL base, the
+/// wrong port - so that case gets its own sentence.
+nonisolated struct HTTPResponseReadError: LocalizedError, CustomStringConvertible, Sendable {
+    let description: String
+    var errorDescription: String? { description }
+
+    static let webPage = "The server answered with a web page, not its API. Check the address and any URL base, or whether a sign-in page sits in front of it."
+
+    static func looksLikeWebPage(_ data: Data, contentType: String?) -> Bool {
+        if let contentType, contentType.lowercased().contains("text/html") { return true }
+        let firstByte = data.first { !($0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 || $0 == 0xEF || $0 == 0xBB || $0 == 0xBF) }
+        return firstByte == UInt8(ascii: "<")
+    }
+
+    init(_ description: String) { self.description = description }
+
+    init(_ error: any Error, data: Data, contentType: String?) {
+        if Self.looksLikeWebPage(data, contentType: contentType) {
+            self.init(Self.webPage)
+            return
+        }
+        guard let decodingError = error as? DecodingError else {
+            self.init(error.localizedDescription)
+            return
+        }
+        func at(_ path: [any CodingKey]) -> String {
+            let parts = path.map { $0.intValue.map(String.init) ?? $0.stringValue }
+            return parts.isEmpty ? "" : " at \(parts.joined(separator: " › "))"
+        }
+        switch decodingError {
+        case .keyNotFound(let key, let context):
+            self.init("'\(key.stringValue)' is missing\(at(context.codingPath)).")
+        case .valueNotFound(let type, let context):
+            self.init("expected \(type) but found null\(at(context.codingPath)).")
+        case .typeMismatch(let type, let context):
+            self.init("expected \(type)\(at(context.codingPath)).")
+        case .dataCorrupted(let context):
+            self.init(context.codingPath.isEmpty ? "the reply isn't valid JSON." : "unreadable value\(at(context.codingPath)).")
+        @unknown default:
+            self.init(decodingError.localizedDescription)
+        }
+    }
+}
+
 // MARK: - Diagnostics
 
 /// Optional hook for verbose logging on specific request paths. Used by ArrAPIClient
@@ -215,7 +264,7 @@ actor HTTPTransport {
             if let diagnostics, diagnostics.shouldLog(path) {
                 diagnostics.decodingError(path, urlString, error, data)
             }
-            throw errorMapper.decode(error)
+            throw errorMapper.decode(HTTPResponseReadError(error, data: data, contentType: response.value(forHTTPHeaderField: "Content-Type")))
         }
     }
 
@@ -253,7 +302,7 @@ actor HTTPTransport {
             if let diagnostics, diagnostics.shouldLog(path) {
                 diagnostics.decodingError(path, urlString, error, data)
             }
-            throw errorMapper.decode(error)
+            throw errorMapper.decode(HTTPResponseReadError(error, data: data, contentType: response.value(forHTTPHeaderField: "Content-Type")))
         }
     }
 

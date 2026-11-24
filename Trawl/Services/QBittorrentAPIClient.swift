@@ -577,6 +577,7 @@ actor QBittorrentAPIClient {
                     retryHTTP,
                     additionalAcceptedStatusCodes: additionalAcceptedStatusCodes
                 )
+                try Self.rejectWebPage(retryData, retryHTTP)
                 return (retryData, retryHTTP)
             }
 
@@ -584,6 +585,7 @@ actor QBittorrentAPIClient {
                 httpResponse,
                 additionalAcceptedStatusCodes: additionalAcceptedStatusCodes
             )
+            try Self.rejectWebPage(data, httpResponse)
             return (data, httpResponse)
         } catch let error as QBError {
             throw error
@@ -801,6 +803,14 @@ actor QBittorrentAPIClient {
         guard (200...299).contains(response.statusCode) ||
                 additionalAcceptedStatusCodes.contains(response.statusCode) else {
             throw QBError.serverError(statusCode: response.statusCode, message: nil)
+        }
+    }
+
+    /// Without this, an address that reaches a web page "connects": the version
+    /// check reads the page's HTML as a version string.
+    private nonisolated static func rejectWebPage(_ data: Data, _ response: HTTPURLResponse) throws {
+        if HTTPResponseReadError.looksLikeWebPage(data, contentType: response.value(forHTTPHeaderField: "Content-Type")) {
+            throw QBError.webPage
         }
     }
 

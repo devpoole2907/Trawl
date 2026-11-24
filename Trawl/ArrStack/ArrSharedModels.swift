@@ -49,6 +49,33 @@ nonisolated struct ArrQualityProfile: Codable, Identifiable, Sendable {
     var language: ArrQualityProfileLanguage?
 }
 
+extension ArrQualityProfile {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, upgradeAllowed, cutoff, items, minFormatScore, cutoffFormatScore
+        case minUpgradeFormatScore, formatItems, language
+    }
+
+    /// A saved profile always carries `id`, but `qualityprofile/schema` - the blank
+    /// profile a new one starts from - leaves it out entirely (Sonarr 4.0.20, Radarr
+    /// 7.0.3). Reading that as 0 keeps it "unsaved", which is what the editor keys
+    /// create-versus-update off.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decodeIfPresent(Int.self, forKey: .id) ?? 0,
+            name: try container.decodeIfPresent(String.self, forKey: .name) ?? "",
+            upgradeAllowed: try container.decodeIfPresent(Bool.self, forKey: .upgradeAllowed),
+            cutoff: try container.decodeIfPresent(Int.self, forKey: .cutoff),
+            items: try container.decodeIfPresent([ArrQualityProfileItem].self, forKey: .items),
+            minFormatScore: try container.decodeIfPresent(Int.self, forKey: .minFormatScore),
+            cutoffFormatScore: try container.decodeIfPresent(Int.self, forKey: .cutoffFormatScore),
+            minUpgradeFormatScore: try container.decodeIfPresent(Int.self, forKey: .minUpgradeFormatScore),
+            formatItems: try container.decodeIfPresent([ArrQualityProfileFormatItem].self, forKey: .formatItems),
+            language: try container.decodeIfPresent(ArrQualityProfileLanguage.self, forKey: .language)
+        )
+    }
+}
+
 nonisolated struct ArrQualityProfileItem: Codable, Sendable {
     var id: Int?
     var name: String?

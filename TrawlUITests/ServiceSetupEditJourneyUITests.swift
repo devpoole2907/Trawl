@@ -160,7 +160,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
             "The failed validation must send mode=auth with the edited key in both SABnzbd's apikey and key query parameters."
         )
 
-        let invalidKeyCopy = app.staticTexts["The SABnzbd API key is missing or no longer valid."]
+        let invalidKeyCopy = app.staticTexts["SABnzbd rejected the key. Use the API key from Config › General › Security, not the NZB key."]
         XCTAssertTrue(invalidKeyCopy.waitForExistence(timeout: 10), "A 401 during SABnzbd setup must be visible while retaining the sheet for correction.")
         XCTAssertTrue(editTitle.exists, "A wrong SABnzbd full key must not dismiss the setup sheet.")
         XCTAssertEqual(host.value as? String, replacement.baseURL, "A failed SABnzbd validation must retain the newly entered host.")

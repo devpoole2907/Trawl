@@ -81,7 +81,7 @@ actor SeerrAPIClient {
 
         guard response.statusCode == 200 else {
             if response.statusCode == 401 || response.statusCode == 403 {
-                throw SeerrAPIError.unauthorized
+                throw SeerrAPIError.signInRejected
             }
             throw SeerrAPIError.http(status: response.statusCode, body: bodyString(from: data))
         }
@@ -349,7 +349,7 @@ actor SeerrAPIClient {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw SeerrAPIError.decode(reason: String(describing: error))
+            throw SeerrAPIError.decode(reason: String(describing: HTTPResponseReadError(error, data: data, contentType: nil)))
         }
     }
 

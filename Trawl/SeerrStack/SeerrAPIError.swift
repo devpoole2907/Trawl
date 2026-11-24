@@ -4,6 +4,9 @@ enum SeerrAPIError: Error, LocalizedError {
     case badURL
     case transport(URLError)
     case unauthorized
+    /// A sign-in attempt the server turned down - wrong username or password - as
+    /// opposed to `unauthorized`, a session that used to work and has lapsed.
+    case signInRejected
     case http(status: Int, body: String?)
     case decode(reason: String)
     case invalidResponse
@@ -16,6 +19,8 @@ enum SeerrAPIError: Error, LocalizedError {
             return "Couldn't reach Seerr: \(urlError.localizedDescription)"
         case .unauthorized:
             return "Your Seerr session has expired. Please sign in again."
+        case .signInRejected:
+            return "Seerr didn't accept that username and password."
         case .http(let status, let body):
             if let message = Self.extractMessage(from: body), !message.isEmpty {
                 return "Seerr returned \(status): \(message)"

@@ -8,6 +8,9 @@ enum QBError: LocalizedError, Sendable {
     case serverError(statusCode: Int, message: String?)
     case noServerConfigured
     case connectionTestFailed
+    /// A 2xx answer that is an HTML page - a sign-in proxy, or an address that
+    /// reaches some other web app. qBittorrent's API never answers with HTML.
+    case webPage
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +28,8 @@ enum QBError: LocalizedError, Sendable {
             "No server configured. Add a server in Settings."
         case .connectionTestFailed:
             "Could not connect to server. Check the URL and ensure qBittorrent is running."
+        case .webPage:
+            "The server answered with a web page, not qBittorrent's API. Check the address, or whether a sign-in page sits in front of it."
         }
     }
 }

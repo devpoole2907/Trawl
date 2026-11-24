@@ -421,7 +421,7 @@ actor SABnzbdAPIClient {
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            throw SABnzbdAPIError.decode(reason: String(describing: error))
+            throw SABnzbdAPIError.decode(reason: String(describing: HTTPResponseReadError(error, data: data, contentType: nil)))
         }
     }
 

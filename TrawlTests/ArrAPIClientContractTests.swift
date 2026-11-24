@@ -44,8 +44,7 @@ struct SonarrAPIClientContractTests {
           ],
           "minFormatScore": 0,
           "cutoffFormatScore": 0,
-          "formatItems": [],
-          "id": 0
+          "formatItems": []
         }
         """
         let server = try await ArrContractTestServer.routed(

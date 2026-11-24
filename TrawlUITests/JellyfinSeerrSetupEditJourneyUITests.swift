@@ -301,10 +301,10 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         // MARK: The rejection must be visible and non-destructive
 
-        let rejectedCopy = staticText("Your Seerr session has expired. Please sign in again.", in: app)
+        let rejectedCopy = staticText("Seerr didn't accept that username and password.", in: app)
         XCTAssertTrue(
             rejectedCopy.waitForExistence(timeout: 15),
-            "A 401 from Seerr's sign-in must surface SeerrAPIError.unauthorized's copy inside the editor."
+            "A 401 from Seerr's sign-in is a wrong password, not an expired session, and must say so inside the editor."
         )
         XCTAssertTrue(editTitle.exists, "A rejected Seerr sign-in must keep the editor open for correction.")
         // Same reason as the Jellyfin journey: read the field only once it is back on

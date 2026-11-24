@@ -157,6 +157,25 @@ struct QBittorrentAPIClientContractTests {
     // production path reads credentials from Keychain and performs a real login).
     // Keep that scenario separate from these deterministic response-status tests.
 
+    @Test("An address that answers with a web page does not pass for a qBittorrent version")
+    func appVersionRejectsAWebPage() async throws {
+        QBittorrentContractURLProtocol.configure(
+            statusCode: 200,
+            body: Data("<!doctype html><html><title>Sign in</title></html>".utf8)
+        )
+        let client = makeClient()
+
+        do {
+            let version = try await client.getAppVersion()
+            Issue.record("Expected a web page to be rejected, read version \(version)")
+        } catch let error as QBError {
+            guard case .webPage = error else {
+                Issue.record("Expected .webPage, received \(error)")
+                return
+            }
+        }
+    }
+
     private func makeClient() -> QBittorrentAPIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [QBittorrentContractURLProtocol.self]

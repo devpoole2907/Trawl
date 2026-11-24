@@ -64,12 +64,21 @@ final class SABnzbdSetupViewModel {
                 apiKey: key,
                 allowsUntrustedTLS: allowsUntrustedTLS
             )
-            let authentication = try await client.getAuthentication()
-            guard authentication == .apiKey else {
+            let version: String
+            do {
+                let authentication = try await client.getAuthentication()
+                guard authentication == .apiKey else {
+                    throw SABnzbdSetupError.fullAPIKeyRequired
+                }
+                version = try await client.getVersion()
+                _ = try await client.getQueue(start: 0, limit: 1)
+            } catch SABnzbdAPIError.unauthorized {
+                // At setup a refused key is most often the NZB key, pasted from the
+                // field right below the API key. On SABnzbd 5.1.3 `auth` and `version`
+                // answer for any key and report "apikey" either way, so the refusal
+                // usually arrives at the queue; older servers refuse at `auth`.
                 throw SABnzbdSetupError.fullAPIKeyRequired
             }
-            let version = try await client.getVersion()
-            _ = try await client.getQueue(start: 0, limit: 1)
 
             try await persist(
                 normalizedURL: normalizedURL,
@@ -208,6 +217,6 @@ private enum SABnzbdSetupError: LocalizedError {
     case fullAPIKeyRequired
 
     var errorDescription: String? {
-        "SABnzbd rejected the key. Use the full API key from Config > General, not the NZB key."
+        "SABnzbd rejected the key. Use the API key from Config › General › Security, not the NZB key."
     }
 }

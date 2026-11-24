@@ -37,6 +37,9 @@ actor AuthService {
             let config = URLSessionConfiguration.ephemeral
             config.httpShouldSetCookies = false
             config.httpCookieAcceptPolicy = .never
+            // Same ceiling as every other request a person waits on; left unset it
+            // was the system's 60 s, so a hung server held sign-in twice as long.
+            config.timeoutIntervalForRequest = TrawlTimeout.userAction
             self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
             self.ownsSession = true
         }
@@ -101,6 +104,10 @@ actor AuthService {
                               (httpResponse.statusCode == 200 && bodyText.contains("Ok."))
 
         guard isValidResponse else {
+            if httpResponse.statusCode == 200,
+               HTTPResponseReadError.looksLikeWebPage(data, contentType: httpResponse.value(forHTTPHeaderField: "Content-Type")) {
+                throw QBError.webPage
+            }
             throw QBError.authFailed
         }
 

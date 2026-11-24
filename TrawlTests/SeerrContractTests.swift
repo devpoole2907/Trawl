@@ -914,10 +914,12 @@ struct SeerrContractTests {
         } catch let error as SeerrAPIError {
             switch statusCode {
             case 401, 403:
-                guard case .unauthorized = error else {
-                    Issue.record("Expected .unauthorized for HTTP \(statusCode), received \(error)")
+                // A refused sign-in is a wrong password, not an expired session.
+                guard case .signInRejected = error else {
+                    Issue.record("Expected .signInRejected for HTTP \(statusCode), received \(error)")
                     return
                 }
+                #expect(error.localizedDescription == "Seerr didn't accept that username and password.")
             default:
                 guard case .http(let status, let body) = error else {
                     Issue.record("Expected .http for HTTP \(statusCode), received \(error)")

@@ -62,6 +62,29 @@ struct HTTPTransportContractTests {
         }
     }
 
+    @Test("A web page where the API should be is named as one, not dumped as a JSON error")
+    func webPageIsNamed() async throws {
+        let transport = makeTransport(token: "web-page")
+        do {
+            let _: HTTPTransportFixture = try await transport.get("/signin-page")
+            Issue.record("Expected an HTML page to fail decoding.")
+        } catch let error as HTTPTransportContractError {
+            #expect(error == .decode(HTTPResponseReadError.webPage))
+        }
+    }
+
+    @Test("A changed response names the missing field and where it was")
+    func missingFieldIsNamedWithItsPath() async throws {
+        struct Page: Decodable { let items: [HTTPTransportFixture] }
+        let transport = makeTransport(token: "missing-field")
+        do {
+            let _: Page = try await transport.get("/missing-count")
+            Issue.record("Expected a missing field to fail decoding.")
+        } catch let error as HTTPTransportContractError {
+            #expect(error == .decode("'count' is missing at items › 0."))
+        }
+    }
+
     private func makeTransport(token: String, auth: HTTPAuth = .none) -> HTTPTransport {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [HTTPTransportContractURLProtocol.self]
@@ -84,7 +107,7 @@ private enum HTTPTransportContractError: Error, Equatable, Sendable {
     case transport
     case unauthorized
     case http(status: Int, body: String?)
-    case decode
+    case decode(String)
     case invalidResponse
 
     static let mapper = HTTPErrorMapper(
@@ -92,7 +115,7 @@ private enum HTTPTransportContractError: Error, Equatable, Sendable {
         transport: { _ in HTTPTransportContractError.transport },
         unauthorized: { HTTPTransportContractError.unauthorized },
         http: { status, body in HTTPTransportContractError.http(status: status, body: body) },
-        decode: { _ in HTTPTransportContractError.decode },
+        decode: { HTTPTransportContractError.decode(String(describing: $0)) },
         invalidResponse: { HTTPTransportContractError.invalidResponse },
         unauthorizedStatusCodes: [401]
     )
@@ -147,8 +170,15 @@ private final class HTTPTransportContractURLProtocol: URLProtocol, @unchecked Se
 
         let status = Int(pathComponents.last ?? "") ?? 200
         let body: Data
+        var contentType = "application/json"
         if url.path.contains("/status/") {
             body = Data("status \(status)".utf8)
+        } else if url.path.contains("/signin-page") {
+            // What a sign-in proxy, or an address missing its URL base, answers with.
+            contentType = "text/html; charset=utf-8"
+            body = Data("<!doctype html><html><title>Sign in</title></html>".utf8)
+        } else if url.path.contains("/missing-count") {
+            body = Data(#"{"items":[{"name":"Trawl"}]}"#.utf8)
         } else {
             body = Data("{\"name\":\"Trawl\",\"count\":2}".utf8)
         }
@@ -156,7 +186,7 @@ private final class HTTPTransportContractURLProtocol: URLProtocol, @unchecked Se
             url: url,
             statusCode: status,
             httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: ["Content-Type": contentType]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
