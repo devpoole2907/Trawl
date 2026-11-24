@@ -12,8 +12,6 @@ struct JellyfinEpisodeAvailabilityCard: View {
 
     @Environment(JellyfinServiceManager.self) private var serviceManager
     @State private var isExpanded = false
-    @State private var didRefresh = false
-    @State private var isRescanning = false
 
     private var seriesKey: JellyfinAvailabilityResolver.Key? {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
@@ -85,8 +83,6 @@ struct JellyfinEpisodeAvailabilityCard: View {
             cardContent
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
-                    didRefresh = false
-                    isRescanning = false
                     guard let seriesKey, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
                 }
@@ -218,9 +214,9 @@ struct JellyfinEpisodeAvailabilityCard: View {
                 Spacer(minLength: 8)
 
                 Button {
-                    Task { await refresh(episode) }
+                    Task { await serviceManager.refreshItem(episode, for: media) }
                 } label: {
-                    if didRefresh {
+                    if serviceManager.refreshedItemIDs.contains(episode.id) {
                         Image(systemName: "checkmark.circle.fill")
                     } else {
                         Image(systemName: "arrow.clockwise")
@@ -228,7 +224,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(didRefresh)
+                .disabled(serviceManager.refreshedItemIDs.contains(episode.id))
                 .accessibilityLabel("Refresh Jellyfin episode")
             }
 
@@ -258,9 +254,9 @@ struct JellyfinEpisodeAvailabilityCard: View {
             }
             Spacer(minLength: 8)
             Button {
-                Task { await rescanLibrary() }
+                serviceManager.scanLibraries(watching: .episode(media, season: seasonNumber, number: episodeNumber))
             } label: {
-                if isRescanning {
+                if serviceManager.isScanningLibraries {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -269,7 +265,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(isRescanning)
+            .disabled(serviceManager.isScanningLibraries)
             .accessibilityLabel("Rescan Jellyfin library")
         }
     }
@@ -306,106 +302,6 @@ struct JellyfinEpisodeAvailabilityCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-        }
-    }
-
-    private func refresh(_ episode: JellyfinLibraryItem) async {
-        guard let client = serviceManager.activeClient else { return }
-        do {
-            try await client.refreshItem(id: episode.id)
-            didRefresh = true
-            for key in episodesKeys {
-                serviceManager.availability.invalidateEpisodes(key)
-                serviceManager.availability.ensureEpisodesLoaded(key, client: client)
-            }
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Jellyfin Refresh Started",
-                message: "\(episode.name ?? "Episode") was sent for metadata refresh.",
-                source: .inApp
-            )
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Jellyfin Refresh Failed",
-                message: error.localizedDescription,
-                source: .inApp
-            )
-        }
-    }
-
-    /// Starts a Jellyfin library scan, then re-checks while that asynchronous
-    /// scan catches up. The POST only queues work on Jellyfin; treating its 204 as
-    /// "the new file is indexed now" races the scan and re-caches the stale answer.
-    private func rescanLibrary() async {
-        guard let client = serviceManager.activeClient else { return }
-        isRescanning = true
-        defer { isRescanning = false }
-
-        do {
-            try await client.refreshAllLibraries()
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Jellyfin Library Scan Started",
-                message: "Jellyfin is rescanning your libraries.",
-                source: .inApp
-            )
-
-            // Re-query for roughly 30 seconds. A small library usually resolves on
-            // the first few passes; a busy server still gets enough time to finish
-            // the asynchronous scan instead of being sampled immediately.
-            for attempt in 0..<12 {
-                if attempt > 0 {
-                    try await Task.sleep(for: .milliseconds(2500))
-                }
-                try Task.checkCancellation()
-
-                if let seriesKey {
-                    serviceManager.availability.invalidate(seriesKey)
-                    serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
-                    try await waitForSeriesLookupToSettle(seriesKey)
-                }
-
-                let currentKeys = episodesKeys
-                for key in currentKeys {
-                    serviceManager.availability.invalidateEpisodes(key)
-                    serviceManager.availability.ensureEpisodesLoaded(key, client: client)
-                }
-                try await waitForEpisodeLookupsToSettle(currentKeys)
-
-                if matchedEpisode != nil {
-                    return
-                }
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Jellyfin Scan Failed",
-                message: error.localizedDescription,
-                source: .inApp
-            )
-        }
-    }
-
-    private func waitForSeriesLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async throws {
-        for _ in 0..<250 {
-            switch serviceManager.availability.state(for: key) {
-            case .idle, .loading:
-                try await Task.sleep(for: .milliseconds(20))
-            case .resolved, .failed:
-                return
-            }
-        }
-    }
-
-    private func waitForEpisodeLookupsToSettle(
-        _ keys: [JellyfinAvailabilityResolver.EpisodesKey]
-    ) async throws {
-        guard !keys.isEmpty else { return }
-        for _ in 0..<250 {
-            let states = keys.map { serviceManager.availability.episodesState(for: $0) }
-            if !JellyfinEpisodeAvailabilityAggregate.isLoading(states) {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(20))
         }
     }
 

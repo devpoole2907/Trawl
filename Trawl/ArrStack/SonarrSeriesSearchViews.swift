@@ -667,11 +667,31 @@ struct SonarrSeasonSearchView: View {
     @State private var bazarrInteractiveSearchTarget: BazarrEpisode?
     @State private var refreshedBazarrEpisodes: [BazarrEpisode]?
 
-    @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
     @State private var interactiveSearchSessionID = UUID()
-    @State private var automaticSearchFeedback: AutomaticSearchFeedback?
-    @State private var automaticSearchMonitorTask: Task<Void, Never>?
+
+    /// The search and the wait for its result belong to `ArrServiceManager`, so
+    /// they survive leaving this season; this only words what the manager says.
+    private var automaticSearchScope: ArrAutomaticSearchScope? {
+        seriesId.map { .season(instanceID: seriesInstanceID, seriesID: $0, seasonNumber: seasonNumber) }
+    }
+
+    private var automaticSearchPhase: ArrAutomaticSearchPhase? {
+        automaticSearchScope.flatMap { serviceManager.automaticSearches[$0] }
+    }
+
+    private var automaticSearchFeedback: AutomaticSearchFeedback? {
+        switch automaticSearchPhase {
+        case .searching:
+            AutomaticSearchFeedback(kind: .searching, message: "Sonarr is searching indexers for monitored episodes in \(title).")
+        case .found:
+            AutomaticSearchFeedback(kind: .found, message: "A result was queued in Sonarr. Check this season's episodes or queue status for progress.")
+        case .noResults:
+            AutomaticSearchFeedback(kind: .noResults, message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually.")
+        case nil:
+            nil
+        }
+    }
 
     init(
         viewModel: SonarrViewModel,
@@ -814,7 +834,13 @@ struct SonarrSeasonSearchView: View {
             )
         }
         .onDisappear {
-            automaticSearchMonitorTask?.cancel()
+            if let automaticSearchScope {
+                serviceManager.dismissFinishedAutomaticSearch(automaticSearchScope)
+            }
+        }
+        .onChange(of: automaticSearchPhase) { _, phase in
+            // A result landed: show its episodes now rather than on the next poll.
+            if phase == .found { Task { await refreshSeasonState() } }
         }
         .task(id: seriesId) {
             await monitorSeasonState()
@@ -1032,7 +1058,7 @@ struct SonarrSeasonSearchView: View {
 
     private var automaticSearchButton: some View {
         Button {
-            guard !isDispatchingAutomaticSearch, let seriesId = series?.id else { return }
+            guard automaticSearchPhase != .searching, let automaticSearchScope else { return }
             guard sortedEpisodes.isEmpty || sortedEpisodes.contains(where: { $0.monitored == true }) else {
                 InAppNotificationCenter.shared.showError(
                     title: "Nothing Monitored",
@@ -1040,79 +1066,15 @@ struct SonarrSeasonSearchView: View {
                 )
                 return
             }
-            isDispatchingAutomaticSearch = true
-            // Set feedback immediately so the info card replaces this button before the Task runs,
-            // ensuring the interactive search button is never visually affected by a loading state.
             withAnimation(.snappy) {
-                automaticSearchFeedback = AutomaticSearchFeedback(
-                    kind: .searching,
-                    message: "Sonarr is searching indexers for monitored episodes in \(title)."
-                )
-            }
-            Task {
-                let episodeIDs = Set(sortedEpisodes.map(\.id))
-                let baselineQueueIDs = Set(viewModel.queue.filter { item in
-                    guard let episodeId = item.episodeId else { return false }
-                    return episodeIDs.contains(episodeId)
-                }.map(\.id))
-
-                let didStart = await viewModel.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
-                isDispatchingAutomaticSearch = false
-
-                if !didStart {
-                    withAnimation(.snappy) { automaticSearchFeedback = nil }
-                    let message = viewModel.error ?? "Could not start search."
-                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
-                } else {
-                    // Silent: the feedback card below already communicates this visibly,
-                    // so a banner on top of it would be redundant.
-                    InAppNotificationCenter.shared.logSilently(
-                        title: "Search Queued",
-                        message: "\(title) was sent to Sonarr for automatic search."
-                    )
-
-                    automaticSearchMonitorTask?.cancel()
-                    automaticSearchMonitorTask = Task {
-                        for _ in 0..<6 {
-                            try? await Task.sleep(for: .seconds(3))
-                            guard !Task.isCancelled else { return }
-                            await refreshSeasonState()
-
-                            let currentQueueIDs = Set(viewModel.queue.filter { item in
-                                guard let episodeId = item.episodeId else { return false }
-                                return episodeIDs.contains(episodeId)
-                            }.map(\.id))
-                            if !currentQueueIDs.subtracting(baselineQueueIDs).isEmpty {
-                                await MainActor.run {
-                                    withAnimation(.snappy) {
-                                        automaticSearchFeedback = AutomaticSearchFeedback(
-                                            kind: .found,
-                                            message: "A result was queued in Sonarr. Check this season's episodes or queue status for progress."
-                                        )
-                                    }
-                                }
-                                return
-                            }
-                        }
-
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            withAnimation(.snappy) {
-                                automaticSearchFeedback = AutomaticSearchFeedback(
-                                    kind: .noResults,
-                                    message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually."
-                                )
-                            }
-                        }
-                    }
-                }
+                _ = serviceManager.startAutomaticSearch(automaticSearchScope, title: title)
             }
         } label: {
             ArrSearchActionRow(
                 title: "Automatic Search",
                 subtitle: "Let Sonarr search indexers for every monitored episode in this season.",
                 systemImage: "magnifyingglass",
-                isLoading: isDispatchingAutomaticSearch
+                isLoading: automaticSearchPhase == .searching
             )
         }
         .buttonStyle(.plain)

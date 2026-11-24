@@ -48,8 +48,58 @@ final class ConfigurationAuditStore {
     /// forever.
     private var dismissedIDs: Set<String> = []
 
+    // MARK: Category repair run
+    //
+    // The repair writes to several servers in turn. Held here rather than in the
+    // repair screen: backing out mid-run used to keep writing while forgetting
+    // which servers had landed, and coming back offered Apply from the start.
+
+    /// The repair the outcomes below belong to.
+    private(set) var categoryRepair: ConfigurationGuidedRepair?
+    private(set) var categoryRepairOutcomes: [UUID: ConfigurationCategoryRepair.Outcome] = [:]
+    private(set) var isApplyingCategoryRepair = false
+
     /// Nothing is persisted, so a relaunch re-audits from scratch.
     init() {}
+
+    /// Called as the repair screen opens. Keeps a run in progress, or one that
+    /// partly failed so Apply retries only what failed; otherwise starts clean.
+    /// A repair that is offered again after fully succeeding means the fix didn't
+    /// stick, so it starts clean too.
+    func prepareCategoryRepair(_ repair: ConfigurationGuidedRepair) {
+        guard !isApplyingCategoryRepair else { return }
+        let fullySucceeded = !categoryRepairOutcomes.isEmpty && categoryRepairOutcomes.values.allSatisfy {
+            if case .succeeded = $0 { true } else { false }
+        }
+        if categoryRepair != repair || fullySucceeded {
+            categoryRepair = repair
+            categoryRepairOutcomes = [:]
+        }
+    }
+
+    /// Applies each plan in turn, skipping servers already done. Returns whether
+    /// every plan has now succeeded.
+    func applyCategoryRepair(
+        _ plans: [ConfigurationCategoryRepair.Plan],
+        for repair: ConfigurationGuidedRepair,
+        using engine: ConfigurationCategoryRepair
+    ) async -> Bool {
+        guard !isApplyingCategoryRepair else { return false }
+        if categoryRepair != repair {
+            categoryRepair = repair
+            categoryRepairOutcomes = [:]
+        }
+        isApplyingCategoryRepair = true
+        defer { isApplyingCategoryRepair = false }
+        for plan in plans {
+            if case .succeeded = categoryRepairOutcomes[plan.id] { continue }
+            categoryRepairOutcomes[plan.id] = .running
+            categoryRepairOutcomes[plan.id] = await engine.apply(plan)
+        }
+        return plans.allSatisfy {
+            if case .succeeded = categoryRepairOutcomes[$0.id] { true } else { false }
+        }
+    }
 
     func dismiss(_ issue: ConfigurationIssue) {
         dismissedIDs.insert(issue.id)

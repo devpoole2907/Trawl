@@ -182,6 +182,27 @@ final class ArrServiceManager {
     /// How many views currently want the fast cadence.
     private var fastQueuePollingRequests = 0
 
+    // MARK: - Automatic searches
+    // A search sent from a movie or season screen, and the check afterwards for a
+    // result landing in the queue. Held here, not in the screen: leaving and coming
+    // back used to forget a search that was still running and offer it again.
+    private(set) var automaticSearches: [ArrAutomaticSearchScope: ArrAutomaticSearchPhase] = [:]
+    @ObservationIgnored private var automaticSearchTasks: [ArrAutomaticSearchScope: Task<Void, Never>] = [:]
+    /// How often, and how many times, the queue is checked after a search.
+    @ObservationIgnored var automaticSearchCheckInterval: Duration = .seconds(3)
+    @ObservationIgnored var automaticSearchChecks = 6
+
+    // MARK: - Backup work
+    // Creating or uploading a backup takes long enough to leave Backups while it
+    // runs. The flags live here so coming back still shows the work instead of
+    // offering Create again.
+    private(set) var backupWork: [UUID: ArrBackupWork] = [:]
+    /// Bumped when a create or upload finishes, so an open Backups list reloads.
+    private(set) var backupRevision = 0
+    /// The server writes the archive after the command returns; the list reloads
+    /// after this.
+    @ObservationIgnored var backupSettleDelay: Duration = .seconds(3)
+
     // MARK: - Shared library caches
     // The Series/Movies tabs, Search, and Seerr's cast-credit navigation all read
     // the same two libraries. Owning them here means one fetch per instance rather
@@ -2421,4 +2442,181 @@ private nonisolated struct ArrQueueSnapshot: Sendable {
     let error: String?
 
     static let empty = ArrQueueSnapshot(queue: [], history: [], error: nil)
+}
+
+
+// MARK: - Automatic searches
+
+/// What an automatic search was asked to find.
+nonisolated enum ArrAutomaticSearchScope: Hashable, Sendable {
+    case movie(instanceID: UUID?, movieID: Int)
+    case season(instanceID: UUID?, seriesID: Int, seasonNumber: Int)
+}
+
+nonisolated enum ArrAutomaticSearchPhase: Sendable, Equatable {
+    /// Sent, and the queue is being watched for a result.
+    case searching
+    /// A new queue item appeared for the scope.
+    case found
+    /// The checks ran out with nothing new in the queue.
+    case noResults
+}
+
+extension ArrServiceManager {
+    /// Sends the search and watches the queue for a result. A search already
+    /// running for the scope is left alone rather than sent twice.
+    @discardableResult
+    func startAutomaticSearch(_ scope: ArrAutomaticSearchScope, title: String) -> Task<Void, Never>? {
+        guard automaticSearches[scope] != .searching else { return nil }
+        automaticSearchTasks[scope]?.cancel()
+        let baseline = queueItemIDs(matching: scope)
+        automaticSearches[scope] = .searching
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runAutomaticSearch(scope, title: title, baseline: baseline)
+        }
+        automaticSearchTasks[scope] = task
+        return task
+    }
+
+    /// Forgets a finished search's outcome, so the screen offers the search again
+    /// next time. A search still running is kept.
+    func dismissFinishedAutomaticSearch(_ scope: ArrAutomaticSearchScope) {
+        guard let phase = automaticSearches[scope], phase != .searching else { return }
+        automaticSearches[scope] = nil
+    }
+
+    private func runAutomaticSearch(_ scope: ArrAutomaticSearchScope, title: String, baseline: Set<Int>) async {
+        do {
+            try await sendAutomaticSearch(scope)
+        } catch {
+            automaticSearches[scope] = nil
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            return
+        }
+        // Silent: the screen's own card says the search is running.
+        InAppNotificationCenter.shared.logSilently(
+            title: "Search Queued",
+            message: "\(title) was sent to \(scope.serviceName) for automatic search."
+        )
+
+        for _ in 0..<automaticSearchChecks {
+            try? await Task.sleep(for: automaticSearchCheckInterval)
+            guard !Task.isCancelled else { return }
+            await refreshQueues()
+            if !queueItemIDs(matching: scope).subtracting(baseline).isEmpty {
+                automaticSearches[scope] = .found
+                return
+            }
+        }
+        guard !Task.isCancelled else { return }
+        automaticSearches[scope] = .noResults
+    }
+
+    private func sendAutomaticSearch(_ scope: ArrAutomaticSearchScope) async throws {
+        switch scope {
+        case .movie(let instanceID, let movieID):
+            guard let client = instanceID.flatMap({ radarrClient(for: $0) }) ?? radarrClient else {
+                throw ArrServiceError.clientNotAvailable
+            }
+            _ = try await client.searchMovie(movieIds: [movieID])
+        case .season(let instanceID, let seriesID, let seasonNumber):
+            guard let client = instanceID.flatMap({ sonarrClient(for: $0) }) ?? sonarrClient else {
+                throw ArrServiceError.clientNotAvailable
+            }
+            _ = try await client.searchSeason(seriesId: seriesID, seasonNumber: seasonNumber)
+        }
+    }
+
+    /// Queue rows that belong to the scope, on its instance when it names one.
+    func queueItemIDs(matching scope: ArrAutomaticSearchScope) -> Set<Int> {
+        switch scope {
+        case .movie(let instanceID, let movieID):
+            Set(radarrQueue.filter {
+                $0.value.movieId == movieID && (instanceID == nil || $0.instance.id == instanceID)
+            }.map(\.value.id))
+        case .season(let instanceID, let seriesID, let seasonNumber):
+            Set(sonarrQueue.filter {
+                $0.value.seriesId == seriesID && $0.value.seasonNumber == seasonNumber
+                    && (instanceID == nil || $0.instance.id == instanceID)
+            }.map(\.value.id))
+        }
+    }
+}
+
+private extension ArrAutomaticSearchScope {
+    var serviceName: String {
+        switch self {
+        case .movie: "Radarr"
+        case .season: "Sonarr"
+        }
+    }
+}
+
+
+// MARK: - Backup work
+
+nonisolated enum ArrBackupWork: Sendable, Equatable {
+    case creating
+    case uploading
+}
+
+extension ArrServiceManager {
+    /// The backup client for an instance: Sonarr, Radarr and Prowlarr share one
+    /// shape; Bazarr has its own.
+    func backupClient(for instance: ArrInstanceRef) -> (any SharedArrClient)? {
+        switch instance.serviceType {
+        case .sonarr, .radarr, .prowlarr: sharedClient(for: instance)
+        case .bazarr: activeBazarrEntry?.client
+        }
+    }
+
+    /// Asks the server for a new backup. One piece of work per server at a time.
+    @discardableResult
+    func createBackup(on instance: ArrInstanceRef) -> Task<Void, Never>? {
+        guard backupWork[instance.id] == nil, let client = backupClient(for: instance) else { return nil }
+        backupWork[instance.id] = .creating
+        return Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await client.createBackup()
+                try? await Task.sleep(for: backupSettleDelay)
+            } catch {
+                InAppNotificationCenter.shared.showError(title: "Backup Failed", message: error.localizedDescription)
+            }
+            finishBackupWork(on: instance)
+        }
+    }
+
+    /// Uploads a backup file and asks the server to restore from it.
+    @discardableResult
+    func uploadBackup(from url: URL, to instance: ArrInstanceRef) -> Task<Void, Never>? {
+        guard backupWork[instance.id] == nil, let client = backupClient(for: instance) else { return nil }
+        backupWork[instance.id] = .uploading
+        let label = scopeLabel(for: instance)
+        return Task { [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await Task.detached(priority: .userInitiated) {
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    return try Data(contentsOf: url)
+                }.value
+                try await client.uploadBackup(data: data, filename: url.lastPathComponent)
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Restore Started",
+                    message: "\(label) is restoring from the uploaded backup."
+                )
+                try? await Task.sleep(for: backupSettleDelay)
+            } catch {
+                InAppNotificationCenter.shared.showError(title: "Upload Failed", message: error.localizedDescription)
+            }
+            finishBackupWork(on: instance)
+        }
+    }
+
+    private func finishBackupWork(on instance: ArrInstanceRef) {
+        backupWork[instance.id] = nil
+        backupRevision &+= 1
+    }
 }

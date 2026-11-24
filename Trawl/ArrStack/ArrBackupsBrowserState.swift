@@ -16,15 +16,12 @@ final class ArrBackupsBrowserState {
 struct ArrBackupViewState: Sendable {
     var backups: [ArrBackup] = []
     var isLoading = false
-    var isCreating = false
-    var isUploading = false
     var error: String?
 }
 
 struct ArrJellyfinBackupState: Sendable {
     var backups: [JellyfinBackupManifest] = []
     var isLoading = false
-    var isCreating = false
     var error: String?
 }
 

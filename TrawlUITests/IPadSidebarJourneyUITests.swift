@@ -218,18 +218,21 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let inspector = app.navigationBars["Fixture WEBDL-1080p"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
         beginEditing(inspector)
+        changeSelectedLimit(in: app, inspector: inspector, to: "16.0")
         inspector.buttons["Save"].tap()
 
         let updatedRow = app.cells.containing(.staticText, identifier: "Server Accepted Quality").firstMatch
         XCTAssertTrue(updatedRow.waitForExistence(timeout: 15), "The content column must render the server's saved response, not retain its old list copy.")
-        XCTAssertTrue(inspector.exists, "Saving in the detail column must not dismiss its editor.")
-        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "An accepted save returns the editor to read-only.")
+        // The editor stays open and takes the server's accepted title.
+        let savedInspector = app.navigationBars["Server Accepted Quality"]
+        XCTAssertTrue(savedInspector.waitForExistence(timeout: 10), "Saving in the detail column must not dismiss its editor.")
+        XCTAssertTrue(savedInspector.buttons["Edit"].waitForExistence(timeout: 10), "An accepted save returns the editor to read-only.")
         XCTAssertEqual(app.sheets.count, 0)
         let request = try XCTUnwrap(sonarr?.requests.first { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" })
         let definitions = try XCTUnwrap(JSONSerialization.jsonObject(with: request.body) as? [[String: Any]])
         XCTAssertEqual(definitions.count, 1)
         XCTAssertEqual(definitions.first?["id"] as? Int, 1)
-        XCTAssertEqual(definitions.first?["minSize"] as? Double, 15)
+        XCTAssertEqual(definitions.first?["minSize"] as? Double, 16, "The edited minimum is what is sent.")
         XCTAssertEqual(definitions.first?["preferredSize"] as? Double, 90)
         XCTAssertEqual(definitions.first?["maxSize"] as? Double, 180)
     }
@@ -286,6 +289,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         let inspector = app.navigationBars["Fixture WEBDL-1080p"]
         XCTAssertTrue(inspector.waitForExistence(timeout: 10))
         beginEditing(inspector)
+        changeSelectedLimit(in: app, inspector: inspector, to: "16.0")
         inspector.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Save Failed"].waitForExistence(timeout: 15))
         XCTAssertTrue(original.exists, "A rejected save must not replace the loaded definition.")
@@ -295,8 +299,9 @@ final class IPadSidebarJourneyUITests: XCTestCase {
 
         inspector.buttons["Save"].tap()
         XCTAssertTrue(app.cells.containing(.staticText, identifier: "Retried Quality").firstMatch.waitForExistence(timeout: 15))
-        XCTAssertTrue(inspector.exists)
-        XCTAssertTrue(inspector.buttons["Edit"].waitForExistence(timeout: 10), "The accepted retry returns the editor to read-only.")
+        let retriedInspector = app.navigationBars["Retried Quality"]
+        XCTAssertTrue(retriedInspector.waitForExistence(timeout: 10), "The editor stays open under the accepted title.")
+        XCTAssertTrue(retriedInspector.buttons["Edit"].waitForExistence(timeout: 10), "The accepted retry returns the editor to read-only.")
         XCTAssertEqual(app.sheets.count, 0)
         let saves = try XCTUnwrap(sonarr).requests.filter { $0.method == "PUT" && $0.path == "/api/v3/qualitydefinition/update" }
         XCTAssertEqual(saves.count, 2)
@@ -857,6 +862,17 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     @discardableResult
     private func select(_ app: XCUIApplication, _ displayName: String) -> Bool {
         guard let row = sidebarRow(app, displayName) else { return false }
+        // A row the search above scrolled to can sit under the sidebar's title bar
+        // or bottom edge - "exists" but not hittable - and a coordinate tap there
+        // lands on the bar and is dropped. Scroll it toward the middle first.
+        let sidebar = app.collectionViews["Sidebar"]
+        for _ in 0..<4 where !row.isHittable && sidebar.exists {
+            if row.frame.midY < sidebar.frame.midY {
+                sidebar.swipeDown(velocity: .slow)
+            } else {
+                sidebar.swipeUp(velocity: .slow)
+            }
+        }
         if row.isHittable {
             row.tap()
         } else {
@@ -942,6 +958,16 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             edit.tap()
         }
         XCTAssertTrue(save.waitForExistence(timeout: 5), "Edit must turn into Save.", file: file, line: line)
+    }
+
+    /// Save stays disabled until a limit actually changes - an untouched draft has
+    /// nothing to send - so a save journey moves the selected limit on the wheel first.
+    @MainActor
+    private func changeSelectedLimit(in app: XCUIApplication, inspector: XCUIElement, to value: String, file: StaticString = #filePath, line: UInt = #line) {
+        let wheel = app.pickerWheels.firstMatch
+        XCTAssertTrue(wheel.waitForExistence(timeout: 5), "Editing a quality definition offers the value wheel.", file: file, line: line)
+        wheel.adjust(toPickerWheelValue: value)
+        XCTAssertTrue(inspector.buttons["Save"].wait(for: \.isEnabled, toEqual: true, timeout: 5), "A changed limit enables Save.", file: file, line: line)
     }
 
     /// `select`, then proves the destination arrived. A sidebar tap synthesised while

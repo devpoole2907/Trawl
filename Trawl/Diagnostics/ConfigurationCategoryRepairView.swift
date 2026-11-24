@@ -16,6 +16,7 @@ import SwiftUI
 /// people stop trusting. Everything is on screen before anything is written.
 struct ConfigurationCategoryRepairView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(ConfigurationAuditStore.self) private var auditStore
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
@@ -24,10 +25,19 @@ struct ConfigurationCategoryRepairView: View {
     /// rather than keep showing a finding that is no longer true.
     var onApplied: () async -> Void = {}
 
+    /// The names as the user is editing them - a draft, so it stays here. The run
+    /// itself (what landed, what failed, whether it is still going) is the audit
+    /// store's, so it survives backing out of this screen.
     @State private var plans: [ConfigurationCategoryRepair.Plan] = []
-    @State private var outcomes: [UUID: ConfigurationCategoryRepair.Outcome] = [:]
-    @State private var isApplying = false
-    @State private var hasApplied = false
+
+    private var isOwnRun: Bool { auditStore.categoryRepair == repair }
+    private var outcomes: [UUID: ConfigurationCategoryRepair.Outcome] {
+        isOwnRun ? auditStore.categoryRepairOutcomes : [:]
+    }
+    private var isApplying: Bool { isOwnRun && auditStore.isApplyingCategoryRepair }
+    private var hasApplied: Bool {
+        plans.contains { if let outcome = outcomes[$0.id], outcome != .pending { true } else { false } }
+    }
 
     private var isSABnzbd: Bool {
         plans.contains { sabnzbdEndpoints.contains($0.change.endpoint) }
@@ -98,6 +108,7 @@ struct ConfigurationCategoryRepairView: View {
             // Built once. Rebuilding on every body pass would throw away whatever the
             // user has typed the moment anything else on screen changed.
             guard plans.isEmpty else { return }
+            auditStore.prepareCategoryRepair(repair)
             plans = repair.downloadCategoryChanges.map(ConfigurationCategoryRepair.Plan.init)
         }
     }
@@ -207,28 +218,15 @@ struct ConfigurationCategoryRepairView: View {
     }
 
     private func applyAll() async {
-        isApplying = true
-        defer { isApplying = false }
-
         let engine = ConfigurationCategoryRepair(
             serviceManager: serviceManager,
             sabnzbdServiceManager: sabnzbdServiceManager,
             sabnzbdEndpoints: sabnzbdEndpoints,
             activeSabnzbdEndpoint: activeSabnzbdEndpoint
         )
-
-        for plan in plans {
-            // A server that is already done is not touched again, so pressing Apply
-            // after a partial failure retries only what failed.
-            if case .succeeded = outcomes[plan.id] { continue }
-            outcomes[plan.id] = .running
-            outcomes[plan.id] = await engine.apply(plan)
-        }
-
-        hasApplied = true
         // Only when everything landed. Re-auditing after a partial failure would
         // replace the per-server errors on screen with a finding that says less.
-        if plans.allSatisfy({ if case .succeeded = outcomes[$0.id] { true } else { false } }) {
+        if await auditStore.applyCategoryRepair(plans, for: repair, using: engine) {
             await onApplied()
         }
     }

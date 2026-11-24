@@ -243,6 +243,82 @@ struct ConfigurationCategoryRepairTests {
         }
     }
 
+    // MARK: - The run belongs to the audit store
+
+    /// The repair screen used to hold the run in its own state, so backing out
+    /// mid-run kept writing while forgetting what had landed. The store owns it
+    /// now: a return visit sees the outcomes, and a retry sends only what failed.
+    @Test("A partly failed run survives a return visit and a retry sends only what failed")
+    func partialRunSurvivesAndRetriesOnlyFailures() async throws {
+        let radarr = try await DualInstanceRadarrServer(
+            label: "repair-store-partial",
+            movies: "[]",
+            downloadClients: Self.untaggedClientJSON
+        )
+        defer { radarr.stop() }
+
+        try await withRadarr(radarr) { manager, instanceID in
+            let engine = ConfigurationCategoryRepair(
+                serviceManager: manager, sabnzbdServiceManager: nil,
+                sabnzbdEndpoints: [], activeSabnzbdEndpoint: nil
+            )
+            let good = change(instanceID: instanceID, suggested: "Movies 4K")
+            let bad = change(suggested: "*")
+            let guided = ConfigurationGuidedRepair.separateDownloadCategories([good, bad])
+            let plans = [good, bad].map(ConfigurationCategoryRepair.Plan.init)
+            let store = ConfigurationAuditStore()
+
+            store.prepareCategoryRepair(guided)
+            let allLanded = await store.applyCategoryRepair(plans, for: guided, using: engine)
+            #expect(!allLanded)
+            #expect(!store.isApplyingCategoryRepair)
+            guard case .succeeded = store.categoryRepairOutcomes[good.id],
+                  case .failed = store.categoryRepairOutcomes[bad.id] else {
+                Issue.record("Expected one success and one failure, got \(store.categoryRepairOutcomes).")
+                return
+            }
+
+            // Backing out and opening the screen again keeps the run.
+            store.prepareCategoryRepair(guided)
+            #expect(store.categoryRepairOutcomes.count == 2)
+
+            _ = await store.applyCategoryRepair(plans, for: guided, using: engine)
+            #expect(radarr.putRequests.count == 1, "The server that already landed must not be written again.")
+
+            // A different repair starts clean.
+            store.prepareCategoryRepair(.separateDownloadCategories([good]))
+            #expect(store.categoryRepairOutcomes.isEmpty)
+        }
+    }
+
+    @Test("A repair offered again after it fully landed starts clean")
+    func fullySucceededRunIsNotReused() async throws {
+        let radarr = try await DualInstanceRadarrServer(
+            label: "repair-store-success",
+            movies: "[]",
+            downloadClients: Self.untaggedClientJSON
+        )
+        defer { radarr.stop() }
+
+        try await withRadarr(radarr) { manager, instanceID in
+            let engine = ConfigurationCategoryRepair(
+                serviceManager: manager, sabnzbdServiceManager: nil,
+                sabnzbdEndpoints: [], activeSabnzbdEndpoint: nil
+            )
+            let good = change(instanceID: instanceID, suggested: "Movies 4K")
+            let guided = ConfigurationGuidedRepair.separateDownloadCategories([good])
+            let store = ConfigurationAuditStore()
+
+            store.prepareCategoryRepair(guided)
+            #expect(await store.applyCategoryRepair([.init(good)], for: guided, using: engine))
+
+            // The audit still finds it, so the fix didn't stick: offer it afresh
+            // rather than skipping the server as already done.
+            store.prepareCategoryRepair(guided)
+            #expect(store.categoryRepairOutcomes.isEmpty)
+        }
+    }
+
     // MARK: - Helpers
 
     private func change(

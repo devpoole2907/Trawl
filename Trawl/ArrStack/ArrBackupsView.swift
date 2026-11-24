@@ -121,12 +121,12 @@ struct ArrBackupsView: View {
             uniqueKeysWithValues: previewStates.map { service, backups in
                 (
                     ArrInstanceRef.preview(service).id,
-                    ArrBackupViewState(backups: backups, isLoading: false, isCreating: false, isUploading: false, error: error)
+                    ArrBackupViewState(backups: backups, isLoading: false, error: error)
                 )
             }
         )
         if let jellyfinPreview {
-            browser.jellyfinState = ArrJellyfinBackupState(backups: jellyfinPreview, isLoading: false, isCreating: false, error: error)
+            browser.jellyfinState = ArrJellyfinBackupState(backups: jellyfinPreview, isLoading: false, error: error)
         }
         _localBrowser = State(initialValue: browser)
     }
@@ -136,10 +136,6 @@ struct ArrBackupsView: View {
     typealias JellyfinBackupState = ArrJellyfinBackupState
     typealias BackupSortOrder = ArrBackupSortOrder
 
-    /// Backup create/restore run synchronously on the server and can take minutes
-    /// (metadata, trickplay, etc.), so they need a far longer budget than the
-    /// default 30s request timeout.
-    private static let jellyfinBackupRequestTimeout: TimeInterval = 600
 
     private struct PendingBackupDelete: Identifiable, Sendable {
         let backup: ArrBackup
@@ -246,6 +242,18 @@ struct ArrBackupsView: View {
         ) { source in
             await load(source)
         }
+        // A create or upload finished - here or after Backups was left and
+        // reopened - so the new archive shows without pulling to refresh.
+        .onChange(of: serviceManager.backupRevision) {
+            Task {
+                for source in availableSources {
+                    if case .arr(let instance) = source, states[instance.id] != nil { await loadService(instance) }
+                }
+            }
+        }
+        .onChange(of: jellyfinServiceManager.backupRevision) {
+            Task { await loadJellyfin() }
+        }
         .alertsAndSheets(self)
     }
 
@@ -263,7 +271,7 @@ struct ArrBackupsView: View {
             Button("Create Backup") {
                 guard let source = sourcePendingBackupCreation else { return }
                 sourcePendingBackupCreation = nil
-                Task { await performCreate(for: source) }
+                performCreate(for: source)
             }
             Button("Cancel", role: .cancel) {
                 sourcePendingBackupCreation = nil
@@ -330,7 +338,7 @@ struct ArrBackupsView: View {
         }
         .sheet(isPresented: $showingJellyfinCreateSheet) {
             JellyfinBackupOptionsSheet { options in
-                Task { await createJellyfinBackup(options: options) }
+                jellyfinServiceManager.createBackup(options: options)
             }
         }
         .fileImporter(
@@ -340,7 +348,7 @@ struct ArrBackupsView: View {
             guard let instance = selectedSource?.arrInstance else { return }
             switch result {
             case .success(let url):
-                Task { await uploadBackup(url: url, for: instance) }
+                serviceManager.uploadBackup(from: url, to: instance)
             case .failure(let error):
                 InAppNotificationCenter.shared.showError(
                     title: "File Selection Failed",
@@ -712,73 +720,12 @@ struct ArrBackupsView: View {
         }
     }
 
-    @MainActor
-    private func performCreate(for source: BackupSource) async {
+    /// Creating runs in the managers, so it carries on if Backups is closed.
+    private func performCreate(for source: BackupSource) {
         switch source {
-        case .arr(let instance): await createBackup(for: instance)
-        case .jellyfin: await createJellyfinBackup(options: JellyfinBackupOptions())
+        case .arr(let instance): serviceManager.createBackup(on: instance)
+        case .jellyfin: jellyfinServiceManager.createBackup(options: JellyfinBackupOptions())
         }
-    }
-
-    @MainActor
-    private func createBackup(for instance: ArrInstanceRef) async {
-        guard let client = client(for: instance) else { return }
-        states[instance.id]?.isCreating = true
-        do {
-            try await client.createBackup()
-            try? await Task.sleep(for: .seconds(3))
-            await loadService(instance)
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Backup Failed",
-                message: error.localizedDescription
-            )
-        }
-        states[instance.id]?.isCreating = false
-    }
-
-    @MainActor
-    private func createJellyfinBackup(options: JellyfinBackupOptions) async {
-        guard let client = jellyfinServiceManager.activeClient else { return }
-        jellyfinState.isCreating = true
-        do {
-            try await client.createBackup(options: options, requestTimeout: Self.jellyfinBackupRequestTimeout)
-            try? await Task.sleep(for: .seconds(3))
-            await loadJellyfin()
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Backup Failed",
-                message: error.localizedDescription
-            )
-        }
-        jellyfinState.isCreating = false
-    }
-
-    @MainActor
-    private func uploadBackup(url: URL, for instance: ArrInstanceRef) async {
-        guard let client = client(for: instance) else { return }
-        states[instance.id]?.isUploading = true
-        do {
-            let filename = url.lastPathComponent
-            let data = try await Task.detached(priority: .userInitiated) {
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                return try Data(contentsOf: url)
-            }.value
-            try await client.uploadBackup(data: data, filename: filename)
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Restore Started",
-                message: "\(serviceManager.scopeLabel(for: instance)) is restoring from the uploaded backup."
-            )
-            try? await Task.sleep(for: .seconds(3))
-            await loadService(instance)
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Upload Failed",
-                message: error.localizedDescription
-            )
-        }
-        states[instance.id]?.isUploading = false
     }
 
     @MainActor
@@ -802,7 +749,7 @@ struct ArrBackupsView: View {
     private func restoreJellyfinBackup(_ backup: JellyfinBackupManifest) async {
         guard let client = jellyfinServiceManager.activeClient else { return }
         do {
-            try await client.restoreBackup(archiveFileName: backup.archiveFileName, requestTimeout: Self.jellyfinBackupRequestTimeout)
+            try await client.restoreBackup(archiveFileName: backup.archiveFileName, requestTimeout: JellyfinServiceManager.backupRequestTimeout)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Restore Started",
                 message: "Jellyfin is restoring \"\(backup.archiveFileName)\" and will restart."
@@ -847,14 +794,14 @@ struct ArrBackupsView: View {
 
     private var selectedIsCreating: Bool {
         switch selectedSource {
-        case .arr(let instance): states[instance.id]?.isCreating == true
+        case .arr(let instance): serviceManager.backupWork[instance.id] == .creating
         case nil: false
-        case .jellyfin: jellyfinState.isCreating
+        case .jellyfin: jellyfinServiceManager.isCreatingBackup
         }
     }
 
     private var selectedIsUploading: Bool {
-        if case .arr(let instance) = selectedSource { return states[instance.id]?.isUploading == true }
+        if case .arr(let instance) = selectedSource { return serviceManager.backupWork[instance.id] == .uploading }
         return false
     }
 
@@ -955,10 +902,7 @@ struct ArrBackupsView: View {
     /// The client for one specific server - every backup read, create, upload,
     /// delete and restore on this screen goes through it.
     private func client(for instance: ArrInstanceRef) -> (any SharedArrClient)? {
-        switch instance.serviceType {
-        case .sonarr, .radarr, .prowlarr: serviceManager.sharedClient(for: instance)
-        case .bazarr: serviceManager.activeBazarrEntry?.client
-        }
+        serviceManager.backupClient(for: instance)
     }
 
     private func sharePreparationID(for backup: ArrBackup, instance: ArrInstanceRef) -> String {

@@ -59,9 +59,7 @@ struct JellyfinMediaAvailabilityCard: View {
 
     let media: Media
     @Environment(JellyfinServiceManager.self) private var serviceManager
-    @State private var refreshedItemIDs: Set<String> = []
     @State private var isExpanded = false
-    @State private var isRescanning = false
 
     private var key: JellyfinAvailabilityResolver.Key? {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
@@ -102,8 +100,6 @@ struct JellyfinMediaAvailabilityCard: View {
             cardContent
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
-                    refreshedItemIDs = []
-                    isRescanning = false
                     guard let key, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(key, media: media, client: client)
                 }
@@ -251,9 +247,9 @@ struct JellyfinMediaAvailabilityCard: View {
                         Spacer(minLength: 8)
 
                         Button {
-                            Task { await refresh(item) }
+                            Task { await serviceManager.refreshItem(item, for: media) }
                         } label: {
-                            if refreshedItemIDs.contains(item.id) {
+                            if serviceManager.refreshedItemIDs.contains(item.id) {
                                 Image(systemName: "checkmark.circle.fill")
                             } else {
                                 Image(systemName: "arrow.clockwise")
@@ -261,7 +257,7 @@ struct JellyfinMediaAvailabilityCard: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(refreshedItemIDs.contains(item.id))
+                        .disabled(serviceManager.refreshedItemIDs.contains(item.id))
                         .accessibilityLabel("Refresh Jellyfin item")
                     }
 
@@ -304,9 +300,9 @@ struct JellyfinMediaAvailabilityCard: View {
             }
             Spacer(minLength: 8)
             Button {
-                Task { await rescanLibrary() }
+                serviceManager.scanLibraries(watching: .title(media))
             } label: {
-                if isRescanning {
+                if serviceManager.isScanningLibraries {
                     ProgressView()
                         .controlSize(.small)
                 } else {
@@ -315,7 +311,7 @@ struct JellyfinMediaAvailabilityCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(isRescanning)
+            .disabled(serviceManager.isScanningLibraries)
             .accessibilityLabel("Rescan Jellyfin library")
         }
     }
@@ -346,84 +342,6 @@ struct JellyfinMediaAvailabilityCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-        }
-    }
-
-    private func refresh(_ item: JellyfinLibraryItem) async {
-        guard let client = serviceManager.activeClient, let key else { return }
-        do {
-            try await client.refreshItem(id: item.id)
-            refreshedItemIDs.insert(item.id)
-            let oldEpisodeKeys = episodesKeys
-            serviceManager.availability.invalidate(key)
-            serviceManager.availability.ensureLoaded(key, media: media, client: client)
-            for episodeKey in oldEpisodeKeys {
-                serviceManager.availability.invalidateEpisodes(episodeKey)
-            }
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Jellyfin Refresh Started",
-                message: "\(item.name ?? media.title) was sent for metadata refresh.",
-                source: .inApp
-            )
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Jellyfin Refresh Failed",
-                message: error.localizedDescription,
-                source: .inApp
-            )
-        }
-    }
-
-    /// Starts a Jellyfin library scan and keeps re-checking while the server's
-    /// asynchronous scan catches up. A successful POST means "queued", not
-    /// "the new file is already visible through /Items".
-    private func rescanLibrary() async {
-        guard let client = serviceManager.activeClient, let key else { return }
-        isRescanning = true
-        defer { isRescanning = false }
-
-        do {
-            try await client.refreshAllLibraries()
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Jellyfin Library Scan Started",
-                message: "Jellyfin is rescanning your libraries for \(media.title).",
-                source: .inApp
-            )
-
-            for attempt in 0..<12 {
-                if attempt > 0 {
-                    try await Task.sleep(for: .milliseconds(2500))
-                }
-                try Task.checkCancellation()
-
-                serviceManager.availability.invalidate(key)
-                serviceManager.availability.ensureLoaded(key, media: media, client: client)
-                try await waitForLookupToSettle(key)
-
-                if case .resolved(let items) = serviceManager.availability.state(for: key),
-                   !items.isEmpty {
-                    return
-                }
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Jellyfin Scan Failed",
-                message: error.localizedDescription,
-                source: .inApp
-            )
-        }
-    }
-
-    private func waitForLookupToSettle(_ key: JellyfinAvailabilityResolver.Key) async throws {
-        for _ in 0..<250 {
-            switch serviceManager.availability.state(for: key) {
-            case .idle, .loading:
-                try await Task.sleep(for: .milliseconds(20))
-            case .resolved, .failed:
-                return
-            }
         }
     }
 

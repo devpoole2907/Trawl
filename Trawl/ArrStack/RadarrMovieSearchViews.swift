@@ -329,11 +329,27 @@ struct RadarrMovieSearchView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     let movie: RadarrMovie
 
-    @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
     @State private var interactiveSearchSessionID = UUID()
-    @State private var automaticSearchFeedback: AutomaticSearchFeedback?
-    @State private var automaticSearchMonitorTask: Task<Void, Never>?
+
+    /// The search and the wait for its result belong to `ArrServiceManager`, so
+    /// they survive leaving this screen; this only words what the manager says.
+    private var automaticSearchScope: ArrAutomaticSearchScope {
+        .movie(instanceID: movie.instanceID, movieID: movie.id)
+    }
+
+    private var automaticSearchFeedback: AutomaticSearchFeedback? {
+        switch serviceManager.automaticSearches[automaticSearchScope] {
+        case .searching:
+            AutomaticSearchFeedback(kind: .searching, message: "Radarr is searching indexers for \(movie.title).")
+        case .found:
+            AutomaticSearchFeedback(kind: .found, message: "A result was queued in Radarr. Check the queue or import status for progress.")
+        case .noResults:
+            AutomaticSearchFeedback(kind: .noResults, message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually.")
+        case nil:
+            nil
+        }
+    }
 
     private var queueItem: ArrQueueItem? {
         viewModel.queue.first { $0.movieId == movie.id }
@@ -422,7 +438,7 @@ struct RadarrMovieSearchView: View {
                 .id(interactiveSearchSessionID)
         }
         .onDisappear {
-            automaticSearchMonitorTask?.cancel()
+            serviceManager.dismissFinishedAutomaticSearch(automaticSearchScope)
         }
     }
 
@@ -457,69 +473,15 @@ struct RadarrMovieSearchView: View {
 
     private var automaticSearchButton: some View {
         Button {
-            guard !isDispatchingAutomaticSearch else { return }
-            isDispatchingAutomaticSearch = true
-            Task {
-                let baselineQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
-                withAnimation(.snappy) {
-                    automaticSearchFeedback = AutomaticSearchFeedback(
-                        kind: .searching,
-                        message: "Radarr is searching indexers for \(movie.title)."
-                    )
-                }
-
-                let didStart = await viewModel.searchMovie(movieId: movie.id)
-                isDispatchingAutomaticSearch = false
-
-                if !didStart {
-                    withAnimation(.snappy) { automaticSearchFeedback = nil }
-                    let message = viewModel.error ?? "Could not start search."
-                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
-                } else {
-                    InAppNotificationCenter.shared.showSuccess(
-                        title: "Search Queued",
-                        message: "\(movie.title) was sent to Radarr for automatic search."
-                    )
-
-                    automaticSearchMonitorTask?.cancel()
-                    automaticSearchMonitorTask = Task {
-                        for _ in 0..<6 {
-                            try? await Task.sleep(for: .seconds(3))
-                            guard !Task.isCancelled else { return }
-                            await viewModel.loadQueue()
-
-                            let currentQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
-                            if !currentQueueIDs.subtracting(baselineQueueIDs).isEmpty {
-                                await MainActor.run {
-                                    withAnimation(.snappy) {
-                                        automaticSearchFeedback = AutomaticSearchFeedback(
-                                            kind: .found,
-                                            message: "A result was queued in Radarr. Check the queue or import status for progress."
-                                        )
-                                    }
-                                }
-                                return
-                            }
-                        }
-
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            withAnimation(.snappy) {
-                                automaticSearchFeedback = AutomaticSearchFeedback(
-                                    kind: .noResults,
-                                    message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually."
-                                )
-                            }
-                        }
-                    }
-                }
+            withAnimation(.snappy) {
+                _ = serviceManager.startAutomaticSearch(automaticSearchScope, title: movie.title)
             }
         } label: {
             ArrSearchActionRow(
                 title: "Automatic Search",
                 subtitle: "Ask Radarr to search indexers using its normal rules.",
                 systemImage: "magnifyingglass",
-                isLoading: isDispatchingAutomaticSearch,
+                isLoading: serviceManager.automaticSearches[automaticSearchScope] == .searching,
                 accentColor: .orange
             )
         }
