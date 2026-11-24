@@ -82,6 +82,29 @@ struct LibraryTabNavigationTests {
         #expect(rows.contains(.settings))
     }
 
+    /// Every More row pushes a screen. Downloads and Blocklist used to be buttons
+    /// that opened the notification sheet on Downloads: no chevron, and the sheet's
+    /// Downloads kept Blocklist pushed, so the bar's next tap opened on it.
+    @Test func everyMoreRowPushesAScreen() {
+        let rows = SidebarSection.allCases.flatMap(MoreView.moreRows(in:))
+        for tab in rows {
+            #expect(tab.moreRoot != nil || MoreView.pushedDestination(for: tab) != nil, "\(tab) pushes nothing")
+        }
+        #expect(MoreView.pushedDestination(for: .downloads) == .downloads)
+        #expect(MoreView.pushedDestination(for: .blocklist) == .blocklist)
+        #expect(MoreView.pushedDestination(for: .missing) == nil)
+
+        // More's search results for the same two screens push them too.
+        let blocklist = MoreSearchIndex.entries.first { $0.id == "blocklist" }
+        let downloads = MoreSearchIndex.entries.first { $0.id == "downloads" }
+        #expect(blocklist.flatMap(MoreView.pushedDestination(for:)) == .blocklist)
+        #expect(downloads.flatMap(MoreView.pushedDestination(for:)) == .downloads)
+
+        // Unfolding a Duo on either keeps its sidebar row.
+        #expect(RootTab.sidebarDestination(forMoreRoot: .downloads) == .downloads)
+        #expect(RootTab.sidebarDestination(forMoreRoot: .blocklist) == .blocklist)
+    }
+
     @Test func countSummaryReadsMoviesFirstAndDropsEmptyKinds() {
         #expect(LibraryScope.countSummary(series: 3, movies: 37) == "37 movies, 3 series")
         #expect(LibraryScope.countSummary(series: 1, movies: 1) == "1 movie, 1 series")

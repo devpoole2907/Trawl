@@ -338,7 +338,13 @@ enum RootTab: Hashable, CaseIterable {
 
     /// The sidebar row for a screen More pushes as its first level, if there is one.
     static func sidebarDestination(forMoreRoot root: MoreDestination) -> RootTab? {
-        sidebarDestinations.first { $0.moreRoot == root }
+        switch root {
+        // Rows of their own in the sidebar, without a `moreRoot`: the sidebar shows
+        // them as columns, More pushes them.
+        case .downloads: .downloads
+        case .blocklist: .blocklist
+        default: sidebarDestinations.first { $0.moreRoot == root }
+        }
     }
 
     /// Every sidebar row, in section order.

@@ -1423,7 +1423,8 @@ struct ContentView: View {
             isQBittorrentConnecting: isConnecting,
             onRetryQBittorrent: { initializeServices() },
             root: root,
-            presentation: presentation
+            presentation: presentation,
+            downloadsSession: navigationSession.moreDownloads
         )
             // `AppServices` itself, not just the services hanging off it. The
             // qBittorrent RSS screens read it out of the environment, and reaching
