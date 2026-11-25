@@ -96,6 +96,8 @@ struct DownloadsView: View {
     @State private var sabJobPendingDeletion: SABnzbdJob?
     @State private var backgroundMonitor = SABnzbdBackgroundMonitor.shared
     @State private var queueActionTarget: ArrQueueActionTarget?
+    /// A swipe or context-menu removal waiting on its confirmation.
+    @State private var queueRemovalAwaitingConfirmation: PendingQueueRemoval?
     /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
     @State private var queueActionInFlightIDs: Set<String> = []
     /// The series or film a row's "Open …" asked for, pushed on the tab chrome.
@@ -686,6 +688,26 @@ struct DownloadsView: View {
                 Button("Cancel", role: .cancel) { sabJobPendingDeletion = nil }
             } message: {
                 Text("This action can’t be undone.")
+            }
+            .confirmationDialog(
+                queueRemovalAwaitingConfirmation?.confirmation.title ?? "Remove Download?",
+                isPresented: queueRemovalConfirmationPresented,
+                titleVisibility: .visible,
+                presenting: queueRemovalAwaitingConfirmation
+            ) { pending in
+                Button(pending.confirmation.confirmLabel, role: .destructive) {
+                    queueRemovalAwaitingConfirmation = nil
+                    performQueueAction(
+                        item: pending.item,
+                        source: pending.source,
+                        instance: pending.instance,
+                        blocklist: pending.blocklist,
+                        searchAgain: pending.searchAgain
+                    )
+                }
+                Button("Cancel", role: .cancel) { queueRemovalAwaitingConfirmation = nil }
+            } message: { pending in
+                Text(pending.confirmation.message)
             }
             .confirmationDialog(
                 "Delete Selected Downloads?",
@@ -1558,21 +1580,21 @@ struct DownloadsView: View {
                 arrQueueClientActions(linkedTorrent: linkedTorrent, linkedSABJob: linkedSABJob)
                 Divider()
             }
-            arrQueueRemovalActions(item: item, source: source, instance: instance)
+            arrQueueRemovalActions(item: item, source: source, instance: instance, confirmFirst: true)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("Remove", systemImage: "xmark.circle", role: .destructive) {
-                performQueueAction(item: item, source: source, instance: instance, blocklist: false, searchAgain: false)
+                askToRemove(item: item, source: source, instance: instance, blocklist: false, searchAgain: false)
             }
             Button("Blocklist", systemImage: "hand.raised") {
-                performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: false)
+                askToRemove(item: item, source: source, instance: instance, blocklist: true, searchAgain: false)
             }
             .tint(.orange)
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if DownloadsViewModel.canSearchAgain(item, source: source) {
                 Button("Search Again", systemImage: "magnifyingglass") {
-                    performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: true)
+                    askToRemove(item: item, source: source, instance: instance, blocklist: true, searchAgain: true)
                 }
                 .tint(.blue)
             }
@@ -1802,24 +1824,52 @@ struct DownloadsView: View {
     }
 
     @ViewBuilder
+    /// The removal choices, shared by the tap dialog and the context menu.
+    ///
+    /// `confirmFirst` is for the context menu: a long-press menu is one stray tap
+    /// from acting, while the tap dialog already names the item and is the question.
     private func arrQueueRemovalActions(
         item: ArrQueueItem,
         source: ArrServiceType,
-        instance: ArrInstanceRef?
+        instance: ArrInstanceRef?,
+        confirmFirst: Bool = false
     ) -> some View {
-        Group {
+        let act = { (blocklist: Bool, searchAgain: Bool) in
+            if confirmFirst {
+                askToRemove(item: item, source: source, instance: instance, blocklist: blocklist, searchAgain: searchAgain)
+            } else {
+                performQueueAction(item: item, source: source, instance: instance, blocklist: blocklist, searchAgain: searchAgain)
+            }
+        }
+        return Group {
             Button("Remove from Queue", systemImage: "xmark.circle", role: .destructive) {
-                performQueueAction(item: item, source: source, instance: instance, blocklist: false, searchAgain: false)
+                act(false, false)
             }
             Button("Blocklist & Remove", systemImage: "hand.raised", role: .destructive) {
-                performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: false)
+                act(true, false)
             }
             if DownloadsViewModel.canSearchAgain(item, source: source) {
                 Button("Blocklist & Search Again", systemImage: "magnifyingglass") {
-                    performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: true)
+                    act(true, true)
                 }
             }
         }
+    }
+
+    private func askToRemove(
+        item: ArrQueueItem,
+        source: ArrServiceType,
+        instance: ArrInstanceRef?,
+        blocklist: Bool,
+        searchAgain: Bool
+    ) {
+        queueRemovalAwaitingConfirmation = PendingQueueRemoval(
+            item: item,
+            source: source,
+            instance: instance,
+            blocklist: blocklist,
+            searchAgain: searchAgain
+        )
     }
 
     /// Whether to badge a row with its server. Suppressed when only one instance
@@ -1953,6 +2003,16 @@ struct DownloadsView: View {
         Binding(
             get: { sabJobPendingDeletion != nil },
             set: { if !$0 { sabJobPendingDeletion = nil } }
+        )
+    }
+
+    /// Held at the list, beside the torrent and SABnzbd delete dialogs that already
+    /// work from a swipe. Attached to the row instead, it never appeared after the
+    /// swipe (`DownloadsJourneyUITests.testSwipeRemovalAsksBeforeDeletingTheDownload`).
+    private var queueRemovalConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { queueRemovalAwaitingConfirmation != nil },
+            set: { if !$0 { queueRemovalAwaitingConfirmation = nil } }
         )
     }
 
@@ -2197,6 +2257,22 @@ private struct ArrQueueActionTarget: Identifiable {
     /// server must not disable the identically-numbered row on the 4K one.
     static func id(for item: ArrQueueItem, source: ArrServiceType, instance: ArrInstanceRef?) -> String {
         "\(instance?.id.uuidString ?? source.rawValue)-\(item.id)"
+    }
+}
+
+/// A queue removal asked for from a swipe or the context menu, held while its
+/// confirmation is up.
+private struct PendingQueueRemoval: Identifiable {
+    let item: ArrQueueItem
+    let source: ArrServiceType
+    let instance: ArrInstanceRef?
+    let blocklist: Bool
+    let searchAgain: Bool
+
+    var id: String { ArrQueueActionTarget.id(for: item, source: source, instance: instance) }
+
+    var confirmation: DownloadsViewModel.QueueRemovalConfirmation {
+        DownloadsViewModel.removalConfirmation(for: item, source: source, blocklist: blocklist, searchAgain: searchAgain)
     }
 }
 

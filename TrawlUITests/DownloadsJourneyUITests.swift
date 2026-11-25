@@ -70,6 +70,7 @@ import XCTest
 
 final class DownloadsJourneyUITests: XCTestCase {
     private var fixtureServer: QBittorrentFixtureServer?
+    private var sonarrServer: SonarrFixtureServer?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -78,6 +79,53 @@ final class DownloadsJourneyUITests: XCTestCase {
     override func tearDownWithError() throws {
         fixtureServer?.stop()
         fixtureServer = nil
+        sonarrServer?.stop()
+        sonarrServer = nil
+    }
+
+    /// Swiping Remove on a Sonarr queue row used to delete the download from its
+    /// client - files and all - the moment the button was tapped, while the
+    /// client's own deletes (a torrent, a SABnzbd job) asked first. The swipe now
+    /// asks too, naming the item and how far along it was, and nothing reaches the
+    /// server until the answer is yes.
+    @MainActor
+    func testSwipeRemovalAsksBeforeDeletingTheDownload() async throws {
+        let server = try await SonarrFixtureServer(
+            seriesJSON: "[]",
+            queueJSON: #"{"page":1,"pageSize":20,"totalRecords":1,"records":[{"id":101,"title":"Nearly Finished Download","status":"downloading","size":1000,"sizeleft":130}]}"#
+        )
+        sonarrServer = server
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        app.launch()
+        XCTAssertTrue(openDestination(.downloads, in: app))
+
+        let row = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Nearly Finished Download")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "The fixture's queue item should be listed in Downloads.")
+
+        let swiped = performSwipeAction(on: row, direction: .left, buttonLabel: "Remove", app: app) { false }
+        XCTAssertTrue(swiped, "Swiping the queue row left should reveal a tappable Remove action.")
+
+        let warning = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "It's 87% done.")).firstMatch
+        XCTAssertTrue(
+            warning.waitForExistence(timeout: 5),
+            "Remove should ask first, saying the download goes and how far along it was - regression: the swipe deletes immediately again."
+        )
+        XCTAssertFalse(
+            server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/101"),
+            "Nothing may reach Sonarr while the confirmation is still up."
+        )
+
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@", "Remove")).allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(confirm, "The confirmation should offer Remove.")
+        confirm?.tap()
+        XCTAssertTrue(
+            waitForCondition(app: app, timeout: 10) {
+                server.hasReceivedRequest(method: "DELETE", path: "/api/v3/queue/101")
+            },
+            "Confirming should send the queue deletion to Sonarr."
+        )
     }
 
     /// Regressions this catches: the welcome gate no longer respecting a configured

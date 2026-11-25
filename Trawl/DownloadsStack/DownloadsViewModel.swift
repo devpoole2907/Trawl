@@ -407,6 +407,38 @@ final class DownloadsViewModel {
         }
     }
 
+    /// What a swipe or context-menu removal asks before it acts.
+    ///
+    /// Removing a queue item also deletes the download from its client, files and
+    /// all, so a mis-swipe on a nearly finished download loses it. The client's own
+    /// deletes (a torrent, a SABnzbd job) already asked first; these now do too.
+    /// The tap dialog's buttons don't, because that dialog is itself the question.
+    nonisolated struct QueueRemovalConfirmation: Equatable, Sendable {
+        let title: String
+        let confirmLabel: String
+        let message: String
+    }
+
+    nonisolated static func removalConfirmation(
+        for item: ArrQueueItem,
+        source: ArrServiceType,
+        blocklist: Bool,
+        searchAgain: Bool
+    ) -> QueueRemovalConfirmation {
+        let name = item.title.map { "“\($0)”" } ?? "this download"
+        let percent = Int((item.progress * 100).rounded(.down))
+        let progress = percent > 0 && percent < 100 ? " It's \(percent)% done." : ""
+        var message = "\(source.displayName) removes it from the download client and deletes what's downloaded so far.\(progress)"
+        if searchAgain {
+            message += " This release won't be grabbed again, and \(source.displayName) looks for another."
+        } else if blocklist {
+            message += " This release won't be grabbed again."
+        }
+        message += " This can't be undone."
+        let confirmLabel = searchAgain ? "Blocklist & Search Again" : (blocklist ? "Blocklist & Remove" : "Remove")
+        return QueueRemovalConfirmation(title: "Remove \(name)?", confirmLabel: confirmLabel, message: message)
+    }
+
     /// Removes an Arr queue item (and the download from its client), optionally
     /// blocklisting the release and kicking off a fresh search for it.
     /// Returns an error description on failure, `nil` on success.

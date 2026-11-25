@@ -110,3 +110,35 @@ private let arrQueueRemovalPage = """
   ]
 }
 """
+
+/// What a swipe or context-menu removal asks before it deletes the download.
+@Suite("Queue removal confirmation wording")
+struct QueueRemovalConfirmationTests {
+    private func item(_ json: String) throws -> ArrQueueItem {
+        try JSONDecoder().decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    @Test("A plain removal names the item, says the files go, and how far along it was")
+    func plainRemovalSaysTheFilesGo() throws {
+        let queued = try item(#"{"id":7,"title":"Some.Show.S01E01","size":1000,"sizeleft":130}"#)
+        let copy = DownloadsViewModel.removalConfirmation(for: queued, source: .sonarr, blocklist: false, searchAgain: false)
+        #expect(copy.title == "Remove “Some.Show.S01E01”?")
+        #expect(copy.confirmLabel == "Remove")
+        #expect(copy.message == "Sonarr removes it from the download client and deletes what's downloaded so far. It's 87% done. This can't be undone.")
+    }
+
+    @Test("Blocklisting and searching again say what else happens, each in its own words")
+    func blocklistAndSearchAgainSayWhatElseHappens() throws {
+        let untitled = try item(#"{"id":8}"#)
+        let blocklisted = DownloadsViewModel.removalConfirmation(for: untitled, source: .radarr, blocklist: true, searchAgain: false)
+        #expect(blocklisted.title == "Remove this download?")
+        #expect(blocklisted.confirmLabel == "Blocklist & Remove")
+        // No size reported, so no percentage is invented.
+        #expect(blocklisted.message == "Radarr removes it from the download client and deletes what's downloaded so far. This release won't be grabbed again. This can't be undone.")
+
+        let searched = DownloadsViewModel.removalConfirmation(for: untitled, source: .radarr, blocklist: true, searchAgain: true)
+        #expect(searched.confirmLabel == "Blocklist & Search Again")
+        #expect(searched.message.contains("This release won't be grabbed again, and Radarr looks for another."))
+    }
+}
+
